@@ -2,38 +2,12 @@
   command = "npm run build"
   publish = "dist"
 
-[build.environment]
-  NODE_VERSION = "18"
-
-# Fix MIME types for JavaScript files
 [[headers]]
-  for = "/assets/*.js"
+  for = "/*"
   [headers.values]
-    Content-Type = "application/javascript"
+    X-Content-Type-Options = "nosniff"
 
-[[headers]]
-  for = "/assets/*.css"
-  [headers.values]
-    Content-Type = "text/css"
-
-[[headers]]
-  for = "/*.js"
-  [headers.values]
-    Content-Type = "application/javascript"
-
-[[headers]]
-  for = "/*.css"
-  [headers.values]
-    Content-Type = "text/css"
-
-# SPA redirects - all routes go to index.html
 [[redirects]]
   from = "/*"
-  to = "/index.html"
-  status = 200
-
-# Handle 404s
-[[redirects]]
-  from = "/404.html"
   to = "/index.html"
   status = 200

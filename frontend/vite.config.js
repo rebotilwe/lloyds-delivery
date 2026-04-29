@@ -4,7 +4,7 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/',  // Important for Netlify
+  base: '/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -25,13 +25,17 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     sourcemap: false,
+    target: 'es2020',
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          ui: ['lucide-react', '@tanstack/react-query'],
-        },
-      },
-    },
+        manualChunks: undefined,
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]'
+      }
+    }
   },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query', 'lucide-react', 'sonner', 'date-fns']
+  }
 })

@@ -6,92 +6,104 @@ const AuthContext = createContext();
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
 };
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState(localStorage.getItem('token'));
-  const navigate = useNavigate(); // Now this is safe because Router is parent
+  const navigate = useNavigate();
 
+  // -----------------------------
+  // RESTORE SESSION
+  // -----------------------------
   useEffect(() => {
-    const checkAuth = () => {
-      const storedToken = localStorage.getItem('token');
-      const storedUser = localStorage.getItem('user');
-      
-      if (storedToken && storedUser) {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-      }
-      setLoading(false);
-    };
-    
-    checkAuth();
+    const storedUser = localStorage.getItem('user');
+
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+
+    setLoading(false);
   }, []);
 
-  const login = async (email, password) => {
-    try {
-      // Temporary mock login - replace with real API later
-      const mockUser = {
-        id: 1,
-        email: email,
-        full_name: email.split('@')[0],
-        role: 'customer'
-      };
+  // -----------------------------
+  // LOGIN
+  // -----------------------------
+const login = async (email, password) => {
+  try {
+    const res = await fetch("http://localhost:5000/api/auth/login", {
       
-      localStorage.setItem('token', 'mock-token-123');
-      localStorage.setItem('user', JSON.stringify(mockUser));
-      setToken('mock-token-123');
-      setUser(mockUser);
-      toast.success('Login successful!');
-      navigate('/');
-      return { user: mockUser };
-    } catch (error) {
-      toast.error(error.message || 'Login failed');
-      throw error;
-    }
-  };
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+      
+    });
+    
 
+    const data = await res.json();
+
+    if (!res.ok) {
+      toast.error(data.message || "Login failed");
+      return null; // 🔥 IMPORTANT (NO THROW)
+    }
+
+    localStorage.setItem("token", data.token);
+    localStorage.setItem("user", JSON.stringify(data.user));
+
+    setUser(data.user);
+
+    toast.success("Login successful");
+
+    return data.user;
+
+  } catch (err) {
+    toast.error("Network error");
+    return null;
+  }
+};
+
+  // -----------------------------
+  // REGISTER
+  // -----------------------------
   const register = async (userData) => {
     try {
-      toast.success('Registration successful! Please login.');
+      toast.success('Account created. Please login.');
       navigate('/login');
-      return { success: true };
-    } catch (error) {
-      toast.error(error.message || 'Registration failed');
-      throw error;
+    } catch (err) {
+      toast.error('Registration failed');
+      throw err;
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setToken(null);
-    setUser(null);
-    toast.success('Logged out successfully');
-    navigate('/');
-  };
+  // -----------------------------
+  // LOGOUT
+  // -----------------------------
+const logout = () => {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
 
-  const value = {
-    user,
-    login,
-    register,
-    logout,
-    loading,
-    token,
-    isAuthenticated: !!token,
-    isLoadingAuth: loading,
-    isLoadingPublicSettings: false,
-    authError: null,
-    navigateToLogin: () => navigate('/login'),
-  };
+  setUser(null);
+
+  toast.success("Logged out");
+  navigate("/login");
+};
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider
+      value={{
+        user,
+        setUser,
+        login,
+        register,
+        logout,
+        loading,
+        isAuthenticated: !!user,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

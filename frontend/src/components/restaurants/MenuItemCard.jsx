@@ -1,34 +1,43 @@
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/lib/AuthContext';
+import { useCart } from '@/lib/cartStore';
 import { Plus, UtensilsCrossed } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useCart } from '@/lib/cartStore.jsx';
 import { toast } from 'sonner';
 
 export default function MenuItemCard({ item, restaurant }) {
-  const { addItem } = useCart();
+  const { addToCart } = useCart();
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
 
   const handleAdd = () => {
-    addItem(item, restaurant);
+    // Check if user is logged in
+    if (!isAuthenticated) {
+      toast.error('Please login to add items to cart');
+      navigate('/login');
+      return;
+    }
+    
+    addToCart(item, restaurant?.id, restaurant?.name);
     toast.success(`${item.name} added to cart`);
   };
 
   return (
-    <div className="bg-card rounded-xl border border-border overflow-hidden flex hover:shadow-md transition-shadow group">
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden flex hover:shadow-md transition-shadow group">
       <div className="flex-1 p-4 flex flex-col justify-between min-w-0">
         <div>
-          <h4 className="font-semibold text-card-foreground">{item.name}</h4>
+          <h4 className="font-semibold text-gray-900">{item.name}</h4>
           {item.description && (
-            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{item.description}</p>
-          )}
-          {item.preparation_time && (
-            <p className="text-xs text-muted-foreground mt-1">⏱ {item.preparation_time}</p>
+            <p className="text-sm text-gray-500 mt-1 line-clamp-2">{item.description}</p>
           )}
         </div>
         <div className="flex items-center justify-between mt-3">
-          <span className="font-bold text-secondary text-lg">R{item.price.toFixed(2)}</span>
+          <span className="font-bold text-green text-lg">R{item.price.toFixed(2)}</span>
           <Button
             size="sm"
             onClick={handleAdd}
-            className="bg-secondary hover:bg-secondary/90 text-secondary-foreground rounded-full h-9 w-9 p-0 shadow-sm"
+            className="bg-green hover:bg-green/600 text-white rounded-full h-9 w-9 p-0 shadow-sm"
           >
             <Plus className="w-4 h-4" />
           </Button>
@@ -38,8 +47,8 @@ export default function MenuItemCard({ item, restaurant }) {
         {item.image_url ? (
           <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full bg-muted flex items-center justify-center">
-            <UtensilsCrossed className="w-8 h-8 text-muted-foreground/40" />
+          <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+            <UtensilsCrossed className="w-8 h-8 text-gray-400" />
           </div>
         )}
       </div>

@@ -1,205 +1,187 @@
-import { mockRestaurants } from '@/data/restaurants';
-import { mockMenuItems } from '@/data/menuItems';
-
+// Real API client - connects to your backend
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-// Initialize orders from localStorage or empty array
-const getStoredOrders = () => {
-  const stored = localStorage.getItem('lloyds_orders');
-  return stored ? JSON.parse(stored) : [];
-};
-
-const saveOrders = (orders) => {
-  localStorage.setItem('lloyds_orders', JSON.stringify(orders));
-};
-
-// Initialize users from localStorage
-const getStoredUsers = () => {
-  const stored = localStorage.getItem('lloyds_users');
-  if (stored) return JSON.parse(stored);
-  
-  // Default users
-  const defaultUsers = [
-    { id: 1, email: 'customer@test.com', full_name: 'Test Customer', role: 'customer', address: '123 Test St' },
-    { id: 2, email: 'driver@test.com', full_name: 'John Driver', role: 'driver', is_available: true },
-    { id: 3, email: 'admin@test.com', full_name: 'Admin User', role: 'admin' },
-  ];
-  localStorage.setItem('lloyds_users', JSON.stringify(defaultUsers));
-  return defaultUsers;
-};
-
 export const apiClient = {
-  get: async (endpoint, token = null) => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    if (endpoint.includes('/restaurants')) {
-      return mockRestaurants;
-    }
-    if (endpoint.includes('/orders/my-orders')) {
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
-      const orders = getStoredOrders();
-      return orders.filter(o => o.customer_email === user.email);
-    }
-    return [];
-  },
-  
-  post: async (endpoint, data, token = null) => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    if (endpoint.includes('/orders')) {
-      const newOrder = {
-        id: Date.now(),
-        ...data,
-        created_date: new Date().toISOString(),
-        order_id: `LD-${Date.now()}`,
-        items: data.items || [],
-      };
-      
-      const orders = getStoredOrders();
-      orders.unshift(newOrder); // Add to beginning of array
-      saveOrders(orders);
-      
-      return newOrder;
+  get: async (url, token = null) => {
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
     
-    return { success: true, id: Date.now() };
+    const response = await fetch(`${API_URL}${url}`, { headers });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Request failed');
+    }
+    
+    return response.json();
   },
-  
-  put: async (endpoint, data, token = null) => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    return { success: true };
+
+  post: async (url, data, token = null) => {
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(`${API_URL}${url}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(data),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Request failed');
+    }
+    
+    return response.json();
   },
-  
-  delete: async (endpoint, token = null) => {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    return { success: true };
+
+  put: async (url, data, token = null) => {
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(`${API_URL}${url}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(data),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Request failed');
+    }
+    
+    return response.json();
+  },
+
+  delete: async (url, token = null) => {
+    const headers = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    
+    const response = await fetch(`${API_URL}${url}`, {
+      method: 'DELETE',
+      headers,
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Request failed');
+    }
+    
+    return response.json();
   },
 };
 
+// Base44 compatibility layer (for components that still use base44)
 export const base44 = {
   auth: {
     me: async () => {
-      const user = localStorage.getItem('user');
-      const users = getStoredUsers();
+      const token = localStorage.getItem('token');
+      if (!token) return null;
       
-      if (user) {
-        return JSON.parse(user);
+      try {
+        const user = await apiClient.get('/auth/me', token);
+        return user;
+      } catch (error) {
+        console.error('Failed to get user:', error);
+        return null;
       }
-      
-      // Return first customer for testing
-      return users.find(u => u.role === 'customer') || null;
     },
     updateMe: async (data) => {
-      console.log('Update user:', data);
-      return { success: true };
+      const token = localStorage.getItem('token');
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      return apiClient.put(`/users/${user.id}`, data, token);
     },
     login: async (email, password) => {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      const users = getStoredUsers();
-      const user = users.find(u => u.email === email);
-      
-      if (user) {
-        localStorage.setItem('user', JSON.stringify(user));
-        localStorage.setItem('token', 'mock-token');
-        return { user, token: 'mock-token' };
-      }
-      
-      throw new Error('Invalid credentials');
-    }
+      const response = await apiClient.post('/auth/login', { email, password });
+      return response;
+    },
+    register: async (userData) => {
+      return apiClient.post('/auth/register', userData);
+    },
   },
   entities: {
     Restaurant: {
       filter: async (conditions) => {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        let restaurants = [...mockRestaurants];
-        if (conditions) {
-          restaurants = restaurants.filter(r => {
-            for (let [key, value] of Object.entries(conditions)) {
-              if (r[key] !== value) return false;
-            }
-            return true;
-          });
-        }
-        return restaurants;
+        const restaurants = await apiClient.get('/restaurants');
+        if (!conditions) return restaurants;
+        
+        return restaurants.filter(r => {
+          for (const [key, value] of Object.entries(conditions)) {
+            if (r[key] !== value) return false;
+          }
+          return true;
+        });
       },
       list: async () => {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        return mockRestaurants;
+        return apiClient.get('/restaurants');
       },
     },
     MenuItem: {
       filter: async (conditions) => {
-        await new Promise(resolve => setTimeout(resolve, 300));
         if (conditions && conditions.restaurant_id) {
-          return mockMenuItems[conditions.restaurant_id] || [];
+          return apiClient.get(`/menu-items/restaurant/${conditions.restaurant_id}`);
         }
-        return [];
+        return apiClient.get('/menu-items');
+      },
+      list: async () => {
+        return apiClient.get('/menu-items');
       },
     },
     Order: {
-      filter: async (conditions, order) => {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        let orders = getStoredOrders();
+      filter: async (conditions) => {
+        const token = localStorage.getItem('token');
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
         
         if (conditions && conditions.customer_email) {
-          orders = orders.filter(o => o.customer_email === conditions.customer_email);
+          return apiClient.get(`/orders/customer/${user.id}`, token);
         }
-        
-        return orders;
+        return apiClient.get('/orders', token);
       },
-      list: async (order, limit) => {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        return getStoredOrders();
+      list: async () => {
+        const token = localStorage.getItem('token');
+        return apiClient.get('/orders', token);
       },
       create: async (orderData) => {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const newOrder = {
-          id: Date.now(),
-          order_id: `LD-${Date.now()}`,
-          created_date: new Date().toISOString(),
-          status: 'pending',
-          ...orderData,
-          items: orderData.items || [],
-        };
-        
-        const orders = getStoredOrders();
-        orders.unshift(newOrder);
-        saveOrders(orders);
-        
-        console.log('Order created:', newOrder);
-        return newOrder;
+        const token = localStorage.getItem('token');
+        return apiClient.post('/orders/create', orderData, token);
       },
       update: async (orderId, data) => {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        const orders = getStoredOrders();
-        const index = orders.findIndex(o => o.id === orderId || o.order_id === orderId);
-        
-        if (index !== -1) {
-          orders[index] = { ...orders[index], ...data };
-          saveOrders(orders);
-        }
-        
-        return { success: true };
+        const token = localStorage.getItem('token');
+        return apiClient.put(`/orders/${orderId}`, data, token);
       },
       subscribe: (callback) => {
-        // Mock subscription
+        // For real-time updates, we'll use polling as fallback
         const interval = setInterval(() => {
           callback();
-        }, 5000);
+        }, 10000);
         return () => clearInterval(interval);
       },
     },
     Payment: {
       create: async (paymentData) => {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        console.log('Payment created:', paymentData);
-        return { success: true, id: Date.now() };
+        const token = localStorage.getItem('token');
+        return apiClient.post('/payments', paymentData, token);
       },
     },
     User: {
       list: async () => {
-        return getStoredUsers();
+        const token = localStorage.getItem('token');
+        return apiClient.get('/users', token);
+      },
+      update: async (userId, data) => {
+        const token = localStorage.getItem('token');
+        return apiClient.put(`/users/${userId}`, data, token);
       },
     },
   },

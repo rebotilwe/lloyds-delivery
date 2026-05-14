@@ -1,89 +1,149 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { CheckCircle, Clock, MapPin, Package } from 'lucide-react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { CheckCircle, Clock, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function OrderConfirmation() {
-  const params = new URLSearchParams(window.location.search);
-  const orderId = params.get('orderId') || `LD-${Math.floor(100000 + Math.random() * 900000)}`;
-  const restaurantName = params.get('restaurant') || 'the restaurant';
-  const estimatedTime = params.get('eta') || '30-45 min';
-
-  const [count, setCount] = useState(5);
+  const location = useLocation();
   const navigate = useNavigate();
 
+  // ✅ FIX: use state first, fallback to localStorage
+  const orderId =
+    location.state?.orderId ||
+    localStorage.getItem('lastOrderId');
+
+  const [order, setOrder] = useState(null);
+  const [count, setCount] = useState(5);
+
+  // -----------------------------
+  // FETCH ORDER
+  // -----------------------------
+  useEffect(() => {
+    if (!orderId) return;
+
+    const fetchOrder = async () => {
+      try {
+        const res = await fetch(
+          `http://localhost:5000/api/orders/${orderId}`
+        );
+
+        const data = await res.json();
+        setOrder(data);
+      } catch (err) {
+        console.log(err);
+      }
+    };
+
+    fetchOrder();
+  }, [orderId]);
+
+  // -----------------------------
+  // AUTO REDIRECT
+  // -----------------------------
   useEffect(() => {
     const timer = setInterval(() => {
-      setCount(c => {
-        if (c <= 1) {
+      setCount(prev => {
+        if (prev <= 1) {
           clearInterval(timer);
           navigate('/orders');
           return 0;
         }
-        return c - 1;
+        return prev - 1;
       });
     }, 1000);
+
     return () => clearInterval(timer);
   }, [navigate]);
 
+  // -----------------------------
+  // NO ORDER ID SAFETY
+  // -----------------------------
+  if (!orderId) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-500">Order not found</p>
+          <Link to="/">
+            <Button className="mt-4">Back to Home</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-[80vh] flex items-center justify-center px-4">
+
       <div className="max-w-md w-full text-center space-y-6">
-        {/* Success icon */}
+
+        {/* SUCCESS ICON */}
         <div className="flex justify-center">
           <div className="w-24 h-24 rounded-full bg-green/10 flex items-center justify-center">
             <CheckCircle className="w-14 h-14 text-green" />
           </div>
         </div>
 
-        <div>
-          <h1 className="text-3xl font-black text-gray-900">Order Placed!</h1>
-          <p className="text-gray-500 mt-2">
-            Your order from <span className="font-semibold text-gray-900">{decodeURIComponent(restaurantName)}</span> has been received.
+        <h1 className="text-3xl font-black">Order Placed!</h1>
+
+        <p className="text-gray-500">
+          Your order has been received successfully.
+        </p>
+
+        {/* ORDER ID */}
+        <div className="bg-gray-100 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">ORDER ID</p>
+          <p className="text-xl font-bold text-navy">
+            #{orderId}
           </p>
         </div>
 
-        {/* Order ID */}
-        <div className="bg-gray-100 rounded-xl p-4">
-          <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">ORDER ID</p>
-          <p className="text-2xl font-mono font-bold text-navy">{orderId}</p>
-        </div>
-
-        {/* Info cards */}
+        {/* ORDER INFO */}
         <div className="grid grid-cols-2 gap-3">
-          <div className="bg-white border border-gray-200 rounded-xl p-4 text-left">
+
+          <div className="bg-white border rounded-xl p-4 text-left">
             <Clock className="w-5 h-5 text-green mb-2" />
-            <p className="text-xs text-gray-500">Estimated Time</p>
-            <p className="font-semibold text-gray-900">{estimatedTime}</p>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-xl p-4 text-left">
-            <Package className="w-5 h-5 text-green mb-2" />
             <p className="text-xs text-gray-500">Status</p>
-            <p className="font-semibold text-gray-900">Pending</p>
+            <p className="font-semibold">
+              {order?.status || 'Pending'}
+            </p>
           </div>
+
+          <div className="bg-white border rounded-xl p-4 text-left">
+            <Package className="w-5 h-5 text-green mb-2" />
+            <p className="text-xs text-gray-500">Total</p>
+            <p className="font-semibold">
+              R{order?.total || 0}
+            </p>
+          </div>
+
         </div>
 
         <p className="text-sm text-gray-500">
-          You can track your order status in real-time on the Orders page.
+          Track your order in real time.
         </p>
 
-        {/* Actions */}
-        <div className="flex flex-col gap-3">
+        {/* BUTTONS */}
+        <div className="space-y-3">
+
           <Link to="/orders">
-            <Button className="w-full bg-navy hover:bg-navy/90 text-white h-12 font-semibold">
-              Track My Order
+            <Button className="w-full bg-green text-white h-12">
+              Track Order
             </Button>
           </Link>
+
           <Link to="/">
             <Button variant="outline" className="w-full h-12">
               Back to Home
             </Button>
           </Link>
+
         </div>
 
+        {/* TIMER */}
         <p className="text-xs text-gray-400">
-          Redirecting to orders in <span className="font-bold text-green">{count}s</span>
+          Redirecting in <b>{count}s</b>
         </p>
+
       </div>
     </div>
   );

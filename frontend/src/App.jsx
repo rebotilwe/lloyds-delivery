@@ -1,97 +1,177 @@
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
-import { AuthProvider } from '@/lib/AuthContext';
+import { SocketProvider } from '@/context/SocketContext';
+
+import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { CartProvider } from '@/lib/cartStore';
 
-// Layouts and Pages
 import AppLayout from '@/components/layout/AppLayout';
+import AdminLayout from '@/components/layout/AdminLayout';
+
 import Home from '@/pages/Home';
-import RestaurantDetail from '@/pages/RestaurantDetail'; // Add this import
+import RestaurantDetail from '@/pages/RestaurantDetail';
 import Cart from '@/pages/Cart';
 import Login from '@/pages/Login';
+import Signup from '@/pages/Signup';
 import CustomerOrders from '@/pages/CustomerOrders';
+import CustomerProfile from '@/pages/CustomerProfile';
 import DriverDashboard from '@/pages/DriverDashboard';
 import AdminDashboard from '@/pages/AdminDashboard';
-import PageNotFound from '@/lib/PageNotFound';
+import AdminOrderDetails from '@/pages/AdminOrderDetails';
 import OrderConfirmation from '@/pages/OrderConfirmation';
+import DriverOnboarding from '@/pages/DriverOnboarding';
+import PageNotFound from '@/lib/PageNotFound';
 
-// Error Boundary Component
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
+// ---------------------
+// LOADING COMPONENT
+// ---------------------
+const Loader = () => (
+  <div className="flex items-center justify-center min-h-screen">
+    <p className="text-slate-600">Loading...</p>
+  </div>
+);
 
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.error('Error caught by boundary:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="text-center p-8">
-            <h1 className="text-2xl font-bold text-red-600 mb-4">Something went wrong</h1>
-            <p className="text-gray-600 mb-4">{this.state.error?.message}</p>
-            <button 
-              onClick={() => window.location.reload()}
-              className="bg-green text-white px-4 py-2 rounded"
-            >
-              Reload Page
-            </button>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
+// ---------------------
+// LOADING GUARD
+// ---------------------
+function LoadingGuard({ children }) {
+  const { loading } = useAuth();
+  if (loading) return <Loader />;
+  return children;
 }
 
-// Create Query Client
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5,
-      refetchOnWindowFocus: false,
-      retry: 1,
-    },
-  },
-});
+// ---------------------
+// AUTH GUARD
+// ---------------------
+function AuthGuard({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <Loader />;
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
 
-// Main App
+// ---------------------
+// ADMIN GUARD
+// ---------------------
+function AdminGuard({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <Loader />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'admin') return <Navigate to="/" replace />;
+  return children;
+}
+
+// ---------------------
+// DRIVER GUARD
+// ---------------------
+function DriverGuard({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <Loader />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'driver') return <Navigate to="/" replace />;
+  if (user.driver_status !== 'approved') return <DriverOnboarding />;
+  return children;
+}
+
+// ---------------------
+const queryClient = new QueryClient();
+
+// ---------------------
 function App() {
   return (
-    <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <Router>
-          <AuthProvider>
-            <CartProvider>
-              <Routes>
-                <Route element={<AppLayout />}>
-                  <Route path="/" element={<Home />} />
-                  <Route path="/restaurant" element={<RestaurantDetail />} /> {/* Add this route */}
-                  <Route path="/cart" element={<Cart />} />
-                  <Route path="/orders" element={<CustomerOrders />} />
-                  <Route path="/driver" element={<DriverDashboard />} />
-                  <Route path="/admin" element={<AdminDashboard />} />
-                  <Route path="/order-confirmation" element={<OrderConfirmation />} />
+    <QueryClientProvider client={queryClient}>
+      <Router>
+        <AuthProvider>
+          <CartProvider>
+            <SocketProvider>
+              <LoadingGuard>
+                <Routes>
 
-                </Route>
-                <Route path="/login" element={<Login />} />
-                <Route path="*" element={<PageNotFound />} />
-              </Routes>
-              <Toaster position="top-right" richColors />
-            </CartProvider>
-          </AuthProvider>
-        </Router>
-      </QueryClientProvider>
-    </ErrorBoundary>
+                  {/* ---------------- PUBLIC ---------------- */}
+                  <Route element={<AppLayout />}>
+                    <Route path="/" element={<Home />} />
+                    <Route path="/restaurant/:id" element={<RestaurantDetail />} />
+                    <Route path="/order-confirmation" element={<OrderConfirmation />} />
+                  </Route>
+
+                  {/* ---------------- CART (PROTECTED) ---------------- */}
+                  <Route
+                    path="/cart"
+                    element={
+                      <AuthGuard>
+                        <Cart />
+                      </AuthGuard>
+                    }
+                  />
+
+                  {/* ---------------- AUTH ---------------- */}
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/signup" element={<Signup />} />
+
+                  {/* ---------------- CUSTOMER PROTECTED ROUTES ---------------- */}
+                  <Route element={<AppLayout />}>
+                    <Route
+                      path="/profile"
+                      element={
+                        <AuthGuard>
+                          <CustomerProfile />
+                        </AuthGuard>
+                      }
+                    />
+                    <Route
+                      path="/orders"
+                      element={
+                        <AuthGuard>
+                          <CustomerOrders />
+                        </AuthGuard>
+                      }
+                    />
+                  </Route>
+
+                  {/* ---------------- DRIVER ---------------- */}
+                  <Route
+                    path="/driver"
+                    element={
+                      <DriverGuard>
+                        <DriverDashboard />
+                      </DriverGuard>
+                    }
+                  />
+
+                  {/* ---------------- ADMIN ---------------- */}
+                  <Route
+                    path="/admin"
+                    element={
+                      <AdminGuard>
+                        <AdminLayout />
+                      </AdminGuard>
+                    }
+                  >
+                    <Route index element={<AdminDashboard />} />
+                    <Route path="orders" element={<AdminDashboard />} />
+                    <Route path="orders/:id" element={<AdminOrderDetails />} />
+                    <Route path="restaurants" element={<AdminDashboard />} />
+                    <Route path="users" element={<AdminDashboard />} />
+                    <Route path="drivers" element={<AdminDashboard />} />
+                    <Route path="finance" element={<AdminDashboard />} />
+                    <Route path="settings" element={<AdminDashboard />} />
+                    <Route path="alerts" element={<AdminDashboard />} />
+                  </Route>
+
+                  {/* ---------------- 404 ---------------- */}
+                  <Route path="*" element={<PageNotFound />} />
+
+                </Routes>
+
+                <Toaster position="top-right" richColors />
+              </LoadingGuard>
+            </SocketProvider>
+          </CartProvider>
+        </AuthProvider>
+      </Router>
+    </QueryClientProvider>
   );
 }
 

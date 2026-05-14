@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { apiClient } from '@/api/base44Client';
+import { base44 } from '@/api/base44Client';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -20,24 +20,40 @@ export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (token) {
-      // Try to get user data from localStorage
-      const userData = localStorage.getItem('user');
-      if (userData) {
-        setUser(JSON.parse(userData));
+    const loadUser = async () => {
+      if (token) {
+        try {
+          const userData = await base44.auth.me();
+          if (userData) {
+            setUser(userData);
+            localStorage.setItem('user', JSON.stringify(userData));
+          } else {
+            // Token invalid, clear it
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            setToken(null);
+          }
+        } catch (error) {
+          console.error('Failed to load user:', error);
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setToken(null);
+        }
       }
-    }
-    setLoading(false);
+      setLoading(false);
+    };
+    
+    loadUser();
   }, [token]);
 
   const login = async (email, password) => {
     try {
-      const response = await apiClient.post('/auth/login', { email, password });
+      const response = await base44.auth.login(email, password);
       localStorage.setItem('token', response.token);
       localStorage.setItem('user', JSON.stringify(response.user));
       setToken(response.token);
       setUser(response.user);
-      toast.success('Login successful!');
+      toast.success(`Welcome back, ${response.user.name || response.user.email}!`);
       return response;
     } catch (error) {
       toast.error(error.message || 'Login failed');
@@ -47,7 +63,7 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
-      const response = await apiClient.post('/auth/register', userData);
+      const response = await base44.auth.register(userData);
       toast.success('Registration successful! Please login.');
       return response;
     } catch (error) {

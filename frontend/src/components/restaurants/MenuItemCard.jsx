@@ -23,6 +23,10 @@ export default function MenuItemCard({ item, restaurant }) {
     toast.success(`${item.name} added to cart`);
   };
 
+  // Convert price to number (handle both string and number)
+  const price = typeof item.price === 'string' ? parseFloat(item.price) : item.price;
+  const formattedPrice = !isNaN(price) ? price.toFixed(2) : '0.00';
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden flex hover:shadow-md transition-shadow group">
       <div className="flex-1 p-4 flex flex-col justify-between min-w-0">
@@ -33,7 +37,7 @@ export default function MenuItemCard({ item, restaurant }) {
           )}
         </div>
         <div className="flex items-center justify-between mt-3">
-          <span className="font-bold text-green text-lg">R{item.price.toFixed(2)}</span>
+          <span className="font-bold text-green text-lg">R{formattedPrice}</span>
           <Button
             size="sm"
             onClick={handleAdd}

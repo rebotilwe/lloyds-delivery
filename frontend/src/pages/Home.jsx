@@ -7,12 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import RestaurantCard from '@/components/restaurants/RestaurantCard';
 
+// Updated to match your actual database cuisine types
 const cuisineFilters = [
   'All',
+  'Kotas',
+  'Burgers',
+  'Pizzas',
+  'Sushi',
   'Fast Food',
   'Pizza',
-  'Burgers',
-  'Sushi',
   'Chinese',
   'Indian',
   'Mexican',
@@ -26,27 +29,29 @@ export default function Home() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeCuisine, setActiveCuisine] = useState('All');
 
-  // ✅ Debounce search (important improvement)
+  // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
     }, 300);
-
     return () => clearTimeout(timer);
   }, [search]);
 
-  const { data: restaurants = [], isLoading } = useQuery({
+  // FIX: Remove is_active filter - use list() instead
+  const { data: restaurants = [], isLoading, error } = useQuery({
     queryKey: ['restaurants'],
-    queryFn: () =>
-      base44.entities.Restaurant.filter({ is_active: true }),
+    queryFn: () => base44.entities.Restaurant.list(), // Use list() instead of filter
   });
 
-  // ✅ Optimised filtering
+  // Filter restaurants based on search and cuisine
   const filtered = useMemo(() => {
+    if (!restaurants.length) return [];
+    
     return restaurants.filter(r => {
       const matchesSearch =
+        !debouncedSearch ||
         r.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-        r.description?.toLowerCase().includes(debouncedSearch.toLowerCase());
+        (r.description && r.description.toLowerCase().includes(debouncedSearch.toLowerCase()));
 
       const matchesCuisine =
         activeCuisine === 'All' ||
@@ -57,9 +62,24 @@ export default function Home() {
   }, [restaurants, debouncedSearch, activeCuisine]);
 
   const handleNearMe = () => {
-    // Future feature placeholder (GPS / location-based filtering)
     alert('Location feature coming soon 🚀');
   };
+
+  // Show error state
+  if (error) {
+    console.error('Error fetching restaurants:', error);
+    return (
+      <div className="text-center py-20">
+        <p className="text-red-500">Error loading restaurants. Please try again later.</p>
+        <Button 
+          onClick={() => window.location.reload()} 
+          className="mt-4"
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -85,7 +105,6 @@ export default function Home() {
             <div className="mt-8 flex gap-3">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-
                 <Input
                   placeholder="Search restaurants or cuisines..."
                   value={search}
@@ -135,29 +154,25 @@ export default function Home() {
               ? 'All Restaurants'
               : activeCuisine}
           </h2>
-
           <span className="text-sm text-muted-foreground">
-            {filtered.length} places
+            {filtered.length} {filtered.length === 1 ? 'place' : 'places'}
           </span>
         </div>
 
         {/* LOADING */}
         {isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Array(6)
-              .fill(0)
-              .map((_, i) => (
-                <div key={i} className="rounded-xl overflow-hidden">
-                  <Skeleton className="aspect-[16/10] w-full" />
-                  <div className="p-4 space-y-2">
-                    <Skeleton className="h-5 w-3/4" />
-                    <Skeleton className="h-4 w-1/2" />
-                  </div>
+            {Array(6).fill(0).map((_, i) => (
+              <div key={i} className="rounded-xl overflow-hidden">
+                <Skeleton className="aspect-[16/10] w-full" />
+                <div className="p-4 space-y-2">
+                  <Skeleton className="h-5 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
                 </div>
-              ))}
+              </div>
+            ))}
           </div>
         ) : filtered.length === 0 ? (
-          /* EMPTY STATE (IMPROVED) */
           <div className="text-center py-20">
             <p className="text-lg font-semibold text-foreground">
               No restaurants found
@@ -167,7 +182,6 @@ export default function Home() {
             </p>
           </div>
         ) : (
-          /* GRID */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filtered.map(r => (
               <RestaurantCard key={r.id} restaurant={r} />

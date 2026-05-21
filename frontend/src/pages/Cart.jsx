@@ -9,6 +9,18 @@ import { Separator } from '@/components/ui/separator';
 import { useCart } from '@/lib/cartStore.jsx';
 import { toast } from 'sonner';
 
+// Helper function to safely format price
+const formatPrice = (price) => {
+  const numPrice = typeof price === 'string' ? parseFloat(price) : price;
+  return !isNaN(numPrice) ? numPrice.toFixed(2) : '0.00';
+};
+
+// Helper function to safely get numeric price
+const getNumericPrice = (price) => {
+  const numPrice = typeof price === 'string' ? parseFloat(price) : price;
+  return !isNaN(numPrice) ? numPrice : 0;
+};
+
 export default function Cart() {
   const { isAuthenticated, loading } = useAuth();
   const navigate = useNavigate();
@@ -66,11 +78,11 @@ export default function Cart() {
         },
         body: JSON.stringify({
           customer_id: user?.id,
-          customer_name: user?.full_name,
+          customer_name: user?.full_name || user?.name || 'Customer',
           restaurant_id: cart.restaurantId,
           restaurant_name: cart.restaurantName,
           status: 'pending',
-          total: total,
+          total: getNumericPrice(total),
           delivery_address: address,
           delivery_fee: 0,
           notes: notes,
@@ -78,7 +90,7 @@ export default function Cart() {
             id: item.id,
             name: item.name,
             quantity: item.quantity,
-            price: item.price
+            price: getNumericPrice(item.price)
           }))
         })
       });
@@ -158,7 +170,7 @@ export default function Cart() {
               <div>
                 <p className="font-medium">{item.name}</p>
                 <p className="text-sm text-green">
-                  R{item.price.toFixed(2)}
+                  R{formatPrice(item.price)}
                 </p>
               </div>
 
@@ -172,7 +184,7 @@ export default function Cart() {
                   <Minus className="w-4 h-4" />
                 </Button>
 
-                <span>{item.quantity}</span>
+                <span className="w-8 text-center">{item.quantity}</span>
 
                 <Button
                   size="icon"
@@ -193,7 +205,7 @@ export default function Cart() {
               </div>
 
               <p className="font-semibold">
-                R{(item.price * item.quantity).toFixed(2)}
+                R{formatPrice(getNumericPrice(item.price) * item.quantity)}
               </p>
 
             </div>
@@ -211,7 +223,7 @@ export default function Cart() {
           />
 
           <Textarea
-            placeholder="Notes (optional)"
+            placeholder="Notes (optional) - e.g., gate code, building name, etc."
             value={notes}
             onChange={e => setNotes(e.target.value)}
           />
@@ -223,7 +235,7 @@ export default function Cart() {
         <div className="p-4 space-y-2">
           <div className="flex justify-between">
             <span>Subtotal</span>
-            <span>R{subtotal.toFixed(2)}</span>
+            <span>R{formatPrice(subtotal)}</span>
           </div>
 
           <div className="flex justify-between">
@@ -231,18 +243,20 @@ export default function Cart() {
             <span>R0.00</span>
           </div>
 
+          <Separator className="my-2" />
+
           <div className="flex justify-between font-bold text-lg">
             <span>Total</span>
-            <span className="text-green">R{total.toFixed(2)}</span>
+            <span className="text-green">R{formatPrice(total)}</span>
           </div>
         </div>
 
         {/* BUTTON */}
-        <div className="p-4">
+        <div className="p-4 pt-0">
           <Button
             onClick={handlePlaceOrder}
-            disabled={placing}
-            className="w-full bg-green text-white h-12"
+            disabled={placing || !address.trim()}
+            className="w-full bg-green hover:bg-green/90 text-white h-12"
           >
             {placing ? 'Placing Order...' : 'Place Order'}
           </Button>

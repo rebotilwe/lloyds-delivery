@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { useCart } from '@/lib/cartStore.jsx';
+import { useCart } from '@/lib/CartContext';
 import { toast } from 'sonner';
 import PromoCode from '@/components/PromoCode';
 
@@ -30,7 +30,15 @@ const API_URL = import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrende
 export default function Cart() {
   const { user, isAuthenticated, loading } = useAuth();
   const navigate = useNavigate();
-  const { cart, updateQuantity, removeItem, clearCart, subtotal, total, itemCount } = useCart();
+  const { 
+    cart, 
+    updateQuantity, 
+    removeFromCart,  // Fixed: changed from removeItem to removeFromCart
+    clearCart, 
+    subtotal, 
+    total, 
+    itemCount 
+  } = useCart();
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [placing, setPlacing] = useState(false);
@@ -109,7 +117,6 @@ export default function Cart() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'Failed to create order');
       
-      // Mark that user has placed an order (for first-time promo)
       localStorage.setItem('hasOrderedBefore', 'true');
       
       clearCart();
@@ -153,12 +160,35 @@ export default function Cart() {
                 <p className="text-xs md:text-sm text-green">R{formatPrice(item.price)}</p>
               </div>
               <div className="flex items-center gap-1 md:gap-2">
-                <Button size="icon" variant="outline" className="h-7 w-7 md:h-8 md:w-8" onClick={() => updateQuantity(item.id, item.quantity - 1)}><Minus className="w-3 h-3 md:w-4 md:h-4" /></Button>
+                <Button 
+                  size="icon" 
+                  variant="outline" 
+                  className="h-7 w-7 md:h-8 md:w-8" 
+                  onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                >
+                  <Minus className="w-3 h-3 md:w-4 md:h-4" />
+                </Button>
                 <span className="w-6 text-center text-sm md:text-base">{item.quantity}</span>
-                <Button size="icon" variant="outline" className="h-7 w-7 md:h-8 md:w-8" onClick={() => updateQuantity(item.id, item.quantity + 1)}><Plus className="w-3 h-3 md:w-4 md:h-4" /></Button>
-                <Button size="icon" variant="ghost" className="h-7 w-7 md:h-8 md:w-8" onClick={() => removeItem(item.id)}><Trash2 className="w-3 h-3 md:w-4 h-4 text-red-500" /></Button>
+                <Button 
+                  size="icon" 
+                  variant="outline" 
+                  className="h-7 w-7 md:h-8 md:w-8" 
+                  onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                >
+                  <Plus className="w-3 h-3 md:w-4 md:h-4" />
+                </Button>
+                <Button 
+                  size="icon" 
+                  variant="ghost" 
+                  className="h-7 w-7 md:h-8 md:w-8" 
+                  onClick={() => removeFromCart(item.id)}  // Fixed: changed from removeItem to removeFromCart
+                >
+                  <Trash2 className="w-3 h-3 md:w-4 h-4 text-red-500" />
+                </Button>
               </div>
-              <p className="font-semibold text-sm md:text-base min-w-[70px] text-right">R{formatPrice(getNumericPrice(item.price) * item.quantity)}</p>
+              <p className="font-semibold text-sm md:text-base min-w-[70px] text-right">
+                R{formatPrice(getNumericPrice(item.price) * item.quantity)}
+              </p>
             </div>
           ))}
         </div>
@@ -166,8 +196,18 @@ export default function Cart() {
         <Separator />
         <div className="p-3 md:p-4 space-y-3">
           <h3 className="font-semibold text-sm md:text-base mb-2">Delivery Address</h3>
-          <Input placeholder="Street address *" value={address} onChange={e => setAddress(e.target.value)} className="text-sm md:text-base" />
-          <Textarea placeholder="Notes (optional)" value={notes} onChange={e => setNotes(e.target.value)} className="h-20 text-sm md:text-base" />
+          <Input 
+            placeholder="Street address *" 
+            value={address} 
+            onChange={e => setAddress(e.target.value)} 
+            className="text-sm md:text-base" 
+          />
+          <Textarea 
+            placeholder="Notes (optional)" 
+            value={notes} 
+            onChange={e => setNotes(e.target.value)} 
+            className="h-20 text-sm md:text-base" 
+          />
         </div>
         <Separator />
 
@@ -202,8 +242,19 @@ export default function Cart() {
         </div>
 
         <div className="p-3 md:p-4 pt-0">
-          <Button onClick={handlePlaceOrder} disabled={placing || !address.trim()} className="w-full bg-green hover:bg-green/90 text-white h-10 md:h-12 text-sm md:text-base">
-            {placing ? <><div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" /> Placing Order...</> : <>Place Order</>}
+          <Button 
+            onClick={handlePlaceOrder} 
+            disabled={placing || !address.trim()} 
+            className="w-full bg-green hover:bg-green/90 text-white h-10 md:h-12 text-sm md:text-base"
+          >
+            {placing ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" /> 
+                Placing Order...
+              </>
+            ) : (
+              'Place Order'
+            )}
           </Button>
         </div>
       </div>

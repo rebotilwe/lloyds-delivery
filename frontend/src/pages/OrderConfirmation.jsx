@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { CheckCircle, Clock, Package } from 'lucide-react';
+import { formatOrderStatus } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
 export default function OrderConfirmation() {
@@ -103,9 +104,9 @@ export default function OrderConfirmation() {
           <div className="bg-white border rounded-xl p-4 text-left">
             <Clock className="w-5 h-5 text-green mb-2" />
             <p className="text-xs text-gray-500">Status</p>
-            <p className="font-semibold">
-              {order?.status || 'Pending'}
-            </p>
+           <p className="font-semibold">
+  {formatOrderStatus(order?.status)}
+</p>
           </div>
 
           <div className="bg-white border rounded-xl p-4 text-left">

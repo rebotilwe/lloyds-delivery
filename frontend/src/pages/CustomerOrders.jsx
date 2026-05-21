@@ -10,6 +10,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import ReviewModal from '@/components/ReviewModal';
+import { formatOrderStatus } from '@/lib/utils';
 
 // Order status steps for tracker (simplified for mobile)
 const STATUS_STEPS = [
@@ -190,7 +191,7 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
           <span className="text-xs sm:text-sm break-words flex-1">{order.delivery_address || 'No address provided'}</span>
         </div>
 
-        {/* Status Message */}
+        {/* Status Message - Using formatted status */}
         {order.status === 'confirmed' && (
           <div className="bg-blue-50 p-2 rounded-lg text-center">
             <p className="text-[10px] sm:text-xs text-blue-700">⏱️ Restaurant is preparing your order</p>
@@ -272,10 +273,6 @@ function OrderHistoryCard({ order, onReviewOrder }) {
     }
   };
 
-  const getStatusText = (status) => {
-    return status?.replace(/_/g, ' ').toUpperCase() || 'PENDING';
-  };
-
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
 
   return (
@@ -300,7 +297,7 @@ function OrderHistoryCard({ order, onReviewOrder }) {
           </div>
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <span className={`px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[9px] sm:text-xs font-medium ${getStatusColor(order.status)} whitespace-nowrap`}>
-              {getStatusText(order.status)}
+              {formatOrderStatus(order.status)}
             </span>
             <span className="font-bold text-green text-xs sm:text-sm whitespace-nowrap">R{Number(order.total).toFixed(2)}</span>
             {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />}
@@ -439,7 +436,7 @@ export default function CustomerOrders() {
       const handleStatusUpdate = (data) => {
         console.log('Status update received:', data);
         setLiveUpdates(prev => ({ ...prev, [data.orderId]: data.status }));
-        toast.info(`Order #${data.orderId} updated to ${data.status?.replace(/_/g, ' ')}`);
+        toast.info(`Order #${data.orderId} updated to ${formatOrderStatus(data.status)}`);
         refetch();
       };
       

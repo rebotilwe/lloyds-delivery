@@ -15,6 +15,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { formatOrderStatus } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
@@ -449,9 +450,9 @@ export default function DriverDashboard() {
                     <p className="text-sm text-gray-500">
                       Order #{order.id} • {order.customer_name || 'Customer'}
                     </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      Status: <span className="font-medium capitalize">{order.status?.replace(/_/g, ' ')}</span>
-                    </p>
+                  <p className="text-xs text-gray-400 mt-1">
+  Status: <span className="font-medium">{formatOrderStatus(order.status)}</span>
+</p>
                   </div>
                   <span className="text-lg font-bold text-green">
                     R{Number(order.total).toFixed(2)}

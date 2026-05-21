@@ -158,11 +158,11 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
-                {statuses.map(s => (
-                  <SelectItem key={s} value={s}>
-                    {s.replace(/_/g, ' ')}
-                  </SelectItem>
-                ))}
+              {statuses.map(s => (
+  <SelectItem key={s} value={s}>
+    {formatOrderStatus(s)}
+  </SelectItem>
+))}
               </SelectContent>
             </Select>
           </div>

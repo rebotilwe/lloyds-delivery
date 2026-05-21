@@ -38,6 +38,7 @@ router.post("/", async (req, res) => {
     );
     res.status(201).json({ id: result.rows[0].id, message: "Restaurant created" });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -55,6 +56,7 @@ router.put("/:id", async (req, res) => {
     );
     res.json({ message: "Restaurant updated successfully" });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -65,6 +67,7 @@ router.delete("/:id", async (req, res) => {
     await db.query("DELETE FROM restaurants WHERE id = $1", [req.params.id]);
     res.json({ message: "Restaurant deleted successfully" });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: err.message });
   }
 });

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { useCart } from '@/lib/CartContext';
+import { useCart } from '@/lib/cartStore';  // ← FIXED: changed from CartContext to cartStore
 import { toast } from 'sonner';
 import PromoCode from '@/components/PromoCode';
 
@@ -33,7 +33,7 @@ export default function Cart() {
   const { 
     cart, 
     updateQuantity, 
-    removeFromCart,  // Fixed: changed from removeItem to removeFromCart
+    removeFromCart, 
     clearCart, 
     subtotal, 
     total, 
@@ -181,7 +181,7 @@ export default function Cart() {
                   size="icon" 
                   variant="ghost" 
                   className="h-7 w-7 md:h-8 md:w-8" 
-                  onClick={() => removeFromCart(item.id)}  // Fixed: changed from removeItem to removeFromCart
+                  onClick={() => removeFromCart(item.id)}
                 >
                   <Trash2 className="w-3 h-3 md:w-4 h-4 text-red-500" />
                 </Button>

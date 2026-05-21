@@ -4,20 +4,26 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Check if SSL is disabled
+const isSSLDisabled = process.env.DATABASE_URL?.includes('sslmode=disable');
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: isSSLDisabled ? false : { rejectUnauthorized: false },
   connectionTimeoutMillis: 10000,
 });
 
 // Test connection
-pool.connect((err, client, release) => {
-  if (err) {
-    console.error('❌ Database connection failed:', err.message);
-  } else {
+const testConnection = async () => {
+  try {
+    const client = await pool.connect();
     console.log('✅ PostgreSQL connected successfully');
-    release();
+    client.release();
+  } catch (err) {
+    console.error('❌ Database connection failed:', err.message);
   }
-});
+};
+
+testConnection();
 
 export default pool;

@@ -134,7 +134,7 @@ const DriverDocuments = ({ driver, onClose, onApprove, onReject }) => {
     const docPath = driver[docKey];
     if (!docPath) return null;
     if (docPath.startsWith('http')) return docPath;
-    return `http://localhost:5000${docPath}`;
+    return `https://lloyds-delivery.onrender.com${docPath}`;
   };
 
   const isImage = (url) => url?.match(/\.(jpeg|jpg|gif|png|webp)$/i) !== null;

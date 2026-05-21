@@ -93,7 +93,7 @@ export default function Cart() {
       toast.success(`Payment successful! Transaction ID: ${paymentResult.transactionId}`);
       
       // STEP 2: Create order after successful payment
-      const res = await fetch('http://localhost:5000/api/orders/create', {
+const res = await fetch('https://lloyds-delivery.onrender.com/api/orders/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

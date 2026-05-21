@@ -381,7 +381,7 @@ export default function CustomerOrders() {
     if (!window.confirm('Are you sure you want to cancel this order?')) return;
     
     try {
-      const response = await fetch(`http://localhost:5000/api/orders/cancel/${orderId}`, {
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/cancel/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customer_id: user?.id }),

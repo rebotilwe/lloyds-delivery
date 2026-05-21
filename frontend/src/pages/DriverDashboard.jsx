@@ -141,7 +141,7 @@ export default function DriverDashboard() {
   const fetchUserData = async () => {
     if (!user?.id) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/users/${user.id}`);
+      const res = await fetch(`https://lloyds-delivery.onrender.com/api/users/${user.id}`);
       const freshUser = await res.json();
       localStorage.setItem('user', JSON.stringify(freshUser));
       setUser(freshUser);
@@ -155,11 +155,11 @@ export default function DriverDashboard() {
     if (!user) return;
 
     try {
-      const res1 = await fetch('http://localhost:5000/api/orders/available');
+      const res1 = await fetch('https://lloyds-delivery.onrender.com/api/orders/available');
       const available = await res1.json();
       setAvailableOrders(Array.isArray(available) ? available : []);
 
-      const res2 = await fetch(`http://localhost:5000/api/orders/driver/${user.id}`);
+      const res2 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/${user.id}`);
       const mine = await res2.json();
       setMyOrders(Array.isArray(mine) ? mine : []);
     } catch (err) {
@@ -182,7 +182,7 @@ export default function DriverDashboard() {
   // ACCEPT ORDER
   const acceptOrder = async (orderId) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/orders/accept/${orderId}`, {
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/accept/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ driver_id: user.id }),
@@ -210,7 +210,7 @@ export default function DriverDashboard() {
     }
 
     try {
-      const response = await fetch(`http://localhost:5000/api/orders/status/${orderId}`, {
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/status/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextStatus }),

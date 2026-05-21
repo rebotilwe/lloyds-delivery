@@ -110,7 +110,7 @@ export default function DriverOnboarding() {
         formData.append("car_license", documents.car_license);
       }
 
-      const res = await fetch("http://localhost:5000/api/driver/onboarding", {
+      const res = await fetch("https://lloyds-delivery.onrender.com/api/driver/onboarding", {
         method: "POST",
         body: formData,
       });

@@ -1,5 +1,5 @@
 // Real API client - connects to your backend
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL ||  'https://lloyds-delivery.onrender.com/api';
 
 export const apiClient = {
   get: async (url, token = null) => {

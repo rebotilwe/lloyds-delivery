@@ -107,7 +107,7 @@ export default function AdminRestaurants({ restaurants, onRefresh }) {
     formData.append('image', file);
 
     try {
-      const response = await fetch('http://localhost:5000/api/upload', {
+      const response = await fetch('https://lloyds-delivery.onrender.com/api/upload', {
         method: 'POST',
         body: formData,
       });

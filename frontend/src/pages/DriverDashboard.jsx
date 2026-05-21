@@ -11,6 +11,8 @@ import {
   Navigation,
   Bell,
   User,
+  Star,
+  TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -298,6 +300,23 @@ export default function DriverDashboard() {
     return completedOrders.reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
   }, [completedOrders]);
 
+  // Weekly earnings
+  const weeklyEarnings = useMemo(() => {
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    return completedOrders
+      .filter(order => new Date(order.created_at) > oneWeekAgo)
+      .reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
+  }, [completedOrders]);
+
+  // Average rating
+  const averageRating = useMemo(() => {
+    const ratedOrders = completedOrders.filter(o => o.driver_rating);
+    if (ratedOrders.length === 0) return 0;
+    const sum = ratedOrders.reduce((acc, o) => acc + (o.driver_rating || 0), 0);
+    return (sum / ratedOrders.length).toFixed(1);
+  }, [completedOrders]);
+
   if (loading) {
     return (
       <div className="max-w-5xl mx-auto px-4 py-8">
@@ -344,16 +363,33 @@ export default function DriverDashboard() {
         )}
       </div>
 
-      {/* STATS */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      {/* Enhanced Stats with Rating and Weekly Earnings */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
         <Stat label="Active Deliveries" value={activeOrders.length} icon={Package} />
         <Stat label="Available Orders" value={availableOrders.length} icon={Clock} />
         <Stat label="Completed" value={completedOrders.length} icon={CheckCircle2} />
-        <Stat
-          label="Total Earnings"
-          value={`R${totalEarnings.toFixed(2)}`}
-          icon={DollarSign}
-        />
+        <Stat label="Total Earnings" value={`R${totalEarnings.toFixed(2)}`} icon={DollarSign} />
+        <Stat label="Your Rating" value={averageRating > 0 ? `${averageRating} ★` : 'No ratings'} icon={Star} />
+      </div>
+
+      {/* Weekly Earnings Card */}
+      <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-xl p-4 mb-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-gray-500 flex items-center gap-1">
+              <TrendingUp className="w-3 h-3" /> This Week
+            </p>
+            <p className="text-2xl font-bold text-green">R{weeklyEarnings.toFixed(2)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-gray-500">Delivery Success Rate</p>
+            <p className="text-lg font-semibold">
+              {completedOrders.length > 0 
+                ? `${Math.round((completedOrders.length / (completedOrders.length + activeOrders.length)) * 100)}%`
+                : '0%'}
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Toggle History */}
@@ -382,6 +418,11 @@ export default function DriverDashboard() {
                       <p className="text-xs text-gray-400">
                         Delivered on {new Date(order.created_at).toLocaleDateString()}
                       </p>
+                      {order.driver_rating && (
+                        <p className="text-xs text-yellow-600 mt-1">
+                          Rating: {order.driver_rating} ★
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
                       <p className="font-bold text-green">R{Number(order.total).toFixed(2)}</p>

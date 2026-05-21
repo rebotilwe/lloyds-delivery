@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
-import { Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, AlertCircle, Navigation } from 'lucide-react';
+import { Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, AlertCircle, Navigation, Star } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { useSocket } from '@/context/SocketContext';
 import { useAuth } from '@/lib/AuthContext';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import ReviewModal from '@/components/ReviewModal';
 
 // Order status steps for tracker
 const STATUS_STEPS = [
@@ -250,6 +251,12 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
               <span className="text-gray-600">Delivery fee</span>
               <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
             </div>
+            {order.discount_applied > 0 && (
+              <div className="flex justify-between text-sm text-green">
+                <span>Discount</span>
+                <span>-R{Number(order.discount_applied).toFixed(2)}</span>
+              </div>
+            )}
           </div>
         )}
       </CardContent>
@@ -258,7 +265,7 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
 }
 
 // Order history card component
-function OrderHistoryCard({ order }) {
+function OrderHistoryCard({ order, onReviewOrder }) {
   const [expanded, setExpanded] = useState(false);
   
   const getStatusColor = (status) => {
@@ -319,11 +326,29 @@ function OrderHistoryCard({ order }) {
             <span className="text-gray-500">Delivery fee</span>
             <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
           </div>
+          {order.discount_applied > 0 && (
+            <div className="flex justify-between text-sm text-green">
+              <span>Discount</span>
+              <span>-R{Number(order.discount_applied).toFixed(2)}</span>
+            </div>
+          )}
           {order.delivery_address && (
             <div className="flex items-start gap-2 text-sm text-gray-500">
               <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
               <span>{order.delivery_address}</span>
             </div>
+          )}
+          
+          {/* Review Button */}
+          {order.status === 'delivered' && !order.reviewed && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full mt-2 border-yellow-400 text-yellow-600 hover:bg-yellow-50"
+              onClick={() => onReviewOrder(order)}
+            >
+              <Star className="w-4 h-4 mr-1" /> Rate this order
+            </Button>
           )}
         </CardContent>
       )}
@@ -337,6 +362,8 @@ export default function CustomerOrders() {
   const queryClient = useQueryClient();
   const [liveUpdates, setLiveUpdates] = useState({});
   const [driverLocation, setDriverLocation] = useState(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState(null);
 
   // Listen for driver location updates
   useEffect(() => {
@@ -399,6 +426,11 @@ export default function CustomerOrders() {
       console.error('Cancel error:', err);
       toast.error(err.message || 'Failed to cancel order');
     }
+  };
+
+  const handleReviewOrder = (order) => {
+    setSelectedOrder(order);
+    setShowReviewModal(true);
   };
 
   // Socket connection for real-time updates
@@ -502,12 +534,29 @@ export default function CustomerOrders() {
               </h2>
               <div className="space-y-3">
                 {pastOrders.map(order => (
-                  <OrderHistoryCard key={order.id} order={order} />
+                  <OrderHistoryCard 
+                    key={order.id} 
+                    order={order} 
+                    onReviewOrder={handleReviewOrder}
+                  />
                 ))}
               </div>
             </div>
           )}
         </div>
+      )}
+
+      {/* Review Modal */}
+      {showReviewModal && selectedOrder && (
+        <ReviewModal
+          order={selectedOrder}
+          isOpen={showReviewModal}
+          onClose={() => setShowReviewModal(false)}
+          onSubmitted={() => {
+            refetch();
+            setShowReviewModal(false);
+          }}
+        />
       )}
     </div>
   );

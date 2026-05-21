@@ -24,7 +24,7 @@ export default function OrderConfirmation() {
     const fetchOrder = async () => {
       try {
         const res = await fetch(
-          `http://localhost:5000/api/orders/${orderId}`
+          `https://lloyds-delivery.onrender.com/api/orders/${orderId}`
         );
 
         const data = await res.json();

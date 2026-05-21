@@ -11,14 +11,14 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import ReviewModal from '@/components/ReviewModal';
 
-// Order status steps for tracker
+// Order status steps for tracker (simplified for mobile)
 const STATUS_STEPS = [
-  { key: 'pending', label: 'Order Placed', step: 1 },
+  { key: 'pending', label: 'Placed', step: 1 },
   { key: 'confirmed', label: 'Confirmed', step: 2 },
   { key: 'preparing', label: 'Preparing', step: 3 },
   { key: 'ready_for_pickup', label: 'Ready', step: 4 },
-  { key: 'picked_up', label: 'Picked Up', step: 5 },
-  { key: 'on_the_way', label: 'On the Way', step: 6 },
+  { key: 'picked_up', label: 'Picked', step: 5 },
+  { key: 'on_the_way', label: 'On Way', step: 6 },
   { key: 'delivered', label: 'Delivered', step: 7 },
 ];
 
@@ -33,7 +33,7 @@ function cn(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
-// Live Map Component (inline for now)
+// Live Map Component
 let L = null;
 let mapInitialized = false;
 
@@ -93,8 +93,8 @@ function LiveMap({ driverLocation, orderStatus }) {
 
   if (!mapLoaded) {
     return (
-      <div className="h-48 bg-gray-100 rounded-lg flex items-center justify-center">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green"></div>
+      <div className="h-40 sm:h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+        <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-green"></div>
         <span className="ml-2 text-xs text-gray-500">Loading map...</span>
       </div>
     );
@@ -107,12 +107,12 @@ function LiveMap({ driverLocation, orderStatus }) {
   return (
     <div className="mt-3">
       <div className="flex items-center gap-2 mb-2">
-        <Navigation className="w-4 h-4 text-green animate-pulse" />
+        <Navigation className="w-3 h-3 sm:w-4 sm:h-4 text-green animate-pulse" />
         <span className="text-xs font-medium text-green">Live Driver Location</span>
       </div>
       <div 
         ref={mapContainerRef} 
-        className="w-full h-48 rounded-lg overflow-hidden border shadow-sm"
+        className="w-full h-40 sm:h-48 rounded-lg overflow-hidden border shadow-sm"
       />
       <p className="text-xs text-gray-500 text-center mt-2">
         Driver is en route to your location
@@ -121,7 +121,7 @@ function LiveMap({ driverLocation, orderStatus }) {
   );
 }
 
-// Active order card component
+// Active order card component (mobile optimized)
 function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
   const [expanded, setExpanded] = useState(false);
   const currentStep = getCurrentStep(order.status);
@@ -133,34 +133,36 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
 
   return (
     <Card className="overflow-hidden border-2 border-green/20 shadow-md">
-      <div className="bg-gradient-to-r from-green to-green/80 px-4 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Truck className="w-4 h-4 text-white animate-pulse" />
-          <span className="text-white text-sm font-semibold">Live Order</span>
+      <div className="bg-gradient-to-r from-green to-green/80 px-3 sm:px-4 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-1 sm:gap-2">
+          <Truck className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
+          <span className="text-white text-xs sm:text-sm font-semibold">Live Order</span>
         </div>
-        <span className="text-white/80 text-xs">{order.restaurant_name || 'Restaurant'}</span>
+        <span className="text-white/80 text-[10px] sm:text-xs truncate max-w-[120px] sm:max-w-none">
+          {order.restaurant_name || 'Restaurant'}
+        </span>
       </div>
       
-      <CardContent className="pt-4 space-y-4">
-        {/* Order Tracker */}
-        <div className="relative">
-          <div className="flex justify-between">
+      <CardContent className="p-3 sm:p-4 space-y-3 sm:space-y-4">
+        {/* Order Tracker - Horizontal scroll on mobile */}
+        <div className="relative overflow-x-auto pb-2 -mx-1 px-1">
+          <div className="flex justify-between min-w-[500px] sm:min-w-0">
             {STATUS_STEPS.map((step) => (
               <div key={step.key} className="flex flex-col items-center flex-1">
                 <div className={cn(
-                  "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all",
+                  "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold transition-all",
                   currentStep >= step.step 
                     ? "bg-green text-white" 
                     : "bg-gray-200 text-gray-400"
                 )}>
                   {currentStep > step.step ? (
-                    <CheckCircle className="w-5 h-5" />
+                    <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4" />
                   ) : (
-                    step.step
+                    <span className="text-[10px] sm:text-xs">{step.step}</span>
                   )}
                 </div>
                 <span className={cn(
-                  "text-xs mt-1 text-center hidden md:block",
+                  "text-[9px] sm:text-xs mt-1 text-center whitespace-nowrap",
                   currentStep >= step.step ? "text-green font-medium" : "text-gray-400"
                 )}>
                   {step.label}
@@ -168,50 +170,44 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
               </div>
             ))}
           </div>
-          <div className="absolute top-4 left-0 right-0 h-0.5 bg-gray-200 -z-10">
-            <div 
-              className="h-full bg-green transition-all duration-500"
-              style={{ width: `${((currentStep - 1) / 6) * 100}%` }}
-            />
-          </div>
         </div>
 
-        {/* Order Details */}
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="bg-gray-50 rounded-lg p-3">
-            <p className="text-xs text-gray-500 mb-1">Total Amount</p>
-            <p className="font-bold text-green text-lg">R{Number(order.total).toFixed(2)}</p>
+        {/* Order Details - Stack on mobile */}
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 text-sm">
+          <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
+            <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">Total</p>
+            <p className="font-bold text-green text-sm sm:text-lg">R{Number(order.total).toFixed(2)}</p>
           </div>
-          <div className="bg-gray-50 rounded-lg p-3">
-            <p className="text-xs text-gray-500 mb-1">Items</p>
-            <p className="font-semibold">{itemCount} item(s)</p>
+          <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
+            <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">Items</p>
+            <p className="font-semibold text-xs sm:text-sm">{itemCount} item(s)</p>
           </div>
         </div>
 
         {/* Delivery Address */}
-        <div className="flex items-start gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg p-3">
-          <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>{order.delivery_address || 'No address provided'}</span>
+        <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
+          <MapPin className="w-3 h-3 sm:w-4 sm:h-4 mt-0.5 shrink-0" />
+          <span className="text-xs sm:text-sm break-words flex-1">{order.delivery_address || 'No address provided'}</span>
         </div>
 
         {/* Status Message */}
         {order.status === 'confirmed' && (
           <div className="bg-blue-50 p-2 rounded-lg text-center">
-            <p className="text-xs text-blue-700">⏱️ Restaurant is preparing your order</p>
+            <p className="text-[10px] sm:text-xs text-blue-700">⏱️ Restaurant is preparing your order</p>
           </div>
         )}
         {order.status === 'ready_for_pickup' && (
           <div className="bg-purple-50 p-2 rounded-lg text-center">
-            <p className="text-xs text-purple-700">🍔 Order ready! Driver assigned</p>
+            <p className="text-[10px] sm:text-xs text-purple-700">🍔 Order ready! Driver assigned</p>
           </div>
         )}
         {order.status === 'picked_up' && (
           <div className="bg-indigo-50 p-2 rounded-lg text-center">
-            <p className="text-xs text-indigo-700">🚚 Driver has picked up your order</p>
+            <p className="text-[10px] sm:text-xs text-indigo-700">🚚 Driver has picked up your order</p>
           </div>
         )}
 
-        {/* Live Map - Only for on_the_way status */}
+        {/* Live Map */}
         {showMap && driverLocation && (
           <LiveMap driverLocation={driverLocation} orderStatus={order.status} />
         )}
@@ -221,38 +217,38 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
           <Button
             variant="outline"
             size="sm"
-            className="w-full border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
+            className="w-full border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-9"
             onClick={() => onCancel(order.id)}
           >
             Cancel Order
           </Button>
         )}
 
-        {/* Order Items (Expandable) */}
+        {/* Order Items Expandable */}
         {items.length > 0 && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center justify-between w-full text-sm text-gray-500 hover:text-gray-700"
+            className="flex items-center justify-between w-full text-xs sm:text-sm text-gray-500 hover:text-gray-700"
           >
             <span>View order details</span>
-            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4" />}
           </button>
         )}
 
         {expanded && items.length > 0 && (
           <div className="space-y-2 pt-2 border-t">
             {items.map((item, i) => (
-              <div key={i} className="flex justify-between text-sm">
+              <div key={i} className="flex justify-between text-xs sm:text-sm">
                 <span className="text-gray-600">{item.quantity}x {item.name}</span>
                 <span className="font-medium">R{(item.price * item.quantity).toFixed(2)}</span>
               </div>
             ))}
-            <div className="flex justify-between text-sm pt-2 border-t">
+            <div className="flex justify-between text-xs sm:text-sm pt-2 border-t">
               <span className="text-gray-600">Delivery fee</span>
               <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
             </div>
             {order.discount_applied > 0 && (
-              <div className="flex justify-between text-sm text-green">
+              <div className="flex justify-between text-xs sm:text-sm text-green">
                 <span>Discount</span>
                 <span>-R{Number(order.discount_applied).toFixed(2)}</span>
               </div>
@@ -264,7 +260,7 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
   );
 }
 
-// Order history card component
+// Order history card component (mobile optimized)
 function OrderHistoryCard({ order, onReviewOrder }) {
   const [expanded, setExpanded] = useState(false);
   
@@ -285,57 +281,57 @@ function OrderHistoryCard({ order, onReviewOrder }) {
   return (
     <Card className="overflow-hidden">
       <CardHeader
-        className="cursor-pointer hover:bg-gray-50 transition-colors py-4"
+        className="cursor-pointer hover:bg-gray-50 transition-colors py-3 sm:py-4 px-3 sm:px-4"
         onClick={() => setExpanded(!expanded)}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center shrink-0">
-              <Package className="w-5 h-5 text-primary" />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-primary/10 rounded-lg flex items-center justify-center shrink-0">
+              <Package className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
             </div>
-            <div>
-              <h3 className="font-semibold text-gray-900 leading-tight">
+            <div className="flex-1 min-w-0">
+              <h3 className="font-semibold text-gray-900 text-sm sm:text-base truncate">
                 {order.restaurant_name || 'Restaurant'}
               </h3>
-              <p className="text-xs text-gray-500">
-                {order.created_at ? format(new Date(order.created_at), 'dd MMM yyyy, HH:mm') : ''}
+              <p className="text-[10px] sm:text-xs text-gray-500">
+                {order.created_at ? format(new Date(order.created_at), 'dd MMM yyyy') : ''}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 ml-2">
-            <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <span className={`px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[9px] sm:text-xs font-medium ${getStatusColor(order.status)} whitespace-nowrap`}>
               {getStatusText(order.status)}
             </span>
-            <span className="font-bold text-green whitespace-nowrap">R{Number(order.total).toFixed(2)}</span>
-            {expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+            <span className="font-bold text-green text-xs sm:text-sm whitespace-nowrap">R{Number(order.total).toFixed(2)}</span>
+            {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />}
           </div>
         </div>
       </CardHeader>
       
       {expanded && (
-        <CardContent className="pt-0 space-y-3 border-t">
+        <CardContent className="pt-0 space-y-3 border-t px-3 sm:px-4">
           <div className="space-y-1 pt-3">
             {items.map((item, i) => (
-              <div key={i} className="flex justify-between text-sm">
+              <div key={i} className="flex justify-between text-xs sm:text-sm">
                 <span className="text-gray-600">{item.quantity}x {item.name}</span>
                 <span>R{(item.price * item.quantity).toFixed(2)}</span>
               </div>
             ))}
           </div>
-          <div className="flex justify-between text-sm pt-2 border-t">
+          <div className="flex justify-between text-xs sm:text-sm pt-2 border-t">
             <span className="text-gray-500">Delivery fee</span>
             <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
           </div>
           {order.discount_applied > 0 && (
-            <div className="flex justify-between text-sm text-green">
+            <div className="flex justify-between text-xs sm:text-sm text-green">
               <span>Discount</span>
               <span>-R{Number(order.discount_applied).toFixed(2)}</span>
             </div>
           )}
           {order.delivery_address && (
-            <div className="flex items-start gap-2 text-sm text-gray-500">
-              <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>{order.delivery_address}</span>
+            <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-500">
+              <MapPin className="w-3 h-3 sm:w-4 sm:h-4 mt-0.5 shrink-0" />
+              <span className="break-words flex-1">{order.delivery_address}</span>
             </div>
           )}
           
@@ -344,10 +340,10 @@ function OrderHistoryCard({ order, onReviewOrder }) {
             <Button
               size="sm"
               variant="outline"
-              className="w-full mt-2 border-yellow-400 text-yellow-600 hover:bg-yellow-50"
+              className="w-full mt-2 border-yellow-400 text-yellow-600 hover:bg-yellow-50 text-xs sm:text-sm h-8 sm:h-9"
               onClick={() => onReviewOrder(order)}
             >
-              <Star className="w-4 h-4 mr-1" /> Rate this order
+              <Star className="w-3 h-3 sm:w-4 sm:h-4 mr-1" /> Rate this order
             </Button>
           )}
         </CardContent>
@@ -443,7 +439,7 @@ export default function CustomerOrders() {
       const handleStatusUpdate = (data) => {
         console.log('Status update received:', data);
         setLiveUpdates(prev => ({ ...prev, [data.orderId]: data.status }));
-        toast.info(`Order #${data.orderId} status updated to ${data.status?.replace(/_/g, ' ')}`);
+        toast.info(`Order #${data.orderId} updated to ${data.status?.replace(/_/g, ' ')}`);
         refetch();
       };
       
@@ -462,9 +458,9 @@ export default function CustomerOrders() {
 
   if (isLoading) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <div className="space-y-4">
-          {[1, 2, 3].map(i => <Skeleton key={i} className="h-32 w-full rounded-xl" />)}
+      <div className="max-w-3xl mx-auto px-3 sm:px-4 py-6 sm:py-8">
+        <div className="space-y-3 sm:space-y-4">
+          {[1, 2, 3].map(i => <Skeleton key={i} className="h-28 sm:h-32 w-full rounded-xl" />)}
         </div>
       </div>
     );
@@ -472,13 +468,13 @@ export default function CustomerOrders() {
 
   if (error) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <div className="text-center py-12 bg-white rounded-xl border">
-          <AlertCircle className="w-16 h-16 text-red-300 mx-auto mb-4" />
-          <p className="text-gray-500">Failed to load orders</p>
+      <div className="max-w-3xl mx-auto px-3 sm:px-4 py-6 sm:py-8">
+        <div className="text-center py-8 sm:py-12 bg-white rounded-xl border">
+          <AlertCircle className="w-12 h-12 sm:w-16 sm:h-16 text-red-300 mx-auto mb-3 sm:mb-4" />
+          <p className="text-sm sm:text-base text-gray-500">Failed to load orders</p>
           <button 
             onClick={() => refetch()} 
-            className="mt-4 text-green hover:underline"
+            className="mt-3 sm:mt-4 text-green hover:underline text-sm sm:text-base"
           >
             Try again
           </button>
@@ -488,31 +484,31 @@ export default function CustomerOrders() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">My Orders</h1>
+    <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0 mb-4 sm:mb-6">
+        <h1 className="text-xl sm:text-2xl font-bold">My Orders</h1>
         {online && (
-          <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+          <span className="text-[10px] sm:text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
             🟢 Live updates active
           </span>
         )}
       </div>
 
       {orders.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-xl border">
-          <Package className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500">No orders yet</p>
-          <p className="text-sm text-gray-400 mt-1">Browse restaurants and place your first order</p>
+        <div className="text-center py-8 sm:py-12 bg-white rounded-xl border">
+          <Package className="w-12 h-12 sm:w-16 sm:h-16 text-gray-300 mx-auto mb-3 sm:mb-4" />
+          <p className="text-sm sm:text-base text-gray-500">No orders yet</p>
+          <p className="text-xs sm:text-sm text-gray-400 mt-1">Browse restaurants and place your first order</p>
         </div>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-6 sm:space-y-8">
           {/* Active Orders */}
           {activeOrders.length > 0 && (
             <div>
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
+              <h2 className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 sm:mb-4">
                 Active Orders ({activeOrders.length})
               </h2>
-              <div className="space-y-4">
+              <div className="space-y-3 sm:space-y-4">
                 {activeOrders.map(order => (
                   <ActiveOrderCard 
                     key={order.id} 
@@ -529,10 +525,10 @@ export default function CustomerOrders() {
           {/* Order History */}
           {pastOrders.length > 0 && (
             <div>
-              <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">
+              <h2 className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 sm:mb-4">
                 Order History ({pastOrders.length})
               </h2>
-              <div className="space-y-3">
+              <div className="space-y-2 sm:space-y-3">
                 {pastOrders.map(order => (
                   <OrderHistoryCard 
                     key={order.id} 

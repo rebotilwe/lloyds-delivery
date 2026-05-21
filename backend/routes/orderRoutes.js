@@ -360,66 +360,55 @@ router.get("/reviews/order/:orderId", async (req, res) => {
 });
 
 /* =========================
-   GET SINGLE ORDER - THIS MUST BE THE LAST ROUTE
+   ASSIGN DRIVER TO ORDER - MUST BE BEFORE /:id
 ========================= */
-router.get("/:id", async (req, res) => {
+router.put("/:id/assign", async (req, res) => {
   try {
-    const orders = await db.query(
-      `SELECT o.*, 
-              u.name as customer_name,
-              u.email as customer_email,
-              r.name as restaurant_name,
-              (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
-       FROM orders o
-       LEFT JOIN users u ON o.customer_id = u.id
-       LEFT JOIN restaurants r ON o.restaurant_id = r.id
-       WHERE o.id = $1`,
-      [req.params.id]
+    const { driver_id } = req.body;
+    const orderId = req.params.id;
+    const io = req.app.get("io");
+
+    // Check if order exists
+    const orderCheck = await db.query(
+      "SELECT * FROM orders WHERE id = $1",
+      [orderId]
     );
     
-    if (orders.rows.length === 0) {
+    if (orderCheck.rows.length === 0) {
       return res.status(404).json({ message: "Order not found" });
     }
-    
-    const order = orders.rows[0];
-    
-    const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [req.params.id]);
-    
-    res.json({
-      id: order.id,
-      customer_id: order.customer_id,
-      customer_name: order.customer_name,
-      customer_email: order.customer_email,
-      restaurant_id: order.restaurant_id,
-      restaurant_name: order.restaurant_name,
-      total: order.total,
-      status: order.status,
-      delivery_address: order.delivery_address,
-      delivery_fee: order.delivery_fee,
-      created_at: order.created_at,
-      driver_id: order.driver_id,
-      driver_lat: order.driver_lat,
-      driver_lng: order.driver_lng,
-      driver_earning: order.driver_earning,
-      notes: order.notes,
-      payment_status: order.payment_status,
-      payment_transaction_id: order.payment_transaction_id,
-      reviewed: order.reviewed,
-      original_total: order.original_total,
-      promo_code: order.promo_code,
-      discount_applied: order.discount_applied,
-      item_count: order.item_count,
-      items: items.rows.map(item => ({
-        id: item.id,
-        name: item.name,
-        quantity: item.quantity,
-        price: item.price,
-        subtotal: (item.price * item.quantity)
-      }))
+
+    const order = orderCheck.rows[0];
+
+    // Update driver
+    await db.query(
+      "UPDATE orders SET driver_id = $1 WHERE id = $2",
+      [driver_id, orderId]
+    );
+
+    // Get driver info for notification
+    const driver = await db.query(
+      "SELECT name, email FROM users WHERE id = $1",
+      [driver_id]
+    );
+
+    // Notify driver via socket if available
+    if (io && driver.rows[0]) {
+      io.to(`driver_${driver_id}`).emit("order-assigned", {
+        orderId: parseInt(orderId),
+        restaurantName: order.restaurant_name,
+        customerAddress: order.delivery_address,
+        orderTotal: order.total,
+      });
+    }
+
+    res.json({ 
+      message: "Driver assigned successfully",
+      driver: driver.rows[0]
     });
   } catch (err) {
-    console.error("Error fetching order:", err);
-    res.status(500).json({ message: "Error fetching order", error: err.message });
+    console.error("Error assigning driver:", err);
+    res.status(500).json({ message: "Error assigning driver" });
   }
 });
 
@@ -579,6 +568,70 @@ router.put("/cancel/:id", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error cancelling order" });
+  }
+});
+
+/* =========================
+   GET SINGLE ORDER - THIS MUST BE THE LAST ROUTE
+========================= */
+router.get("/:id", async (req, res) => {
+  try {
+    const orders = await db.query(
+      `SELECT o.*, 
+              u.name as customer_name,
+              u.email as customer_email,
+              r.name as restaurant_name,
+              (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
+       FROM orders o
+       LEFT JOIN users u ON o.customer_id = u.id
+       LEFT JOIN restaurants r ON o.restaurant_id = r.id
+       WHERE o.id = $1`,
+      [req.params.id]
+    );
+    
+    if (orders.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+    
+    const order = orders.rows[0];
+    
+    const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [req.params.id]);
+    
+    res.json({
+      id: order.id,
+      customer_id: order.customer_id,
+      customer_name: order.customer_name,
+      customer_email: order.customer_email,
+      restaurant_id: order.restaurant_id,
+      restaurant_name: order.restaurant_name,
+      total: order.total,
+      status: order.status,
+      delivery_address: order.delivery_address,
+      delivery_fee: order.delivery_fee,
+      created_at: order.created_at,
+      driver_id: order.driver_id,
+      driver_lat: order.driver_lat,
+      driver_lng: order.driver_lng,
+      driver_earning: order.driver_earning,
+      notes: order.notes,
+      payment_status: order.payment_status,
+      payment_transaction_id: order.payment_transaction_id,
+      reviewed: order.reviewed,
+      original_total: order.original_total,
+      promo_code: order.promo_code,
+      discount_applied: order.discount_applied,
+      item_count: order.item_count,
+      items: items.rows.map(item => ({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        subtotal: (item.price * item.quantity)
+      }))
+    });
+  } catch (err) {
+    console.error("Error fetching order:", err);
+    res.status(500).json({ message: "Error fetching order", error: err.message });
   }
 });
 

@@ -14,6 +14,7 @@ import { verifyToken, authorizeRoles } from "./middleware/authMiddleware.js";
 import userRoutes from "./routes/userRoutes.js";
 import restaurantRoutes from "./routes/restaurantRoutes.js";
 import menuItemRoutes from "./routes/menuItemRoutes.js";
+import uploadRoutes from "./routes/uploadRoutes.js";
 
 import fs from "fs";
 import path from "path";
@@ -150,6 +151,10 @@ io.on("connection", (socket) => {
     console.log("🔴 Client disconnected:", socket.id);
   });
 });
+
+
+// Add this before your other routes
+app.use("/api/upload", uploadRoutes);
 
 // Middleware
 app.use(express.json({ limit: "50mb" }));

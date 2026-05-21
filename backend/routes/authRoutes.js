@@ -16,19 +16,15 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // Check if user exists
     const existing = await db.query("SELECT * FROM users WHERE email = $1", [email]);
     
     if (existing.rows.length > 0) {
       return res.status(409).json({ message: "Email already exists" });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-    
     const driver_status = role === "driver" ? "pending" : null;
 
-    // Insert user
     const result = await db.query(
       `INSERT INTO users (name, email, password_hash, role, driver_status, phone) 
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
@@ -107,8 +103,7 @@ router.get("/me", async (req, res) => {
       }
       
       const users = await db.query(
-        `SELECT id, name, email, role, phone, driver_status, is_available, earnings 
-         FROM users WHERE id = $1`,
+        "SELECT id, name, email, role, phone, driver_status, is_available, earnings FROM users WHERE id = $1",
         [userId]
       );
       
@@ -121,8 +116,7 @@ router.get("/me", async (req, res) => {
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-super-secret-key-change-this");
     const users = await db.query(
-      `SELECT id, name, email, role, phone, driver_status, is_available, earnings 
-       FROM users WHERE id = $1`,
+      "SELECT id, name, email, role, phone, driver_status, is_available, earnings FROM users WHERE id = $1",
       [decoded.id]
     );
     

@@ -16,19 +16,24 @@ router.post("/create", async (req, res) => {
       restaurant_name,
       status,
       total,
+      original_total,
       delivery_address,
       items,
       delivery_fee,
       notes,
-      payment_status,           // NEW: payment status
-      payment_transaction_id    // NEW: transaction ID from payment gateway
+      payment_status,
+      payment_transaction_id,
+      promo_code,
+      discount_applied
     } = req.body;
 
     console.log("Creating order with data:", { 
       customer_id, restaurant_id, total, delivery_address, 
       itemsCount: items?.length,
       payment_status,
-      payment_transaction_id 
+      payment_transaction_id,
+      promo_code,
+      discount_applied
     });
 
     // Validate required fields
@@ -38,15 +43,17 @@ router.post("/create", async (req, res) => {
       });
     }
 
-    // Insert order with payment fields - PostgreSQL syntax with RETURNING
+    // Insert order with payment fields - including reviewed column
     const result = await db.query(
       `INSERT INTO orders 
        (customer_id, customer_name, restaurant_id, restaurant_name, status, total, 
-        delivery_address, delivery_fee, notes, payment_status, payment_transaction_id, created_at) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()) RETURNING id`,
+        original_total, delivery_address, delivery_fee, notes, payment_status, 
+        payment_transaction_id, promo_code, discount_applied, reviewed, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW()) RETURNING id`,
       [customer_id, customer_name || 'Customer', restaurant_id, restaurant_name, 
-       status || 'pending', total, delivery_address, delivery_fee || 0, notes || null,
-       payment_status || 'pending', payment_transaction_id || null]
+       status || 'pending', total, original_total || total, delivery_address, 
+       delivery_fee || 0, notes || null, payment_status || 'pending', 
+       payment_transaction_id || null, promo_code || null, discount_applied || 0, false]
     );
 
     const orderId = result.rows[0].id;
@@ -218,6 +225,141 @@ router.get("/driver/:id", async (req, res) => {
 });
 
 /* =========================
+   CREATE REVIEW FOR ORDER
+========================= */
+router.post("/reviews/create", async (req, res) => {
+  try {
+    const { order_id, restaurant_id, driver_id, customer_id, rating, comment, type } = req.body;
+    
+    console.log("Creating review:", { order_id, restaurant_id, customer_id, rating, type });
+
+    // Validate rating
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+    }
+
+    // Check if order exists and belongs to customer
+    const orderCheck = await db.query(
+      "SELECT * FROM orders WHERE id = $1 AND customer_id = $2",
+      [order_id, customer_id]
+    );
+
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Order not found or unauthorized' });
+    }
+
+    const order = orderCheck.rows[0];
+
+    // Check if already reviewed
+    if (order.reviewed) {
+      return res.status(400).json({ error: 'Order already reviewed' });
+    }
+
+    // Insert review into database
+    const result = await db.query(
+      `INSERT INTO reviews 
+       (order_id, restaurant_id, driver_id, customer_id, rating, comment, type, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) 
+       RETURNING *`,
+      [order_id, restaurant_id, driver_id, customer_id, rating, comment || null, type || 'restaurant']
+    );
+
+    // Update order to mark as reviewed
+    await db.query(
+      "UPDATE orders SET reviewed = true WHERE id = $1",
+      [order_id]
+    );
+
+    // If driver review, update driver's average rating
+    if (type === 'driver' && driver_id) {
+      const driverReviews = await db.query(
+        "SELECT rating FROM reviews WHERE driver_id = $1 AND type = 'driver'",
+        [driver_id]
+      );
+      
+      if (driverReviews.rows.length > 0) {
+        const avgRating = driverReviews.rows.reduce((sum, r) => sum + r.rating, 0) / driverReviews.rows.length;
+        
+        await db.query(
+          "UPDATE users SET driver_rating = $1 WHERE id = $2",
+          [avgRating, driver_id]
+        );
+      }
+    }
+
+    console.log(`✅ Review created for order ${order_id}`);
+    res.status(201).json({ 
+      success: true, 
+      review: result.rows[0],
+      message: "Thank you for your review!"
+    });
+
+  } catch (err) {
+    console.error("Error creating review:", err);
+    res.status(500).json({ error: 'Failed to submit review', details: err.message });
+  }
+});
+
+/* =========================
+   GET REVIEWS FOR RESTAURANT
+========================= */
+router.get("/reviews/restaurant/:restaurantId", async (req, res) => {
+  try {
+    const results = await db.query(
+      `SELECT r.*, u.name as customer_name 
+       FROM reviews r
+       LEFT JOIN users u ON r.customer_id = u.id
+       WHERE r.restaurant_id = $1 AND r.type = 'restaurant'
+       ORDER BY r.created_at DESC`,
+      [req.params.restaurantId]
+    );
+    
+    res.json(results.rows || []);
+  } catch (err) {
+    console.error("Error fetching restaurant reviews:", err);
+    res.status(500).json({ error: 'Failed to fetch reviews' });
+  }
+});
+
+/* =========================
+   GET REVIEWS FOR DRIVER
+========================= */
+router.get("/reviews/driver/:driverId", async (req, res) => {
+  try {
+    const results = await db.query(
+      `SELECT r.*, u.name as customer_name 
+       FROM reviews r
+       LEFT JOIN users u ON r.customer_id = u.id
+       WHERE r.driver_id = $1 AND r.type = 'driver'
+       ORDER BY r.created_at DESC`,
+      [req.params.driverId]
+    );
+    
+    res.json(results.rows || []);
+  } catch (err) {
+    console.error("Error fetching driver reviews:", err);
+    res.status(500).json({ error: 'Failed to fetch reviews' });
+  }
+});
+
+/* =========================
+   CHECK IF ORDER HAS REVIEW
+========================= */
+router.get("/reviews/order/:orderId", async (req, res) => {
+  try {
+    const result = await db.query(
+      "SELECT reviewed FROM orders WHERE id = $1",
+      [req.params.orderId]
+    );
+    
+    res.json({ reviewed: result.rows[0]?.reviewed || false });
+  } catch (err) {
+    console.error("Error checking review status:", err);
+    res.status(500).json({ error: 'Failed to check review status' });
+  }
+});
+
+/* =========================
    GET SINGLE ORDER - MUST BE LAST
 ========================= */
 router.get("/:id", async (req, res) => {
@@ -262,6 +404,7 @@ router.get("/:id", async (req, res) => {
       notes: order.notes,
       payment_status: order.payment_status,
       payment_transaction_id: order.payment_transaction_id,
+      reviewed: order.reviewed,
       item_count: order.item_count,
       items: items.rows.map(item => ({
         id: item.id,

@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 
+const API_URL = import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com/api';
+
 export default function ReviewModal({ order, isOpen, onClose, onSubmitted }) {
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
@@ -20,7 +22,7 @@ export default function ReviewModal({ order, isOpen, onClose, onSubmitted }) {
 
     setSubmitting(true);
     try {
-      const response = await fetch('https://lloyds-delivery.onrender.com/api/reviews/create', {
+      const response = await fetch(`${API_URL}/orders/reviews/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -30,18 +32,21 @@ export default function ReviewModal({ order, isOpen, onClose, onSubmitted }) {
           customer_id: order.customer_id,
           rating: rating,
           comment: comment,
-          type: 'restaurant' // or 'driver' - you can add tabs for both
+          type: 'restaurant'
         })
       });
 
-      if (!response.ok) throw new Error('Failed to submit review');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to submit review');
+      }
 
       toast.success('Thank you for your review!');
       onSubmitted();
       onClose();
     } catch (err) {
-      console.error(err);
-      toast.error('Failed to submit review');
+      console.error('Review error:', err);
+      toast.error(err.message || 'Failed to submit review');
     } finally {
       setSubmitting(false);
     }

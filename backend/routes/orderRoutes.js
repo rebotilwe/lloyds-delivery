@@ -225,7 +225,7 @@ router.get("/driver/:id", async (req, res) => {
 });
 
 /* =========================
-   CREATE REVIEW FOR ORDER
+   CREATE REVIEW FOR ORDER - MUST BE BEFORE /:id
 ========================= */
 router.post("/reviews/create", async (req, res) => {
   try {
@@ -301,7 +301,7 @@ router.post("/reviews/create", async (req, res) => {
 });
 
 /* =========================
-   GET REVIEWS FOR RESTAURANT
+   GET REVIEWS FOR RESTAURANT - MUST BE BEFORE /:id
 ========================= */
 router.get("/reviews/restaurant/:restaurantId", async (req, res) => {
   try {
@@ -322,7 +322,7 @@ router.get("/reviews/restaurant/:restaurantId", async (req, res) => {
 });
 
 /* =========================
-   GET REVIEWS FOR DRIVER
+   GET REVIEWS FOR DRIVER - MUST BE BEFORE /:id
 ========================= */
 router.get("/reviews/driver/:driverId", async (req, res) => {
   try {
@@ -343,7 +343,7 @@ router.get("/reviews/driver/:driverId", async (req, res) => {
 });
 
 /* =========================
-   CHECK IF ORDER HAS REVIEW
+   CHECK IF ORDER HAS REVIEW - MUST BE BEFORE /:id
 ========================= */
 router.get("/reviews/order/:orderId", async (req, res) => {
   try {
@@ -360,7 +360,7 @@ router.get("/reviews/order/:orderId", async (req, res) => {
 });
 
 /* =========================
-   GET SINGLE ORDER - MUST BE LAST
+   GET SINGLE ORDER - THIS MUST BE THE LAST ROUTE
 ========================= */
 router.get("/:id", async (req, res) => {
   try {
@@ -405,6 +405,9 @@ router.get("/:id", async (req, res) => {
       payment_status: order.payment_status,
       payment_transaction_id: order.payment_transaction_id,
       reviewed: order.reviewed,
+      original_total: order.original_total,
+      promo_code: order.promo_code,
+      discount_applied: order.discount_applied,
       item_count: order.item_count,
       items: items.rows.map(item => ({
         id: item.id,

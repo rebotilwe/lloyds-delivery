@@ -4,12 +4,11 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Check if SSL is disabled
-const isSSLDisabled = process.env.DATABASE_URL?.includes('sslmode=disable');
-
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: isSSLDisabled ? false : { rejectUnauthorized: false },
+  ssl: process.env.NODE_ENV === 'production' 
+    ? { rejectUnauthorized: false } 
+    : false,
   connectionTimeoutMillis: 10000,
 });
 

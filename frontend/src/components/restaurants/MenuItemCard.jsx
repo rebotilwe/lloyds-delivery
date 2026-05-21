@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
 export default function MenuItemCard({ item, restaurant }) {
-  const { addToCart } = useCart();
+  const { addToCart } = useCart();  // ✅ FIXED: useCart not useAuth
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
 

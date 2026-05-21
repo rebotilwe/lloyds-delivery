@@ -19,10 +19,17 @@ router.post("/create", async (req, res) => {
       delivery_address,
       items,
       delivery_fee,
-      notes
+      notes,
+      payment_status,           // NEW: payment status
+      payment_transaction_id    // NEW: transaction ID from payment gateway
     } = req.body;
 
-    console.log("Creating order with data:", { customer_id, restaurant_id, total, delivery_address, itemsCount: items?.length });
+    console.log("Creating order with data:", { 
+      customer_id, restaurant_id, total, delivery_address, 
+      itemsCount: items?.length,
+      payment_status,
+      payment_transaction_id 
+    });
 
     // Validate required fields
     if (!customer_id || !restaurant_id || !total || !delivery_address) {
@@ -31,12 +38,15 @@ router.post("/create", async (req, res) => {
       });
     }
 
-    // Insert order - PostgreSQL syntax with RETURNING
+    // Insert order with payment fields - PostgreSQL syntax with RETURNING
     const result = await db.query(
       `INSERT INTO orders 
-       (customer_id, customer_name, restaurant_id, restaurant_name, status, total, delivery_address, delivery_fee, notes, created_at) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()) RETURNING id`,
-      [customer_id, customer_name || 'Customer', restaurant_id, restaurant_name, status || 'pending', total, delivery_address, delivery_fee || 0, notes || null]
+       (customer_id, customer_name, restaurant_id, restaurant_name, status, total, 
+        delivery_address, delivery_fee, notes, payment_status, payment_transaction_id, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()) RETURNING id`,
+      [customer_id, customer_name || 'Customer', restaurant_id, restaurant_name, 
+       status || 'pending', total, delivery_address, delivery_fee || 0, notes || null,
+       payment_status || 'pending', payment_transaction_id || null]
     );
 
     const orderId = result.rows[0].id;
@@ -95,7 +105,8 @@ router.post("/create", async (req, res) => {
     res.status(201).json({ 
       success: true, 
       orderId: orderId,
-      message: "Order placed successfully" 
+      message: "Order placed successfully",
+      payment_status: payment_status || 'pending'
     });
 
   } catch (err) {
@@ -249,6 +260,8 @@ router.get("/:id", async (req, res) => {
       driver_lng: order.driver_lng,
       driver_earning: order.driver_earning,
       notes: order.notes,
+      payment_status: order.payment_status,
+      payment_transaction_id: order.payment_transaction_id,
       item_count: order.item_count,
       items: items.rows.map(item => ({
         id: item.id,

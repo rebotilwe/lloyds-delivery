@@ -6,13 +6,13 @@ const router = express.Router();
 // GET all menu items
 router.get("/", async (req, res) => {
   try {
-    const [results] = await db.query(
+    const results = await db.query(
       `SELECT mi.*, r.name as restaurant_name 
        FROM menu_items mi
        LEFT JOIN restaurants r ON mi.restaurant_id = r.id
        ORDER BY mi.created_at DESC`
     );
-    res.json(results);
+    res.json(results.rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: err.message });
@@ -22,11 +22,11 @@ router.get("/", async (req, res) => {
 // GET menu items by restaurant
 router.get("/restaurant/:restaurant_id", async (req, res) => {
   try {
-    const [results] = await db.query(
-      "SELECT * FROM menu_items WHERE restaurant_id = ? ORDER BY name",
+    const results = await db.query(
+      "SELECT * FROM menu_items WHERE restaurant_id = $1 ORDER BY name",
       [req.params.restaurant_id]
     );
-    res.json(results);
+    res.json(results.rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: err.message });
@@ -36,14 +36,14 @@ router.get("/restaurant/:restaurant_id", async (req, res) => {
 // GET single menu item
 router.get("/:id", async (req, res) => {
   try {
-    const [results] = await db.query(
-      "SELECT * FROM menu_items WHERE id = ?",
+    const results = await db.query(
+      "SELECT * FROM menu_items WHERE id = $1",
       [req.params.id]
     );
-    if (results.length === 0) {
+    if (results.rows.length === 0) {
       return res.status(404).json({ message: "Menu item not found" });
     }
-    res.json(results[0]);
+    res.json(results.rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: err.message });
@@ -55,15 +55,15 @@ router.post("/", async (req, res) => {
   try {
     const { restaurant_id, name, description, price, image_url, category } = req.body;
     
-    const [result] = await db.query(
+    const result = await db.query(
       `INSERT INTO menu_items 
        (restaurant_id, name, description, price, image_url, category) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       [restaurant_id, name, description, price, image_url || null, category || null]
     );
     
     res.status(201).json({ 
-      id: result.insertId, 
+      id: result.rows[0].id, 
       message: "Menu item created successfully" 
     });
   } catch (err) {
@@ -79,8 +79,8 @@ router.put("/:id", async (req, res) => {
     
     await db.query(
       `UPDATE menu_items 
-       SET restaurant_id = ?, name = ?, description = ?, price = ?, image_url = ?, category = ?
-       WHERE id = ?`,
+       SET restaurant_id = $1, name = $2, description = $3, price = $4, image_url = $5, category = $6
+       WHERE id = $7`,
       [restaurant_id, name, description, price, image_url, category, req.params.id]
     );
     
@@ -94,7 +94,7 @@ router.put("/:id", async (req, res) => {
 // DELETE menu item
 router.delete("/:id", async (req, res) => {
   try {
-    await db.query("DELETE FROM menu_items WHERE id = ?", [req.params.id]);
+    await db.query("DELETE FROM menu_items WHERE id = $1", [req.params.id]);
     res.json({ message: "Menu item deleted successfully" });
   } catch (err) {
     console.error(err);

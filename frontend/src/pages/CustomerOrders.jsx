@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
-import { Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, AlertCircle } from 'lucide-react';
+import { Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, AlertCircle, Navigation } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,16 +32,103 @@ function cn(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
+// Live Map Component (inline for now)
+let L = null;
+let mapInitialized = false;
+
+function LiveMap({ driverLocation, orderStatus }) {
+  const mapRef = React.useRef(null);
+  const mapContainerRef = React.useRef(null);
+  const driverMarkerRef = React.useRef(null);
+  const [mapLoaded, setMapLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!L && typeof window !== 'undefined') {
+      import('leaflet').then((leaflet) => {
+        L = leaflet.default;
+        setMapLoaded(true);
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mapLoaded && mapContainerRef.current && !mapRef.current) {
+      mapRef.current = L.map(mapContainerRef.current).setView([-29.65, 31.05], 13);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+        subdomains: 'abcd',
+        maxZoom: 19,
+      }).addTo(mapRef.current);
+    }
+
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, [mapLoaded]);
+
+  useEffect(() => {
+    if (!mapRef.current || !L || !mapLoaded) return;
+
+    if (driverMarkerRef.current) driverMarkerRef.current.remove();
+
+    if (driverLocation?.lat && driverLocation?.lng && orderStatus === 'on_the_way') {
+      const driverIcon = L.divIcon({
+        className: 'custom-div-icon',
+        html: `<div style="background-color: #10b981; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.2);"><span style="font-size: 18px;">🚚</span></div>`,
+        iconSize: [32, 32],
+        popupAnchor: [0, -15]
+      });
+      
+      driverMarkerRef.current = L.marker([driverLocation.lat, driverLocation.lng], { icon: driverIcon })
+        .addTo(mapRef.current)
+        .bindPopup('<b>Driver</b><br>Your delivery is on the way!');
+      
+      mapRef.current.setView([driverLocation.lat, driverLocation.lng], 14);
+    }
+  }, [driverLocation, orderStatus, L, mapLoaded]);
+
+  if (!mapLoaded) {
+    return (
+      <div className="h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green"></div>
+        <span className="ml-2 text-xs text-gray-500">Loading map...</span>
+      </div>
+    );
+  }
+
+  if (!driverLocation?.lat || !driverLocation?.lng || orderStatus !== 'on_the_way') {
+    return null;
+  }
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center gap-2 mb-2">
+        <Navigation className="w-4 h-4 text-green animate-pulse" />
+        <span className="text-xs font-medium text-green">Live Driver Location</span>
+      </div>
+      <div 
+        ref={mapContainerRef} 
+        className="w-full h-48 rounded-lg overflow-hidden border shadow-sm"
+      />
+      <p className="text-xs text-gray-500 text-center mt-2">
+        Driver is en route to your location
+      </p>
+    </div>
+  );
+}
+
 // Active order card component
-function ActiveOrderCard({ order, onCancel, currentUserId }) {
+function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
   const [expanded, setExpanded] = useState(false);
   const currentStep = getCurrentStep(order.status);
 
-  // Parse items if it's a string
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
   const itemCount = items.length;
-  
   const canCancel = order.status === 'pending' || order.status === 'confirmed';
+  const showMap = order.status === 'on_the_way';
 
   return (
     <Card className="overflow-hidden border-2 border-green/20 shadow-md">
@@ -80,7 +167,6 @@ function ActiveOrderCard({ order, onCancel, currentUserId }) {
               </div>
             ))}
           </div>
-          {/* Progress bar */}
           <div className="absolute top-4 left-0 right-0 h-0.5 bg-gray-200 -z-10">
             <div 
               className="h-full bg-green transition-all duration-500"
@@ -106,6 +192,28 @@ function ActiveOrderCard({ order, onCancel, currentUserId }) {
           <MapPin className="w-4 h-4 mt-0.5 shrink-0" />
           <span>{order.delivery_address || 'No address provided'}</span>
         </div>
+
+        {/* Status Message */}
+        {order.status === 'confirmed' && (
+          <div className="bg-blue-50 p-2 rounded-lg text-center">
+            <p className="text-xs text-blue-700">⏱️ Restaurant is preparing your order</p>
+          </div>
+        )}
+        {order.status === 'ready_for_pickup' && (
+          <div className="bg-purple-50 p-2 rounded-lg text-center">
+            <p className="text-xs text-purple-700">🍔 Order ready! Driver assigned</p>
+          </div>
+        )}
+        {order.status === 'picked_up' && (
+          <div className="bg-indigo-50 p-2 rounded-lg text-center">
+            <p className="text-xs text-indigo-700">🚚 Driver has picked up your order</p>
+          </div>
+        )}
+
+        {/* Live Map - Only for on_the_way status */}
+        {showMap && driverLocation && (
+          <LiveMap driverLocation={driverLocation} orderStatus={order.status} />
+        )}
 
         {/* Cancel Button */}
         {canCancel && (
@@ -165,7 +273,6 @@ function OrderHistoryCard({ order }) {
     return status?.replace(/_/g, ' ').toUpperCase() || 'PENDING';
   };
 
-  // Parse items if it's a string
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
 
   return (
@@ -229,6 +336,21 @@ export default function CustomerOrders() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [liveUpdates, setLiveUpdates] = useState({});
+  const [driverLocation, setDriverLocation] = useState(null);
+
+  // Listen for driver location updates
+  useEffect(() => {
+    if (socket && online) {
+      socket.on('driver-location-update', (data) => {
+        console.log('Driver location update:', data);
+        setDriverLocation({ lat: data.lat, lng: data.lng });
+      });
+      
+      return () => {
+        socket.off('driver-location-update');
+      };
+    }
+  }, [socket, online]);
 
   // Fetch orders
   const { data: orders = [], isLoading, error, refetch } = useQuery({
@@ -272,19 +394,12 @@ export default function CustomerOrders() {
       }
       
       toast.success('Order cancelled successfully');
-      refetch(); // Refresh orders list
+      refetch();
     } catch (err) {
       console.error('Cancel error:', err);
       toast.error(err.message || 'Failed to cancel order');
     }
   };
-
-  // Debug logging
-  useEffect(() => {
-    console.log('User ID:', user?.id);
-    console.log('Orders fetched:', orders);
-    console.log('Orders count:', orders.length);
-  }, [user, orders]);
 
   // Socket connection for real-time updates
   useEffect(() => {
@@ -323,7 +438,6 @@ export default function CustomerOrders() {
     );
   }
 
-  // Show error message if API fails
   if (error) {
     return (
       <div className="max-w-3xl mx-auto px-4 py-8">
@@ -373,6 +487,7 @@ export default function CustomerOrders() {
                     order={liveUpdates[order.id] ? { ...order, status: liveUpdates[order.id] } : order}
                     onCancel={handleCancelOrder}
                     currentUserId={user?.id}
+                    driverLocation={driverLocation}
                   />
                 ))}
               </div>

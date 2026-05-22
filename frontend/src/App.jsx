@@ -14,6 +14,7 @@ import Home from '@/pages/Home';
 import RestaurantDetail from '@/pages/RestaurantDetail';
 import Cart from '@/pages/Cart';
 import Login from '@/pages/Login';
+import ResetPassword from '@/pages/ResetPassword';
 import Signup from '@/pages/Signup';
 import CustomerOrders from '@/pages/CustomerOrders';
 import CustomerProfile from '@/pages/CustomerProfile';
@@ -98,6 +99,8 @@ function App() {
                     <Route path="/order-confirmation" element={<OrderConfirmation />} />
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/faq" element={<FAQ />} />
+              
+                    <Route path="/reset-password" element={<ResetPassword />} />
                   </Route>
 
                   {/* ---------------- CART (PROTECTED) ---------------- */}

@@ -157,5 +157,95 @@ router.post("/change-password", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+/* =========================
+   FORGOT PASSWORD - REQUEST RESET
+========================= */
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
 
+    // Check if user exists
+    const users = await db.query("SELECT * FROM users WHERE email = $1", [email]);
+    
+    if (users.rows.length === 0) {
+      // Don't reveal that user doesn't exist for security reasons
+      return res.json({ message: "If an account exists, a reset link will be sent." });
+    }
+
+    const user = users.rows[0];
+    
+    // Generate reset token (expires in 1 hour)
+    const resetToken = jwt.sign(
+      { id: user.id, email: user.email },
+      process.env.JWT_SECRET || "your-super-secret-key",
+      { expiresIn: "1h" }
+    );
+    
+    // Store token in database (optional - can also just send via email)
+    await db.query(
+      "UPDATE users SET reset_token = $1, reset_token_expires = NOW() + INTERVAL '1 hour' WHERE id = $2",
+      [resetToken, user.id]
+    );
+    
+    // Send reset email
+    const resetLink = `${process.env.FRONTEND_URL || "https://lloyds-delivery.netlify.app"}/reset-password?token=${resetToken}`;
+    
+    // You'll need to create a sendPasswordResetEmail function in emailService.js
+    await sendPasswordResetEmail(user.email, user.name, resetLink);
+    
+    res.json({ message: "Password reset link sent to your email" });
+  } catch (err) {
+    console.error("Forgot password error:", err);
+    res.status(500).json({ message: "Failed to process request" });
+  }
+});
+
+/* =========================
+   RESET PASSWORD
+========================= */
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { token, new_password } = req.body;
+    
+    if (!token || !new_password) {
+      return res.status(400).json({ message: "Token and new password are required" });
+    }
+    
+    // Verify token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || "your-super-secret-key");
+    } catch (err) {
+      return res.status(400).json({ message: "Invalid or expired reset link" });
+    }
+    
+    // Check if token exists in database
+    const users = await db.query(
+      "SELECT * FROM users WHERE id = $1 AND reset_token = $2 AND reset_token_expires > NOW()",
+      [decoded.id, token]
+    );
+    
+    if (users.rows.length === 0) {
+      return res.status(400).json({ message: "Invalid or expired reset link" });
+    }
+    
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(new_password, 10);
+    
+    // Update password and clear reset token
+    await db.query(
+      "UPDATE users SET password_hash = $1, reset_token = NULL, reset_token_expires = NULL WHERE id = $2",
+      [hashedPassword, decoded.id]
+    );
+    
+    res.json({ message: "Password reset successfully" });
+  } catch (err) {
+    console.error("Reset password error:", err);
+    res.status(500).json({ message: "Failed to reset password" });
+  }
+});
 export default router;

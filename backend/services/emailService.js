@@ -47,6 +47,8 @@ export const sendOrderConfirmation = async (order, customerEmail, customerName) 
 
   const items = order.items || [];
   
+  const frontendUrl = process.env.FRONTEND_URL || 'https://lloyds-delivery.netlify.app';
+  
   const mailOptions = {
     from: '"Lloyd\'s Delivery" <noreply@lloydsdelivery.co.za>',
     to: customerEmail,
@@ -103,7 +105,7 @@ export const sendOrderConfirmation = async (order, customerEmail, customerName) 
             </div>
             
             <p>You can track your order status in real-time:</p>
-            <a href="http://localhost:5173/orders" class="button">Track Your Order</a>
+            <a href="${frontendUrl}/orders" class="button">Track Your Order</a>
           </div>
           <div class="footer">
             <p>Lloyd's Delivery - Fast, reliable food delivery at your fingertips.</p>
@@ -152,6 +154,8 @@ export const sendOrderStatusUpdate = async (order, customerEmail, customerName, 
     cancelled: '#e74c3c',
   };
 
+  const frontendUrl = process.env.FRONTEND_URL || 'https://lloyds-delivery.netlify.app';
+
   const mailOptions = {
     from: '"Lloyd\'s Delivery" <noreply@lloydsdelivery.co.za>',
     to: customerEmail,
@@ -194,7 +198,7 @@ export const sendOrderStatusUpdate = async (order, customerEmail, customerName, 
             </div>
             
             <p>Track your order live:</p>
-            <a href="http://localhost:5173/orders" class="button">Track Your Order</a>
+            <a href="${frontendUrl}/orders" class="button">Track Your Order</a>
           </div>
           <div class="footer">
             <p>Lloyd's Delivery - Fast, reliable food delivery at your fingertips.</p>
@@ -214,5 +218,87 @@ export const sendOrderStatusUpdate = async (order, customerEmail, customerName, 
     return info;
   } catch (error) {
     console.error('Error sending email:', error);
+  }
+};
+
+// Send password reset email
+export const sendPasswordResetEmail = async (email, name, resetLink) => {
+  if (!transporter) {
+    console.log('Email transporter not initialized, skipping email');
+    return;
+  }
+
+  const mailOptions = {
+    from: '"Lloyd\'s Delivery" <noreply@lloydsdelivery.co.za>',
+    to: email,
+    subject: '🔐 Reset Your Lloyd\'s Delivery Password',
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; }
+          .header { background-color: #1a2c3e; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; }
+          .header h1 { color: #2ecc71; margin: 0; font-size: 24px; }
+          .content { padding: 30px; }
+          .warning-box { background-color: #fff3cd; border: 1px solid #ffecb5; padding: 15px; border-radius: 8px; margin: 20px 0; }
+          .button { background-color: #2ecc71; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 15px 0; font-weight: bold; }
+          .footer { text-align: center; padding: 20px; font-size: 12px; color: #999; border-top: 1px solid #eee; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🍔 Lloyd's Delivery</h1>
+            <p>Password Reset Request</p>
+          </div>
+          <div class="content">
+            <p>Dear <strong>${name || 'Customer'}</strong>,</p>
+            <p>We received a request to reset your password for your Lloyd's Delivery account.</p>
+            
+            <div class="warning-box">
+              <p style="margin: 0; color: #856404;">⚠️ If you didn't request this, you can safely ignore this email.</p>
+            </div>
+            
+            <p>Click the button below to reset your password:</p>
+            
+            <div style="text-align: center;">
+              <a href="${resetLink}" class="button">Reset My Password</a>
+            </div>
+            
+            <p>Or copy this link into your browser:</p>
+            <p style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; word-break: break-all; font-size: 12px;">
+              ${resetLink}
+            </p>
+            
+            <p><strong>Important:</strong> This link will expire in 1 hour for security reasons.</p>
+            
+            <hr style="margin: 20px 0; border-color: #eee;" />
+            
+            <p style="font-size: 12px; color: #999;">
+              Lloyd's Delivery - Fast, reliable food delivery at your fingertips.<br>
+              Questions? Contact us at support@lloydsdelivery.co.za
+            </p>
+          </div>
+          <div class="footer">
+            <p>&copy; ${new Date().getFullYear()} Lloyd's Delivery. All rights reserved.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `,
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`📧 Password reset email sent to ${email}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`   Preview URL: ${nodemailer.getTestMessageUrl(info)}`);
+    }
+    return info;
+  } catch (error) {
+    console.error('Error sending password reset email:', error);
+    throw error;
   }
 };

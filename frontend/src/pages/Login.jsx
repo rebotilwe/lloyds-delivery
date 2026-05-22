@@ -9,6 +9,9 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
 
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -28,6 +31,37 @@ export default function Login() {
 
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!resetEmail) {
+      toast.error("Please enter your email address");
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      const response = await fetch("https://lloyds-delivery.onrender.com/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resetEmail })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to send reset email");
+      }
+
+      toast.success("Password reset link sent to your email!");
+      setShowResetModal(false);
+      setResetEmail("");
+    } catch (err) {
+      console.error("Forgot password error:", err);
+      toast.error(err.message || "Failed to send reset email. Please try again.");
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -75,6 +109,17 @@ export default function Login() {
             />
           </div>
 
+          {/* Forgot Password Link */}
+          <div className="text-right">
+            <button
+              type="button"
+              onClick={() => setShowResetModal(true)}
+              className="text-sm text-green hover:text-green/80 transition"
+            >
+              Forgot password?
+            </button>
+          </div>
+
           <Button
             type="submit"
             disabled={loading}
@@ -111,8 +156,51 @@ export default function Login() {
           <p>📧 driver@lloyds.com / 123456 (Driver)</p>
           <p>📧 customer@lloyds.com / 123456 (Customer)</p>
         </div>
-
       </div>
+
+      {/* Forgot Password Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full p-6">
+            <h2 className="text-xl font-bold mb-2">Reset Password</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Enter your email address and we'll send you a link to reset your password.
+            </p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Email Address
+                </label>
+                <Input
+                  type="email"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => setShowResetModal(false)}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleForgotPassword}
+                  disabled={resetLoading}
+                  className="flex-1 bg-green hover:bg-green/90 text-white"
+                >
+                  {resetLoading ? "Sending..." : "Send Reset Link"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

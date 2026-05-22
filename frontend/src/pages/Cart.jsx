@@ -6,9 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
-import { useCart } from '@/lib/cartStore';  // ← FIXED: changed from CartContext to cartStore
+import { useCart } from '@/lib/cartStore';
 import { toast } from 'sonner';
 import PromoCode from '@/components/PromoCode';
+
+// Standard delivery fee for Verulam
+const DELIVERY_FEE = 20;
 
 const formatPrice = (price) => {
   const numPrice = typeof price === 'string' ? parseFloat(price) : price;
@@ -65,7 +68,11 @@ export default function Cart() {
     setAppliedPromoCode(null);
   };
 
-  const discountedTotal = getNumericPrice(total) - promoDiscount;
+  // Calculate total with delivery fee
+  const subtotalAmount = getNumericPrice(subtotal);
+  const deliveryFee = DELIVERY_FEE;
+  const totalWithDelivery = subtotalAmount + deliveryFee;
+  const discountedTotal = totalWithDelivery - promoDiscount;
 
   const handlePlaceOrder = async () => {
     if (!isAuthenticated) {
@@ -100,7 +107,7 @@ export default function Cart() {
           total: orderTotal,
           original_total: getNumericPrice(total),
           delivery_address: address,
-          delivery_fee: 0,
+          delivery_fee: deliveryFee,
           notes: notes,
           payment_status: 'paid',
           payment_transaction_id: paymentResult.transactionId,
@@ -197,11 +204,12 @@ export default function Cart() {
         <div className="p-3 md:p-4 space-y-3">
           <h3 className="font-semibold text-sm md:text-base mb-2">Delivery Address</h3>
           <Input 
-            placeholder="Street address *" 
+            placeholder="Street address * (Verulam area)" 
             value={address} 
             onChange={e => setAddress(e.target.value)} 
             className="text-sm md:text-base" 
           />
+          <p className="text-xs text-gray-500">📍 Delivery fee: R{deliveryFee} (Standard rate for Verulam area)</p>
           <Textarea 
             placeholder="Notes (optional)" 
             value={notes} 
@@ -218,7 +226,7 @@ export default function Cart() {
           </div>
           
           <PromoCode 
-            subtotal={getNumericPrice(subtotal)} 
+            subtotal={subtotalAmount} 
             onApply={handleApplyPromo}
             onRemove={handleRemovePromo}
           />
@@ -231,8 +239,8 @@ export default function Cart() {
           )}
           
           <div className="flex justify-between text-sm">
-            <span>Delivery fee</span>
-            <span>R0.00</span>
+            <span>Delivery fee (Verulam)</span>
+            <span>R{formatPrice(deliveryFee)}</span>
           </div>
           <Separator className="my-2" />
           <div className="flex justify-between font-bold text-base md:text-lg">
@@ -253,7 +261,7 @@ export default function Cart() {
                 Placing Order...
               </>
             ) : (
-              'Place Order'
+              `Place Order • R${formatPrice(discountedTotal)}`
             )}
           </Button>
         </div>

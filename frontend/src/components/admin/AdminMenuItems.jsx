@@ -54,53 +54,63 @@ export default function AdminMenuItems({ restaurants = [] }) {
     return restaurant?.name || '-';
   };
 
-  // Handle image upload
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+ // Handle image upload
+const handleImageUpload = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please upload an image file');
-      return;
+  // Validate file type
+  if (!file.type.startsWith('image/')) {
+    toast.error('Please upload an image file');
+    return;
+  }
+
+  // Validate file size (max 5MB)
+  if (file.size > 5 * 1024 * 1024) {
+    toast.error('Image must be less than 5MB');
+    return;
+  }
+
+  setUploadingImage(true);
+
+  const uploadFormData = new FormData();
+  uploadFormData.append('image', file);
+
+  try {
+    // Use the same endpoint as restaurant images
+    const response = await fetch('https://lloyds-delivery.onrender.com/api/upload', {
+      method: 'POST',
+      body: uploadFormData,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Upload failed');
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('Image must be less than 5MB');
-      return;
+    // Handle the response format from your backend
+    // Your backend returns: { success: true, imageUrl: "/uploads/restaurants/filename.jpg" }
+    let fullImageUrl = data.imageUrl;
+    
+    // If it's a relative path, convert to full URL
+    if (fullImageUrl && fullImageUrl.startsWith('/uploads')) {
+      fullImageUrl = `https://lloyds-delivery.onrender.com${fullImageUrl}`;
     }
+    
+    // Update form data with the uploaded image URL
+    setForm(prev => ({ ...prev, image_url: fullImageUrl }));
+    toast.success('Image uploaded successfully');
 
-    setUploadingImage(true);
-
-    const uploadFormData = new FormData();
-    uploadFormData.append('image', file);
-
-    try {
-      const response = await fetch('https://lloyds-delivery.onrender.com/api/upload', {
-        method: 'POST',
-        body: uploadFormData,
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Upload failed');
-      }
-
-      // Update form data with the uploaded image URL
-      setForm(prev => ({ ...prev, image_url: data.imageUrl }));
-      toast.success('Image uploaded successfully');
-
-    } catch (error) {
-      console.error('Upload error:', error);
-      toast.error(error.message || 'Failed to upload image');
-    } finally {
-      setUploadingImage(false);
-      // Clear file input
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
+  } catch (error) {
+    console.error('Upload error:', error);
+    toast.error(error.message || 'Failed to upload image');
+  } finally {
+    setUploadingImage(false);
+    // Clear file input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+};
 
   const handleSave = async () => {
     if (!form.name || !form.restaurant_id || form.price <= 0) {

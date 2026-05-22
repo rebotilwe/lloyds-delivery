@@ -25,22 +25,23 @@ export default function AdminMenuItems({ restaurants = [] }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState(null);
+  const [saving, setSaving] = useState(false);
   const queryClient = useQueryClient();
 
- // Fetch menu items from API
-const { data: menuItems = [], isLoading } = useQuery({
-  queryKey: ['adminMenuItems'],
-  queryFn: async () => {
-    try {
-      const response = await api.get('/menu-items');
-      console.log('Menu items response:', response);
-      return response || [];
-    } catch (err) {
-      console.error('Error fetching menu items:', err);
-      return [];
-    }
-  },
-});
+  // Fetch menu items from API
+  const { data: menuItems = [], isLoading, refetch } = useQuery({
+    queryKey: ['adminMenuItems'],
+    queryFn: async () => {
+      try {
+        const response = await api.get('/menu-items');
+        console.log('Menu items response:', response);
+        return response || [];
+      } catch (err) {
+        console.error('Error fetching menu items:', err);
+        return [];
+      }
+    },
+  });
 
   const getRestaurantName = (restaurantId) => {
     const restaurant = restaurants.find(r => r.id === restaurantId);
@@ -53,6 +54,7 @@ const { data: menuItems = [], isLoading } = useQuery({
       return;
     }
 
+    setSaving(true);
     try {
       if (editId) {
         await api.put(`/menu-items/${editId}`, form);
@@ -64,10 +66,15 @@ const { data: menuItems = [], isLoading } = useQuery({
       setOpen(false);
       setForm(emptyForm);
       setEditId(null);
+      // Invalidate both queries to ensure data refresh
       queryClient.invalidateQueries({ queryKey: ['adminMenuItems'] });
+      queryClient.invalidateQueries({ queryKey: ['menu-items'] });
+      await refetch();
     } catch (error) {
-      console.error(error);
+      console.error('Save error:', error);
       toast.error(error.response?.data?.message || 'Failed to save menu item');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -90,8 +97,10 @@ const { data: menuItems = [], isLoading } = useQuery({
         await api.delete(`/menu-items/${id}`);
         toast.success('Menu item deleted successfully');
         queryClient.invalidateQueries({ queryKey: ['adminMenuItems'] });
+        queryClient.invalidateQueries({ queryKey: ['menu-items'] });
+        await refetch();
       } catch (error) {
-        console.error(error);
+        console.error('Delete error:', error);
         toast.error(error.response?.data?.message || 'Failed to delete menu item');
       }
     }
@@ -122,7 +131,7 @@ const { data: menuItems = [], isLoading } = useQuery({
           } 
         }}>
           <DialogTrigger asChild>
-            <Button size="sm" className="bg-green hover:bg-green/600 text-white">
+            <Button size="sm" className="bg-green hover:bg-green/90 text-white">
               <Plus className="w-4 h-4 mr-1" /> Add Menu Item
             </Button>
           </DialogTrigger>
@@ -175,6 +184,7 @@ const { data: menuItems = [], isLoading } = useQuery({
                   <Input 
                     type="number" 
                     step="0.01"
+                    min="0"
                     placeholder="0.00" 
                     value={form.price} 
                     onChange={e => setForm({ ...form, price: parseFloat(e.target.value) || 0 })} 
@@ -207,8 +217,8 @@ const { data: menuItems = [], isLoading } = useQuery({
                 />
               </div>
               
-              <Button onClick={handleSave} className="w-full bg-navy text-white">
-                {editId ? 'Update Menu Item' : 'Create Menu Item'}
+              <Button onClick={handleSave} disabled={saving} className="w-full bg-navy text-white">
+                {saving ? 'Saving...' : (editId ? 'Update Menu Item' : 'Create Menu Item')}
               </Button>
             </div>
           </DialogContent>
@@ -239,7 +249,7 @@ const { data: menuItems = [], isLoading } = useQuery({
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell className="text-sm">{getRestaurantName(item.restaurant_id)}</TableCell>
                   <TableCell className="text-sm">{item.category || '-'}</TableCell>
-                  <TableCell className="font-semibold">R{item.price?.toFixed(2)}</TableCell>
+                  <TableCell className="font-semibold text-green">R{item.price?.toFixed(2)}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
                       <Button 

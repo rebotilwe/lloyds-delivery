@@ -225,6 +225,137 @@ router.get("/driver/:id", async (req, res) => {
 });
 
 /* =========================
+   UPDATE ORDER STATUS (ADMIN) - FIXED ENDPOINT
+========================= */
+router.put("/:id/status", async (req, res) => {
+  try {
+    const { status } = req.body;
+    const orderId = req.params.id;
+    const io = req.app.get("io");
+
+    console.log(`📝 Updating order ${orderId} status to: ${status}`);
+
+    const prevOrder = await db.query("SELECT status FROM orders WHERE id = $1", [orderId]);
+    if (prevOrder.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+    
+    const previousStatus = prevOrder.rows[0]?.status;
+
+    await db.query("UPDATE orders SET status = $1 WHERE id = $2", [status, orderId]);
+
+    // Emit socket event for real-time updates
+    io.to(`order_${orderId}`).emit("order-status-update", {
+      orderId: parseInt(orderId),
+      status: status,
+      timestamp: new Date(),
+    });
+
+    // Send email notification for status change
+    if (status !== previousStatus && status !== 'pending') {
+      try {
+        const orderData = await db.query(
+          `SELECT o.*, u.email, u.name as customer_name 
+           FROM orders o 
+           LEFT JOIN users u ON o.customer_id = u.id 
+           WHERE o.id = $1`,
+          [orderId]
+        );
+        if (orderData.rows[0]?.email) {
+          const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [orderId]);
+          const orderWithItems = { ...orderData.rows[0], items: items.rows };
+          sendOrderStatusUpdate(orderWithItems, orderData.rows[0].email, orderData.rows[0].customer_name, previousStatus, status);
+        }
+      } catch (emailErr) {
+        console.error("Failed to send status email:", emailErr);
+      }
+    }
+
+    res.json({ message: "Status updated successfully", status });
+  } catch (err) {
+    console.error("Error updating status:", err);
+    res.status(500).json({ message: "Error updating status" });
+  }
+});
+
+/* =========================
+   ASSIGN DRIVER TO ORDER (ADMIN) - FIXED
+========================= */
+router.put("/:id/assign", async (req, res) => {
+  try {
+    const { driver_id, driver_email, driver_name } = req.body;
+    const orderId = req.params.id;
+    const io = req.app.get("io");
+
+    console.log(`🚚 Assigning driver to order ${orderId}`);
+
+    // Check if order exists
+    const orderCheck = await db.query(
+      "SELECT * FROM orders WHERE id = $1",
+      [orderId]
+    );
+    
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const order = orderCheck.rows[0];
+
+    // Get driver info if only email was provided
+    let finalDriverId = driver_id;
+    let finalDriverEmail = driver_email;
+    let finalDriverName = driver_name;
+
+    if (!finalDriverId && finalDriverEmail) {
+      const driver = await db.query(
+        "SELECT id, name, email FROM users WHERE email = $1 AND role = 'driver'",
+        [finalDriverEmail]
+      );
+      if (driver.rows.length > 0) {
+        finalDriverId = driver.rows[0].id;
+        finalDriverName = driver.rows[0].name;
+      }
+    }
+
+    if (!finalDriverId) {
+      return res.status(400).json({ message: "Driver not found" });
+    }
+
+    // Update driver
+    await db.query(
+      "UPDATE orders SET driver_id = $1 WHERE id = $2",
+      [finalDriverId, orderId]
+    );
+
+    // Also update order status if it was pending
+    if (order.status === 'pending') {
+      await db.query(
+        "UPDATE orders SET status = 'confirmed' WHERE id = $1",
+        [orderId]
+      );
+    }
+
+    // Notify driver via socket
+    if (io && finalDriverId) {
+      io.to(`driver_${finalDriverId}`).emit("order-assigned", {
+        orderId: parseInt(orderId),
+        restaurantName: order.restaurant_name,
+        customerAddress: order.delivery_address,
+        orderTotal: order.total,
+      });
+    }
+
+    res.json({ 
+      message: "Driver assigned successfully",
+      driver: { id: finalDriverId, email: finalDriverEmail, name: finalDriverName }
+    });
+  } catch (err) {
+    console.error("Error assigning driver:", err);
+    res.status(500).json({ message: "Error assigning driver" });
+  }
+});
+
+/* =========================
    CREATE REVIEW FOR ORDER - MUST BE BEFORE /:id
 ========================= */
 router.post("/reviews/create", async (req, res) => {
@@ -233,12 +364,10 @@ router.post("/reviews/create", async (req, res) => {
     
     console.log("Creating review:", { order_id, restaurant_id, customer_id, rating, type });
 
-    // Validate rating
     if (!rating || rating < 1 || rating > 5) {
       return res.status(400).json({ error: 'Rating must be between 1 and 5' });
     }
 
-    // Check if order exists and belongs to customer
     const orderCheck = await db.query(
       "SELECT * FROM orders WHERE id = $1 AND customer_id = $2",
       [order_id, customer_id]
@@ -250,12 +379,10 @@ router.post("/reviews/create", async (req, res) => {
 
     const order = orderCheck.rows[0];
 
-    // Check if already reviewed
     if (order.reviewed) {
       return res.status(400).json({ error: 'Order already reviewed' });
     }
 
-    // Insert review into database
     const result = await db.query(
       `INSERT INTO reviews 
        (order_id, restaurant_id, driver_id, customer_id, rating, comment, type, created_at) 
@@ -264,13 +391,11 @@ router.post("/reviews/create", async (req, res) => {
       [order_id, restaurant_id, driver_id, customer_id, rating, comment || null, type || 'restaurant']
     );
 
-    // Update order to mark as reviewed
     await db.query(
       "UPDATE orders SET reviewed = true WHERE id = $1",
       [order_id]
     );
 
-    // If driver review, update driver's average rating
     if (type === 'driver' && driver_id) {
       const driverReviews = await db.query(
         "SELECT rating FROM reviews WHERE driver_id = $1 AND type = 'driver'",
@@ -360,60 +485,7 @@ router.get("/reviews/order/:orderId", async (req, res) => {
 });
 
 /* =========================
-   ASSIGN DRIVER TO ORDER - MUST BE BEFORE /:id
-========================= */
-router.put("/:id/assign", async (req, res) => {
-  try {
-    const { driver_id } = req.body;
-    const orderId = req.params.id;
-    const io = req.app.get("io");
-
-    // Check if order exists
-    const orderCheck = await db.query(
-      "SELECT * FROM orders WHERE id = $1",
-      [orderId]
-    );
-    
-    if (orderCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Order not found" });
-    }
-
-    const order = orderCheck.rows[0];
-
-    // Update driver
-    await db.query(
-      "UPDATE orders SET driver_id = $1 WHERE id = $2",
-      [driver_id, orderId]
-    );
-
-    // Get driver info for notification
-    const driver = await db.query(
-      "SELECT name, email FROM users WHERE id = $1",
-      [driver_id]
-    );
-
-    // Notify driver via socket if available
-    if (io && driver.rows[0]) {
-      io.to(`driver_${driver_id}`).emit("order-assigned", {
-        orderId: parseInt(orderId),
-        restaurantName: order.restaurant_name,
-        customerAddress: order.delivery_address,
-        orderTotal: order.total,
-      });
-    }
-
-    res.json({ 
-      message: "Driver assigned successfully",
-      driver: driver.rows[0]
-    });
-  } catch (err) {
-    console.error("Error assigning driver:", err);
-    res.status(500).json({ message: "Error assigning driver" });
-  }
-});
-
-/* =========================
-   ACCEPT ORDER
+   ACCEPT ORDER (DRIVER)
 ========================= */
 router.put("/accept/:id", async (req, res) => {
   try {
@@ -443,7 +515,7 @@ router.put("/accept/:id", async (req, res) => {
 });
 
 /* =========================
-   UPDATE STATUS + EARNINGS
+   UPDATE STATUS + EARNINGS (DRIVER)
 ========================= */
 router.put("/status/:id", async (req, res) => {
   try {

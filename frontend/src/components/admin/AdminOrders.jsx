@@ -20,21 +20,15 @@ import {
 import {
   Button,
 } from '@/components/ui/button';
-import {
-  Badge,
-} from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import {
   Search,
   Eye,
   RefreshCw,
   Package2,
-  Truck,
-  CircleAlert,
   LayoutList,
 } from 'lucide-react';
 import OrderStatusBadge from '@/components/orders/OrderStatusBadge';
-import { cn } from '@/lib/utils';
 
 const statuses = [
   'pending',
@@ -73,6 +67,8 @@ const formatCurrency = (value) => {
 export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [updatingStatus, setUpdatingStatus] = useState(null);
+  const [assigningDriver, setAssigningDriver] = useState(null);
 
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
@@ -99,27 +95,50 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
   }, [orders]);
 
   const handleStatusChange = async (orderId, status) => {
+    setUpdatingStatus(orderId);
     try {
-      await api.put(`/orders/${orderId}/status`, { status });
-      toast.success('Order status updated');
-      onRefresh?.();
-    } catch {
-      toast.error('Failed to update order status');
+      const response = await api.put(`/orders/${orderId}/status`, { status });
+      if (response.data) {
+        toast.success(`Order #${orderId} status updated to ${formatOrderStatus(status)}`);
+        onRefresh?.();
+      }
+    } catch (error) {
+      console.error('Status update error:', error);
+      toast.error(error.response?.data?.message || 'Failed to update order status');
+    } finally {
+      setUpdatingStatus(null);
     }
   };
 
   const handleAssignDriver = async (orderId, driverEmail) => {
+    if (!driverEmail || driverEmail === 'none') {
+      toast.error('Please select a driver');
+      return;
+    }
+
+    setAssigningDriver(orderId);
     try {
       const driver = drivers.find(d => d.email === driverEmail);
-      await api.put(`/orders/${orderId}/assign`, {
-        driver_id: driver?.id,
-        driver_email: driverEmail,
-        driver_name: driver?.full_name || driverEmail,
+      if (!driver) {
+        toast.error('Driver not found');
+        return;
+      }
+
+      const response = await api.put(`/orders/${orderId}/assign`, {
+        driver_id: driver.id,
+        driver_email: driver.email,
+        driver_name: driver.full_name || driver.name,
       });
-      toast.success('Driver assigned');
-      onRefresh?.();
-    } catch {
-      toast.error('Failed to assign driver');
+      
+      if (response.data) {
+        toast.success(`Driver ${driver.name || driver.email} assigned to order #${orderId}`);
+        onRefresh?.();
+      }
+    } catch (error) {
+      console.error('Assign driver error:', error);
+      toast.error(error.response?.data?.message || 'Failed to assign driver');
+    } finally {
+      setAssigningDriver(null);
     }
   };
 
@@ -250,6 +269,7 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
                       <Select
                         value={order.status || 'pending'}
                         onValueChange={val => handleStatusChange(order.id, val)}
+                        disabled={updatingStatus === order.id}
                       >
                         <SelectTrigger className="h-9 rounded-xl border-slate-200">
                           <SelectValue>
@@ -271,7 +291,8 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
                     <div className="w-44">
                       <Select
                         value={order.driver_email || 'none'}
-                        onValueChange={val => val !== 'none' && handleAssignDriver(order.id, val)}
+                        onValueChange={val => handleAssignDriver(order.id, val)}
+                        disabled={assigningDriver === order.id}
                       >
                         <SelectTrigger className="h-9 rounded-xl border-slate-200">
                           <SelectValue placeholder="Assign driver" />
@@ -280,7 +301,7 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
                           <SelectItem value="none">Unassigned</SelectItem>
                           {drivers.map(d => (
                             <SelectItem key={d.email} value={d.email}>
-                              {d.full_name || d.email}
+                              {d.full_name || d.name || d.email}
                             </SelectItem>
                           ))}
                         </SelectContent>

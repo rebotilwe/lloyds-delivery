@@ -35,7 +35,12 @@ export default function AdminMenuItems({ restaurants = [] }) {
       try {
         const response = await api.get('/menu-items');
         console.log('Menu items response:', response);
-        return response || [];
+        // Ensure price is a number for each item
+        const items = Array.isArray(response) ? response : [];
+        return items.map(item => ({
+          ...item,
+          price: typeof item.price === 'string' ? parseFloat(item.price) : (item.price || 0)
+        }));
       } catch (err) {
         console.error('Error fetching menu items:', err);
         return [];
@@ -56,11 +61,18 @@ export default function AdminMenuItems({ restaurants = [] }) {
 
     setSaving(true);
     try {
+      // Ensure price is a number before sending
+      const payload = {
+        ...form,
+        price: parseFloat(form.price) || 0,
+        restaurant_id: parseInt(form.restaurant_id)
+      };
+
       if (editId) {
-        await api.put(`/menu-items/${editId}`, form);
+        await api.put(`/menu-items/${editId}`, payload);
         toast.success('Menu item updated successfully');
       } else {
-        await api.post('/menu-items', form);
+        await api.post('/menu-items', payload);
         toast.success('Menu item created successfully');
       }
       setOpen(false);
@@ -82,7 +94,7 @@ export default function AdminMenuItems({ restaurants = [] }) {
     setForm({
       name: item.name || '',
       description: item.description || '',
-      price: item.price || 0,
+      price: typeof item.price === 'string' ? parseFloat(item.price) : (item.price || 0),
       category: item.category || 'Mains',
       restaurant_id: item.restaurant_id || '',
       image_url: item.image_url || '',
@@ -249,7 +261,9 @@ export default function AdminMenuItems({ restaurants = [] }) {
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell className="text-sm">{getRestaurantName(item.restaurant_id)}</TableCell>
                   <TableCell className="text-sm">{item.category || '-'}</TableCell>
-                  <TableCell className="font-semibold text-green">R{item.price?.toFixed(2)}</TableCell>
+                  <TableCell className="font-semibold text-green">
+                    R{typeof item.price === 'number' ? item.price.toFixed(2) : parseFloat(item.price || 0).toFixed(2)}
+                  </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
                       <Button 

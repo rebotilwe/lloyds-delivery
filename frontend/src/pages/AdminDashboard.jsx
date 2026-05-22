@@ -1,54 +1,42 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
 import {
   LayoutDashboard,
   ShoppingBag,
   Store,
-  UtensilsCrossed,
   Users,
   Truck,
   DollarSign,
-  AlertCircle,
-  CheckCircle,
-  XCircle,
   RefreshCw,
-  TrendingUp,
   Clock,
   Loader2,
   Eye,
   Settings,
-  Key,
-  Save,
-  FileText,
   Download,
-  Menu,
-  X,
 } from 'lucide-react';
 
 import AdminStats from '@/components/admin/AdminStats';
 import AdminOrders from '@/components/admin/AdminOrders';
 import AdminRestaurants from '@/components/admin/AdminRestaurants';
-import AdminMenuItems from '@/components/admin/AdminMenuItems';
 import AdminUsers from '@/components/admin/AdminUsers';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
-// Simplified tabs for mobile
+// Simplified tabs for mobile with paths
 const tabs = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard, color: 'bg-emerald-500' },
-  { id: 'orders', label: 'Orders', icon: ShoppingBag, color: 'bg-blue-500' },
-  { id: 'restaurants', label: 'Restaurants', icon: Store, color: 'bg-purple-500' },
-  { id: 'drivers', label: 'Drivers', icon: Truck, color: 'bg-amber-500' },
-  { id: 'users', label: 'Users', icon: Users, color: 'bg-cyan-500' },
-  { id: 'finance', label: 'Finance', icon: DollarSign, color: 'bg-green-500' },
-  { id: 'settings', label: 'Settings', icon: Settings, color: 'bg-gray-500' },
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard, color: 'bg-emerald-500', path: '/admin' },
+  { id: 'orders', label: 'Orders', icon: ShoppingBag, color: 'bg-blue-500', path: '/admin/orders' },
+  { id: 'restaurants', label: 'Restaurants', icon: Store, color: 'bg-purple-500', path: '/admin/restaurants' },
+  { id: 'drivers', label: 'Drivers', icon: Truck, color: 'bg-amber-500', path: '/admin/drivers' },
+  { id: 'users', label: 'Users', icon: Users, color: 'bg-cyan-500', path: '/admin/users' },
+  { id: 'finance', label: 'Finance', icon: DollarSign, color: 'bg-green-500', path: '/admin/finance' },
+  { id: 'settings', label: 'Settings', icon: Settings, color: 'bg-gray-500', path: '/admin/settings' },
 ];
 
 // Simplified Stat Card
@@ -259,6 +247,7 @@ const AdminSettings = () => {
 /* ---------------------- MAIN ---------------------- */
 export default function AdminDashboard() {
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [selectedDriver, setSelectedDriver] = useState(null);
@@ -281,6 +270,11 @@ export default function AdminDashboard() {
   useEffect(() => {
     setActiveTab(getActiveTabFromPath());
   }, [location.pathname]);
+
+  // Handle tab click - navigate to the correct path
+  const handleTabClick = (tab) => {
+    navigate(tab.path);
+  };
 
   // Data fetching
   const { data: orders = [], isLoading: ordersLoading, error: ordersError } = useQuery({
@@ -464,7 +458,7 @@ export default function AdminDashboard() {
               key={tab.id}
               tab={tab}
               active={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabClick(tab)}
               badge={tab.id === 'drivers' ? pendingDrivers.length : tab.id === 'orders' ? pendingOrders.length : 0}
             />
           ))}
@@ -478,7 +472,7 @@ export default function AdminDashboard() {
             key={tab.id}
             tab={tab}
             active={activeTab === tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabClick(tab)}
             badge={tab.id === 'drivers' ? pendingDrivers.length : tab.id === 'orders' ? pendingOrders.length : 0}
           />
         ))}

@@ -22,6 +22,8 @@ import AdminDashboard from '@/pages/AdminDashboard';
 import AdminOrderDetails from '@/pages/AdminOrderDetails';
 import OrderConfirmation from '@/pages/OrderConfirmation';
 import DriverOnboarding from '@/pages/DriverOnboarding';
+import Contact from '@/pages/Contact';
+import FAQ from '@/pages/FAQ';
 import PageNotFound from '@/lib/PageNotFound';
 
 // ---------------------
@@ -94,6 +96,8 @@ function App() {
                     <Route path="/" element={<Home />} />
                     <Route path="/restaurant/:id" element={<RestaurantDetail />} />
                     <Route path="/order-confirmation" element={<OrderConfirmation />} />
+                    <Route path="/contact" element={<Contact />} />
+                    <Route path="/faq" element={<FAQ />} />
                   </Route>
 
                   {/* ---------------- CART (PROTECTED) ---------------- */}

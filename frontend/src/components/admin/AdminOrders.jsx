@@ -113,36 +113,37 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
   };
 
   // FIXED: Use the correct backend endpoint format - /orders/accept/:id
-  const handleAssignDriver = async (orderId, driverEmail) => {
-    if (!driverEmail || driverEmail === 'none') {
-      toast.error('Please select a driver');
+// Replace the handleAssignDriver function with this:
+const handleAssignDriver = async (orderId, driverEmail) => {
+  if (!driverEmail || driverEmail === 'none') {
+    toast.error('Please select a driver');
+    return;
+  }
+
+  setAssigningDriver(orderId);
+  try {
+    const driver = drivers.find(d => d.email === driverEmail);
+    if (!driver) {
+      toast.error('Driver not found');
       return;
     }
 
-    setAssigningDriver(orderId);
-    try {
-      const driver = drivers.find(d => d.email === driverEmail);
-      if (!driver) {
-        toast.error('Driver not found');
-        return;
-      }
-
-      // Correct endpoint: /orders/accept/123
-      const response = await api.put(`/orders/accept/${orderId}`, {
-        driver_id: driver.id,
-      });
-      
-      if (response.data) {
-        toast.success(`Driver ${driver.name || driver.email} assigned to order #${orderId}`);
-        onRefresh?.();
-      }
-    } catch (error) {
-      console.error('Assign driver error:', error);
-      toast.error(error.response?.data?.message || 'Failed to assign driver');
-    } finally {
-      setAssigningDriver(null);
+    // Use the new /assign endpoint instead of /accept
+    const response = await api.put(`/orders/assign/${orderId}`, {
+      driver_id: driver.id,
+    });
+    
+    if (response.data) {
+      toast.success(`Order #${orderId} offered to driver ${driver.name || driver.email}`);
+      onRefresh?.();
     }
-  };
+  } catch (error) {
+    console.error('Assign driver error:', error);
+    toast.error(error.response?.data?.message || 'Failed to assign driver');
+  } finally {
+    setAssigningDriver(null);
+  }
+};
 
   return (
     <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">

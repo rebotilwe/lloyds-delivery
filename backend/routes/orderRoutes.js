@@ -36,14 +36,12 @@ router.post("/create", async (req, res) => {
       discount_applied
     });
 
-    // Validate required fields
     if (!customer_id || !restaurant_id || !total || !delivery_address) {
       return res.status(400).json({ 
         message: "Missing required fields: customer_id, restaurant_id, total, delivery_address" 
       });
     }
 
-    // Insert order with payment fields - including reviewed column
     const result = await db.query(
       `INSERT INTO orders 
        (customer_id, customer_name, restaurant_id, restaurant_name, status, total, 
@@ -59,17 +57,12 @@ router.post("/create", async (req, res) => {
     const orderId = result.rows[0].id;
     console.log(`Order created with ID: ${orderId}`);
 
-    // Insert order items
     if (items && Array.isArray(items) && items.length > 0) {
-      console.log(`Inserting ${items.length} items for order ${orderId}`);
-      
       for (const item of items) {
         const menuItemId = item.id || item.menu_item_id;
         const itemName = item.name;
         const quantity = item.quantity || 1;
         const price = parseFloat(item.price) || 0;
-        
-        console.log(`Inserting item: ${itemName} x${quantity} @ R${price}`);
         
         await db.query(
           `INSERT INTO order_items 
@@ -78,9 +71,7 @@ router.post("/create", async (req, res) => {
           [orderId, menuItemId, itemName, quantity, price]
         );
       }
-      console.log(`✅ Successfully inserted ${items.length} items for order ${orderId}`);
     } else {
-      console.warn(`⚠️ No items provided for order ${orderId}`);
       let defaultItem = { id: 101, name: 'Menu Item', price: total };
       if (restaurant_id == 1) defaultItem = { id: 101, name: 'Classic Cheeseburger', price: total };
       if (restaurant_id == 2) defaultItem = { id: 201, name: 'Margherita Pizza', price: total };
@@ -92,10 +83,8 @@ router.post("/create", async (req, res) => {
          VALUES ($1, $2, $3, $4, $5)`,
         [orderId, defaultItem.id, defaultItem.name, 1, defaultItem.price]
       );
-      console.log(`Added default item for order ${orderId}`);
     }
 
-    // Send email confirmation
     try {
       const customer = await db.query("SELECT email, name FROM users WHERE id = $1", [customer_id]);
       if (customer.rows[0]?.email) {
@@ -139,7 +128,6 @@ router.get("/", async (req, res) => {
        LEFT JOIN restaurants r ON o.restaurant_id = r.id
        ORDER BY o.created_at DESC`
     );
-    console.log('Fetched orders from DB:', results.rows.length);
     res.json(results.rows || []);
   } catch (err) {
     console.error("Error fetching orders:", err);
@@ -176,7 +164,7 @@ router.get("/customer/:customer_id", async (req, res) => {
 });
 
 /* =========================
-   AVAILABLE ORDERS
+   AVAILABLE ORDERS (for drivers to see and accept)
 ========================= */
 router.get("/available", async (req, res) => {
   try {
@@ -191,7 +179,6 @@ router.get("/available", async (req, res) => {
        WHERE (o.driver_id IS NULL OR o.driver_id = 0) AND o.status = 'pending' 
        ORDER BY o.created_at DESC`
     );
-    console.log('Available orders found:', results.rows.length);
     res.json(results.rows || []);
   } catch (err) {
     console.error("Error fetching available orders:", err);
@@ -200,7 +187,7 @@ router.get("/available", async (req, res) => {
 });
 
 /* =========================
-   DRIVER ORDERS
+   DRIVER ORDERS (assigned/accepted)
 ========================= */
 router.get("/driver/:id", async (req, res) => {
   try {
@@ -216,7 +203,6 @@ router.get("/driver/:id", async (req, res) => {
        ORDER BY o.created_at DESC`,
       [req.params.id]
     );
-    console.log('Driver orders found:', results.rows.length);
     res.json(results.rows || []);
   } catch (err) {
     console.error("Error fetching driver orders:", err);
@@ -225,33 +211,156 @@ router.get("/driver/:id", async (req, res) => {
 });
 
 /* =========================
-   UPDATE ORDER STATUS (ADMIN) - FIXED ENDPOINT
+   DRIVER ACCEPTS ORDER (from available list)
+   URL: PUT /api/orders/accept/:id
 ========================= */
-router.put("/:id/status", async (req, res) => {
+router.put("/accept/:id", async (req, res) => {
+  try {
+    const { driver_id } = req.body;
+    const orderId = req.params.id;
+    const io = req.app.get("io");
+
+    console.log(`🚚 Driver ${driver_id} accepting order ${orderId}`);
+
+    if (!driver_id) {
+      return res.status(400).json({ message: "driver_id is required" });
+    }
+
+    // Check if order exists and is available
+    const orderCheck = await db.query(
+      "SELECT * FROM orders WHERE id = $1 AND (driver_id IS NULL OR driver_id = 0) AND status = 'pending'",
+      [orderId]
+    );
+    
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found or already accepted" });
+    }
+
+    const order = orderCheck.rows[0];
+
+    // Check if driver exists and is approved
+    const driverCheck = await db.query(
+      "SELECT * FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
+      [driver_id]
+    );
+    
+    if (driverCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Driver not found or not approved" });
+    }
+
+    // Update order with driver and change status to confirmed
+    await db.query(
+      "UPDATE orders SET driver_id = $1, status = 'confirmed' WHERE id = $2",
+      [driver_id, orderId]
+    );
+
+    // Notify admin and customer via socket
+    io.to(`order_${orderId}`).emit("order-accepted", {
+      orderId: parseInt(orderId),
+      driverId: driver_id,
+      status: "confirmed",
+      message: "A driver has accepted your order",
+    });
+
+    res.json({ 
+      message: "Order accepted successfully",
+      orderId: orderId
+    });
+  } catch (err) {
+    console.error("Error accepting order:", err);
+    res.status(500).json({ message: "Error accepting order" });
+  }
+});
+
+/* =========================
+   ADMIN ASSIGNS DRIVER TO ORDER (offers trip)
+   URL: PUT /api/orders/assign/:id
+========================= */
+router.put("/assign/:id", async (req, res) => {
+  try {
+    const { driver_id } = req.body;
+    const orderId = req.params.id;
+    const io = req.app.get("io");
+
+    console.log(`👑 Admin assigning driver ${driver_id} to order ${orderId}`);
+
+    if (!driver_id) {
+      return res.status(400).json({ message: "driver_id is required" });
+    }
+
+    const orderCheck = await db.query(
+      "SELECT * FROM orders WHERE id = $1 AND (driver_id IS NULL OR driver_id = 0) AND status = 'pending'",
+      [orderId]
+    );
+    
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found or already assigned" });
+    }
+
+    const order = orderCheck.rows[0];
+
+    const driverCheck = await db.query(
+      "SELECT * FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
+      [driver_id]
+    );
+    
+    if (driverCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Driver not found or not approved" });
+    }
+
+    // Assign driver to order (status remains pending until driver accepts)
+    await db.query(
+      "UPDATE orders SET driver_id = $1 WHERE id = $2",
+      [driver_id, orderId]
+    );
+
+    // Notify driver via socket that they have been offered an order
+    io.to(`driver_${driver_id}`).emit("order-offered", {
+      orderId: parseInt(orderId),
+      restaurantName: order.restaurant_name,
+      customerAddress: order.delivery_address,
+      orderTotal: order.total,
+      message: "You have been offered a delivery trip!"
+    });
+
+    res.json({ 
+      message: "Order offered to driver successfully",
+      orderId: orderId,
+      driverId: driver_id
+    });
+  } catch (err) {
+    console.error("Error assigning driver:", err);
+    res.status(500).json({ message: "Error assigning driver" });
+  }
+});
+
+/* =========================
+   UPDATE ORDER STATUS (DRIVER)
+   URL: PUT /api/orders/status/:id
+========================= */
+router.put("/status/:id", async (req, res) => {
   try {
     const { status } = req.body;
     const orderId = req.params.id;
     const io = req.app.get("io");
 
-    console.log(`📝 Updating order ${orderId} status to: ${status}`);
-
-    const prevOrder = await db.query("SELECT status FROM orders WHERE id = $1", [orderId]);
+    const prevOrder = await db.query("SELECT status, driver_id FROM orders WHERE id = $1", [orderId]);
     if (prevOrder.rows.length === 0) {
       return res.status(404).json({ message: "Order not found" });
     }
     
     const previousStatus = prevOrder.rows[0]?.status;
+    const driverId = prevOrder.rows[0]?.driver_id;
 
     await db.query("UPDATE orders SET status = $1 WHERE id = $2", [status, orderId]);
 
-    // Emit socket event for real-time updates
     io.to(`order_${orderId}`).emit("order-status-update", {
       orderId: parseInt(orderId),
       status: status,
       timestamp: new Date(),
     });
 
-    // Send email notification for status change
+    // Send email for status changes
     if (status !== previousStatus && status !== 'pending') {
       try {
         const orderData = await db.query(
@@ -271,320 +380,27 @@ router.put("/:id/status", async (req, res) => {
       }
     }
 
-    res.json({ message: "Status updated successfully", status });
-  } catch (err) {
-    console.error("Error updating status:", err);
-    res.status(500).json({ message: "Error updating status" });
-  }
-});
-
-/* =========================
-   ASSIGN DRIVER TO ORDER (ADMIN) - FIXED
-========================= */
-router.put("/:id/assign", async (req, res) => {
-  try {
-    const { driver_id, driver_email, driver_name } = req.body;
-    const orderId = req.params.id;
-    const io = req.app.get("io");
-
-    console.log(`🚚 Assigning driver to order ${orderId}`);
-
-    // Check if order exists
-    const orderCheck = await db.query(
-      "SELECT * FROM orders WHERE id = $1",
-      [orderId]
-    );
-    
-    if (orderCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Order not found" });
-    }
-
-    const order = orderCheck.rows[0];
-
-    // Get driver info if only email was provided
-    let finalDriverId = driver_id;
-    let finalDriverEmail = driver_email;
-    let finalDriverName = driver_name;
-
-    if (!finalDriverId && finalDriverEmail) {
-      const driver = await db.query(
-        "SELECT id, name, email FROM users WHERE email = $1 AND role = 'driver'",
-        [finalDriverEmail]
-      );
-      if (driver.rows.length > 0) {
-        finalDriverId = driver.rows[0].id;
-        finalDriverName = driver.rows[0].name;
-      }
-    }
-
-    if (!finalDriverId) {
-      return res.status(400).json({ message: "Driver not found" });
-    }
-
-    // Update driver
-    await db.query(
-      "UPDATE orders SET driver_id = $1 WHERE id = $2",
-      [finalDriverId, orderId]
-    );
-
-    // Also update order status if it was pending
-    if (order.status === 'pending') {
-      await db.query(
-        "UPDATE orders SET status = 'confirmed' WHERE id = $1",
-        [orderId]
-      );
-    }
-
-    // Notify driver via socket
-    if (io && finalDriverId) {
-      io.to(`driver_${finalDriverId}`).emit("order-assigned", {
-        orderId: parseInt(orderId),
-        restaurantName: order.restaurant_name,
-        customerAddress: order.delivery_address,
-        orderTotal: order.total,
-      });
-    }
-
-    res.json({ 
-      message: "Driver assigned successfully",
-      driver: { id: finalDriverId, email: finalDriverEmail, name: finalDriverName }
-    });
-  } catch (err) {
-    console.error("Error assigning driver:", err);
-    res.status(500).json({ message: "Error assigning driver" });
-  }
-});
-
-/* =========================
-   CREATE REVIEW FOR ORDER - MUST BE BEFORE /:id
-========================= */
-router.post("/reviews/create", async (req, res) => {
-  try {
-    const { order_id, restaurant_id, driver_id, customer_id, rating, comment, type } = req.body;
-    
-    console.log("Creating review:", { order_id, restaurant_id, customer_id, rating, type });
-
-    if (!rating || rating < 1 || rating > 5) {
-      return res.status(400).json({ error: 'Rating must be between 1 and 5' });
-    }
-
-    const orderCheck = await db.query(
-      "SELECT * FROM orders WHERE id = $1 AND customer_id = $2",
-      [order_id, customer_id]
-    );
-
-    if (orderCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Order not found or unauthorized' });
-    }
-
-    const order = orderCheck.rows[0];
-
-    if (order.reviewed) {
-      return res.status(400).json({ error: 'Order already reviewed' });
-    }
-
-    const result = await db.query(
-      `INSERT INTO reviews 
-       (order_id, restaurant_id, driver_id, customer_id, rating, comment, type, created_at) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) 
-       RETURNING *`,
-      [order_id, restaurant_id, driver_id, customer_id, rating, comment || null, type || 'restaurant']
-    );
-
-    await db.query(
-      "UPDATE orders SET reviewed = true WHERE id = $1",
-      [order_id]
-    );
-
-    if (type === 'driver' && driver_id) {
-      const driverReviews = await db.query(
-        "SELECT rating FROM reviews WHERE driver_id = $1 AND type = 'driver'",
-        [driver_id]
-      );
-      
-      if (driverReviews.rows.length > 0) {
-        const avgRating = driverReviews.rows.reduce((sum, r) => sum + r.rating, 0) / driverReviews.rows.length;
-        
-        await db.query(
-          "UPDATE users SET driver_rating = $1 WHERE id = $2",
-          [avgRating, driver_id]
-        );
-      }
-    }
-
-    console.log(`✅ Review created for order ${order_id}`);
-    res.status(201).json({ 
-      success: true, 
-      review: result.rows[0],
-      message: "Thank you for your review!"
-    });
-
-  } catch (err) {
-    console.error("Error creating review:", err);
-    res.status(500).json({ error: 'Failed to submit review', details: err.message });
-  }
-});
-
-/* =========================
-   GET REVIEWS FOR RESTAURANT - MUST BE BEFORE /:id
-========================= */
-router.get("/reviews/restaurant/:restaurantId", async (req, res) => {
-  try {
-    const results = await db.query(
-      `SELECT r.*, u.name as customer_name 
-       FROM reviews r
-       LEFT JOIN users u ON r.customer_id = u.id
-       WHERE r.restaurant_id = $1 AND r.type = 'restaurant'
-       ORDER BY r.created_at DESC`,
-      [req.params.restaurantId]
-    );
-    
-    res.json(results.rows || []);
-  } catch (err) {
-    console.error("Error fetching restaurant reviews:", err);
-    res.status(500).json({ error: 'Failed to fetch reviews' });
-  }
-});
-
-/* =========================
-   GET REVIEWS FOR DRIVER - MUST BE BEFORE /:id
-========================= */
-router.get("/reviews/driver/:driverId", async (req, res) => {
-  try {
-    const results = await db.query(
-      `SELECT r.*, u.name as customer_name 
-       FROM reviews r
-       LEFT JOIN users u ON r.customer_id = u.id
-       WHERE r.driver_id = $1 AND r.type = 'driver'
-       ORDER BY r.created_at DESC`,
-      [req.params.driverId]
-    );
-    
-    res.json(results.rows || []);
-  } catch (err) {
-    console.error("Error fetching driver reviews:", err);
-    res.status(500).json({ error: 'Failed to fetch reviews' });
-  }
-});
-
-/* =========================
-   CHECK IF ORDER HAS REVIEW - MUST BE BEFORE /:id
-========================= */
-router.get("/reviews/order/:orderId", async (req, res) => {
-  try {
-    const result = await db.query(
-      "SELECT reviewed FROM orders WHERE id = $1",
-      [req.params.orderId]
-    );
-    
-    res.json({ reviewed: result.rows[0]?.reviewed || false });
-  } catch (err) {
-    console.error("Error checking review status:", err);
-    res.status(500).json({ error: 'Failed to check review status' });
-  }
-});
-
-/* =========================
-   ACCEPT ORDER (DRIVER)
-========================= */
-router.put("/accept/:id", async (req, res) => {
-  try {
-    const { driver_id } = req.body;
-    const io = req.app.get("io");
-    
-    const result = await db.query(
-      "UPDATE orders SET driver_id = $1, status = 'confirmed' WHERE id = $2 AND (driver_id IS NULL OR driver_id = 0)",
-      [driver_id, req.params.id]
-    );
-    
-    if (result.rowCount === 0) {
-      return res.status(400).json({ message: "Order already accepted or not available" });
-    }
-    
-    io.to(`order_${req.params.id}`).emit("order-accepted", {
-      orderId: parseInt(req.params.id),
-      driverId: driver_id,
-      message: "A driver has accepted your order",
-    });
-    
-    res.json({ message: "Order accepted successfully" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error accepting order" });
-  }
-});
-
-/* =========================
-   UPDATE STATUS + EARNINGS (DRIVER)
-========================= */
-router.put("/status/:id", async (req, res) => {
-  try {
-    const { status } = req.body;
-    const orderId = req.params.id;
-    const io = req.app.get("io");
-
-    const prevOrder = await db.query("SELECT status FROM orders WHERE id = $1", [orderId]);
-    const previousStatus = prevOrder.rows[0]?.status;
-
-    await db.query("UPDATE orders SET status = $1 WHERE id = $2", [status, orderId]);
-
-    io.to(`order_${orderId}`).emit("order-status-update", {
-      orderId: parseInt(orderId),
-      status: status,
-      timestamp: new Date(),
-    });
-
-    if (status === "confirmed") {
-      const orders = await db.query("SELECT driver_id FROM orders WHERE id = $1", [orderId]);
-      if (orders.rows[0]?.driver_id) {
-        io.to(`driver_${orders.rows[0].driver_id}`).emit("order-accepted", {
-          orderId: parseInt(orderId),
-          message: "New order assigned to you",
-        });
-      }
-    }
-
-    if (status !== "delivered" && previousStatus !== status) {
-      try {
-        const orderData = await db.query(
-          `SELECT o.*, u.email, u.name as customer_name 
-           FROM orders o 
-           LEFT JOIN users u ON o.customer_id = u.id 
-           WHERE o.id = $1`,
-          [orderId]
-        );
-        if (orderData.rows[0]?.email) {
-          const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [orderId]);
-          const orderWithItems = { ...orderData.rows[0], items: items.rows };
-          sendOrderStatusUpdate(orderWithItems, orderData.rows[0].email, orderData.rows[0].customer_name, previousStatus, status);
-        }
-      } catch (emailErr) {
-        console.error("Failed to send status email:", emailErr);
-      }
-    }
-
+    // Calculate earnings when delivered
     if (status === "delivered") {
       const orders = await db.query(
-        "SELECT total, delivery_fee, driver_id FROM orders WHERE id = $1",
+        "SELECT total, delivery_fee FROM orders WHERE id = $1",
         [orderId]
       );
       
       const order = orders.rows[0];
-      if (order && order.driver_id) {
+      if (order && driverId) {
         const earning = (order.delivery_fee || 0) + (order.total * 0.1);
         await db.query("UPDATE orders SET driver_earning = $1 WHERE id = $2", [earning, orderId]);
-        await db.query("UPDATE users SET earnings = earnings + $1 WHERE id = $2", [earning, order.driver_id]);
+        await db.query("UPDATE users SET earnings = earnings + $1 WHERE id = $2", [earning, driverId]);
 
-        io.to(`driver_${order.driver_id}`).emit("earnings-updated", {
+        io.to(`driver_${driverId}`).emit("earnings-updated", {
           orderId: parseInt(orderId),
           earning: earning,
         });
-
-        return res.json({ message: "Order delivered & earnings updated", earning });
       }
     }
     
-    res.json({ message: "Status updated successfully" });
+    res.json({ message: "Status updated successfully", status });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error updating status" });
@@ -619,27 +435,125 @@ router.put("/cancel/:id", async (req, res) => {
       timestamp: new Date(),
     });
 
-    try {
-      const orderData = await db.query(
-        `SELECT o.*, u.email, u.name as customer_name 
-         FROM orders o 
-         LEFT JOIN users u ON o.customer_id = u.id 
-         WHERE o.id = $1`,
-        [orderId]
-      );
-      if (orderData.rows[0]?.email) {
-        const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [orderId]);
-        const orderWithItems = { ...orderData.rows[0], items: items.rows };
-        sendOrderStatusUpdate(orderWithItems, orderData.rows[0].email, orderData.rows[0].customer_name, 'pending', 'cancelled');
-      }
-    } catch (emailErr) {
-      console.error("Failed to send cancellation email:", emailErr);
-    }
-
     res.json({ message: "Order cancelled successfully" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error cancelling order" });
+  }
+});
+
+/* =========================
+   REVIEWS - CREATE
+========================= */
+router.post("/reviews/create", async (req, res) => {
+  try {
+    const { order_id, restaurant_id, driver_id, customer_id, rating, comment, type } = req.body;
+    
+    if (!rating || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+    }
+
+    const orderCheck = await db.query(
+      "SELECT * FROM orders WHERE id = $1 AND customer_id = $2",
+      [order_id, customer_id]
+    );
+
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Order not found or unauthorized' });
+    }
+
+    const order = orderCheck.rows[0];
+
+    if (order.reviewed) {
+      return res.status(400).json({ error: 'Order already reviewed' });
+    }
+
+    const result = await db.query(
+      `INSERT INTO reviews 
+       (order_id, restaurant_id, driver_id, customer_id, rating, comment, type, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) 
+       RETURNING *`,
+      [order_id, restaurant_id, driver_id, customer_id, rating, comment || null, type || 'restaurant']
+    );
+
+    await db.query("UPDATE orders SET reviewed = true WHERE id = $1", [order_id]);
+
+    if (type === 'driver' && driver_id) {
+      const driverReviews = await db.query(
+        "SELECT rating FROM reviews WHERE driver_id = $1 AND type = 'driver'",
+        [driver_id]
+      );
+      
+      if (driverReviews.rows.length > 0) {
+        const avgRating = driverReviews.rows.reduce((sum, r) => sum + r.rating, 0) / driverReviews.rows.length;
+        await db.query("UPDATE users SET driver_rating = $1 WHERE id = $2", [avgRating, driver_id]);
+      }
+    }
+
+    res.status(201).json({ 
+      success: true, 
+      review: result.rows[0],
+      message: "Thank you for your review!"
+    });
+  } catch (err) {
+    console.error("Error creating review:", err);
+    res.status(500).json({ error: 'Failed to submit review', details: err.message });
+  }
+});
+
+/* =========================
+   GET REVIEWS FOR RESTAURANT
+========================= */
+router.get("/reviews/restaurant/:restaurantId", async (req, res) => {
+  try {
+    const results = await db.query(
+      `SELECT r.*, u.name as customer_name 
+       FROM reviews r
+       LEFT JOIN users u ON r.customer_id = u.id
+       WHERE r.restaurant_id = $1 AND r.type = 'restaurant'
+       ORDER BY r.created_at DESC`,
+      [req.params.restaurantId]
+    );
+    res.json(results.rows || []);
+  } catch (err) {
+    console.error("Error fetching restaurant reviews:", err);
+    res.status(500).json({ error: 'Failed to fetch reviews' });
+  }
+});
+
+/* =========================
+   GET REVIEWS FOR DRIVER
+========================= */
+router.get("/reviews/driver/:driverId", async (req, res) => {
+  try {
+    const results = await db.query(
+      `SELECT r.*, u.name as customer_name 
+       FROM reviews r
+       LEFT JOIN users u ON r.customer_id = u.id
+       WHERE r.driver_id = $1 AND r.type = 'driver'
+       ORDER BY r.created_at DESC`,
+      [req.params.driverId]
+    );
+    res.json(results.rows || []);
+  } catch (err) {
+    console.error("Error fetching driver reviews:", err);
+    res.status(500).json({ error: 'Failed to fetch reviews' });
+  }
+});
+
+/* =========================
+   CHECK IF ORDER HAS REVIEW
+========================= */
+router.get("/reviews/order/:orderId", async (req, res) => {
+  try {
+    const result = await db.query(
+      "SELECT reviewed FROM orders WHERE id = $1",
+      [req.params.orderId]
+    );
+    res.json({ reviewed: result.rows[0]?.reviewed || false });
+  } catch (err) {
+    console.error("Error checking review status:", err);
+    res.status(500).json({ error: 'Failed to check review status' });
   }
 });
 
@@ -666,7 +580,6 @@ router.get("/:id", async (req, res) => {
     }
     
     const order = orders.rows[0];
-    
     const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [req.params.id]);
     
     res.json({
@@ -682,12 +595,9 @@ router.get("/:id", async (req, res) => {
       delivery_fee: order.delivery_fee,
       created_at: order.created_at,
       driver_id: order.driver_id,
-      driver_lat: order.driver_lat,
-      driver_lng: order.driver_lng,
       driver_earning: order.driver_earning,
       notes: order.notes,
       payment_status: order.payment_status,
-      payment_transaction_id: order.payment_transaction_id,
       reviewed: order.reviewed,
       original_total: order.original_total,
       promo_code: order.promo_code,

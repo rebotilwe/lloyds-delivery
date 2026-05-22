@@ -67,8 +67,6 @@ const formatCurrency = (value) => {
 export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [updatingStatus, setUpdatingStatus] = useState(null);
-  const [assigningDriver, setAssigningDriver] = useState(null);
 
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
@@ -94,56 +92,12 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
     return { pending, delivered, cancelled, total: orders.length };
   }, [orders]);
 
-  // FIXED: Use the correct backend endpoint format - /orders/status/:id
-  const handleStatusChange = async (orderId, status) => {
-    setUpdatingStatus(orderId);
-    try {
-      // Correct endpoint: /orders/status/123
-      const response = await api.put(`/orders/status/${orderId}`, { status });
-      if (response.data) {
-        toast.success(`Order #${orderId} status updated to ${formatOrderStatus(status)}`);
-        onRefresh?.();
-      }
-    } catch (error) {
-      console.error('Status update error:', error);
-      toast.error(error.response?.data?.message || 'Failed to update order status');
-    } finally {
-      setUpdatingStatus(null);
-    }
+  // Get driver name by ID
+  const getDriverName = (driverId) => {
+    if (!driverId) return 'Unassigned';
+    const driver = drivers.find(d => d.id === driverId);
+    return driver?.name || driver?.full_name || `Driver #${driverId}`;
   };
-
-  // FIXED: Use the correct backend endpoint format - /orders/accept/:id
-// Replace the handleAssignDriver function with this:
-const handleAssignDriver = async (orderId, driverEmail) => {
-  if (!driverEmail || driverEmail === 'none') {
-    toast.error('Please select a driver');
-    return;
-  }
-
-  setAssigningDriver(orderId);
-  try {
-    const driver = drivers.find(d => d.email === driverEmail);
-    if (!driver) {
-      toast.error('Driver not found');
-      return;
-    }
-
-    // Use the new /assign endpoint instead of /accept
-    const response = await api.put(`/orders/assign/${orderId}`, {
-      driver_id: driver.id,
-    });
-    
-    if (response.data) {
-      toast.success(`Order #${orderId} offered to driver ${driver.name || driver.email}`);
-      onRefresh?.();
-    }
-  } catch (error) {
-    console.error('Assign driver error:', error);
-    toast.error(error.response?.data?.message || 'Failed to assign driver');
-  } finally {
-    setAssigningDriver(null);
-  }
-};
 
   return (
     <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -156,7 +110,7 @@ const handleAssignDriver = async (orderId, driverEmail) => {
             </div>
             <h3 className="text-xl font-semibold tracking-tight text-slate-900">All Orders</h3>
             <p className="mt-1 text-sm text-slate-500">
-              View, update, and assign drivers to customer orders.
+              View all customer orders, their status, and assigned drivers.
             </p>
           </div>
 
@@ -218,6 +172,7 @@ const handleAssignDriver = async (orderId, driverEmail) => {
         <Table>
           <TableHeader>
             <TableRow className="bg-slate-50/80 hover:bg-slate-50">
+              <TableHead className="font-semibold text-slate-600">Order ID</TableHead>
               <TableHead className="font-semibold text-slate-600">Date</TableHead>
               <TableHead className="font-semibold text-slate-600">Customer</TableHead>
               <TableHead className="font-semibold text-slate-600">Restaurant</TableHead>
@@ -231,7 +186,7 @@ const handleAssignDriver = async (orderId, driverEmail) => {
           <TableBody>
             {filteredOrders.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="py-14">
+                <TableCell colSpan={8} className="py-14">
                   <div className="flex flex-col items-center justify-center text-center">
                     <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100">
                       <Package2 className="h-5 w-5 text-slate-400" />
@@ -246,6 +201,9 @@ const handleAssignDriver = async (orderId, driverEmail) => {
             ) : (
               filteredOrders.map(order => (
                 <TableRow key={order.id} className="transition hover:bg-slate-50/60">
+                  <TableCell className="font-mono text-sm font-medium">
+                    #{order.id}
+                  </TableCell>
                   <TableCell className="text-sm text-slate-600">
                     {order.created_at ? format(new Date(order.created_at), 'dd MMM HH:mm') : '-'}
                   </TableCell>
@@ -268,48 +226,11 @@ const handleAssignDriver = async (orderId, driverEmail) => {
                   </TableCell>
 
                   <TableCell>
-                    <div className="w-40">
-                      <Select
-                        value={order.status || 'pending'}
-                        onValueChange={val => handleStatusChange(order.id, val)}
-                        disabled={updatingStatus === order.id}
-                      >
-                        <SelectTrigger className="h-9 rounded-xl border-slate-200">
-                          <SelectValue>
-                            <OrderStatusBadge status={order.status || 'pending'} />
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {statuses.map(s => (
-                            <SelectItem key={s} value={s}>
-                              {formatOrderStatus(s)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    <OrderStatusBadge status={order.status || 'pending'} />
                   </TableCell>
 
-                  <TableCell>
-                    <div className="w-44">
-                      <Select
-                        value={order.driver_id ? 'assigned' : 'none'}
-                        onValueChange={val => handleAssignDriver(order.id, val)}
-                        disabled={assigningDriver === order.id}
-                      >
-                        <SelectTrigger className="h-9 rounded-xl border-slate-200">
-                          <SelectValue placeholder="Assign driver" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">Unassigned</SelectItem>
-                          {drivers.map(d => (
-                            <SelectItem key={d.id} value={d.email}>
-                              {d.full_name || d.name || d.email}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <TableCell className="text-sm">
+                    {getDriverName(order.driver_id)}
                   </TableCell>
 
                   <TableCell>

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
+import { useSocket } from '@/context/SocketContext';
 import {
   LayoutDashboard,
   ShoppingBag,
@@ -13,8 +14,26 @@ import {
   Menu,
   X,
   ChevronDown,
+  User,
+  Package,
+  CheckCircle,
+  Clock,
+  XCircle,
+  Eye,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 const adminNavItems = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -24,6 +43,22 @@ const adminNavItems = [
   { path: '/admin/drivers', label: 'Drivers', icon: Truck },
   { path: '/admin/settings', label: 'Settings', icon: Settings },
 ];
+
+// Notification types
+const getNotificationIcon = (type) => {
+  switch (type) {
+    case 'order_placed':
+      return <Package className="w-4 h-4 text-blue-500" />;
+    case 'order_status':
+      return <Clock className="w-4 h-4 text-yellow-500" />;
+    case 'order_delivered':
+      return <CheckCircle className="w-4 h-4 text-green-500" />;
+    case 'order_cancelled':
+      return <XCircle className="w-4 h-4 text-red-500" />;
+    default:
+      return <Bell className="w-4 h-4 text-gray-500" />;
+  }
+};
 
 function NavItem({ item, active, onClick }) {
   const Icon = item.icon;
@@ -49,7 +84,71 @@ export default function AdminLayout() {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { socket, online } = useSocket();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Load notifications from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('admin_notifications');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setNotifications(parsed);
+        setUnreadCount(parsed.filter(n => !n.read).length);
+      } catch (e) {
+        console.error('Failed to load notifications:', e);
+      }
+    }
+  }, []);
+
+  // Save notifications to localStorage
+  useEffect(() => {
+    localStorage.setItem('admin_notifications', JSON.stringify(notifications));
+  }, [notifications]);
+
+  // Listen for socket events
+  useEffect(() => {
+    if (socket && online) {
+      // Listen for new orders
+      socket.on('new-order', (data) => {
+        const newNotification = {
+          id: Date.now(),
+          type: 'order_placed',
+          title: 'New Order Received',
+          message: `Order #${data.orderId} from ${data.restaurantName}`,
+          timestamp: new Date().toISOString(),
+          read: false,
+          orderId: data.orderId,
+        };
+        setNotifications(prev => [newNotification, ...prev]);
+        setUnreadCount(prev => prev + 1);
+        toast.info(`📦 New order #${data.orderId} received!`);
+      });
+
+      // Listen for order status updates
+      socket.on('order-status-update', (data) => {
+        const newNotification = {
+          id: Date.now(),
+          type: 'order_status',
+          title: 'Order Status Updated',
+          message: `Order #${data.orderId} status changed to ${data.status?.replace(/_/g, ' ')}`,
+          timestamp: new Date().toISOString(),
+          read: false,
+          orderId: data.orderId,
+        };
+        setNotifications(prev => [newNotification, ...prev]);
+        setUnreadCount(prev => prev + 1);
+      });
+
+      return () => {
+        socket.off('new-order');
+        socket.off('order-status-update');
+      };
+    }
+  }, [socket, online]);
 
   const handleLogout = () => {
     logout();
@@ -61,6 +160,56 @@ export default function AdminLayout() {
       return location.pathname === item.path;
     }
     return location.pathname.startsWith(item.path);
+  };
+
+  const markAsRead = (notificationId) => {
+    setNotifications(prev => 
+      prev.map(n => 
+        n.id === notificationId ? { ...n, read: true } : n
+      )
+    );
+    setUnreadCount(prev => Math.max(0, prev - 1));
+  };
+
+  const markAllAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    setUnreadCount(0);
+    toast.success('All notifications marked as read');
+  };
+
+  const clearNotifications = () => {
+    setNotifications([]);
+    setUnreadCount(0);
+    toast.success('Notifications cleared');
+  };
+
+  const viewOrder = (orderId) => {
+    setShowNotifications(false);
+    navigate(`/admin/orders`);
+    // You can also navigate to specific order: navigate(`/admin/orders/${orderId}`);
+  };
+
+  const formatTimestamp = (timestamp) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+  };
+
+  const getUserInitials = () => {
+    const name = user?.full_name || user?.name || 'Admin';
+    return name.charAt(0).toUpperCase();
+  };
+
+  const getUserName = () => {
+    return user?.full_name?.split(' ')[0] || user?.name || 'Admin';
   };
 
   return (
@@ -152,22 +301,130 @@ export default function AdminLayout() {
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Notifications */}
-                <button className="relative rounded-lg border bg-white p-2 shadow-sm hover:bg-slate-50">
-                  <Bell className="h-5 w-5 text-slate-600" />
-                  <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-red-500"></span>
-                </button>
+                {/* Notifications Dropdown */}
+                <DropdownMenu open={showNotifications} onOpenChange={setShowNotifications}>
+                  <DropdownMenuTrigger asChild>
+                    <button className="relative rounded-lg border bg-white p-2 shadow-sm hover:bg-slate-50">
+                      <Bell className="h-5 w-5 text-slate-600" />
+                      {unreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 text-[10px] font-medium text-white flex items-center justify-center">
+                          {unreadCount > 9 ? '9+' : unreadCount}
+                        </span>
+                      )}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-80 p-0">
+                    <div className="flex items-center justify-between border-b p-3">
+                      <DropdownMenuLabel className="p-0 font-semibold">Notifications</DropdownMenuLabel>
+                      <div className="flex gap-2">
+                        {notifications.length > 0 && (
+                          <>
+                            <button
+                              onClick={markAllAsRead}
+                              className="text-xs text-blue-500 hover:text-blue-600"
+                            >
+                              Mark all read
+                            </button>
+                            <button
+                              onClick={clearNotifications}
+                              className="text-xs text-red-500 hover:text-red-600"
+                            >
+                              Clear all
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <ScrollArea className="h-96">
+                      {notifications.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-8 text-center">
+                          <Bell className="h-8 w-8 text-gray-300 mb-2" />
+                          <p className="text-sm text-gray-500">No notifications yet</p>
+                          <p className="text-xs text-gray-400">Orders will appear here</p>
+                        </div>
+                      ) : (
+                        notifications.map((notification) => (
+                          <div
+                            key={notification.id}
+                            className={cn(
+                              "border-b p-3 cursor-pointer transition hover:bg-slate-50",
+                              !notification.read && "bg-blue-50/50"
+                            )}
+                            onClick={() => markAsRead(notification.id)}
+                          >
+                            <div className="flex gap-3">
+                              <div className="flex-shrink-0 mt-0.5">
+                                {getNotificationIcon(notification.type)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-900">
+                                  {notification.title}
+                                </p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  {notification.message}
+                                </p>
+                                <div className="flex items-center justify-between mt-2">
+                                  <p className="text-xs text-gray-400">
+                                    {formatTimestamp(notification.timestamp)}
+                                  </p>
+                                  {notification.orderId && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        viewOrder(notification.orderId);
+                                      }}
+                                      className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1"
+                                    >
+                                      <Eye className="w-3 h-3" />
+                                      View Order
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                              {!notification.read && (
+                                <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 mt-2"></div>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </ScrollArea>
+                    {notifications.length > 0 && (
+                      <div className="border-t p-2 text-center">
+                        <p className="text-xs text-gray-400">
+                          {unreadCount} unread · {notifications.length} total
+                        </p>
+                      </div>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
-                {/* User Menu */}
-                <div className="flex items-center gap-2 rounded-lg border bg-white px-2 py-1.5 shadow-sm lg:px-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
-                    {user?.full_name?.[0] || user?.name?.[0] || 'A'}
-                  </div>
-                  <span className="hidden text-sm font-medium text-slate-700 md:inline">
-                    {user?.full_name?.split(' ')[0] || user?.name || 'Admin'}
-                  </span>
-                  <ChevronDown className="hidden h-4 w-4 text-slate-500 md:block" />
-                </div>
+                {/* User Dropdown Menu */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex items-center gap-2 rounded-lg border bg-white px-2 py-1.5 shadow-sm hover:bg-slate-50 lg:px-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
+                        {getUserInitials()}
+                      </div>
+                      <span className="hidden text-sm font-medium text-slate-700 md:inline">
+                        {getUserName()}
+                      </span>
+                      <ChevronDown className="hidden h-4 w-4 text-slate-500 md:block" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => navigate('/admin/settings')} className="cursor-pointer">
+                      <User className="mr-2 h-4 w-4" />
+                      Profile Settings
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-600">
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Logout
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
 

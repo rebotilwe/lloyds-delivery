@@ -16,11 +16,13 @@ import {
   Eye,
   Settings,
   Download,
+  UtensilsCrossed,
 } from 'lucide-react';
 
 import AdminStats from '@/components/admin/AdminStats';
 import AdminOrders from '@/components/admin/AdminOrders';
 import AdminRestaurants from '@/components/admin/AdminRestaurants';
+import AdminMenuItems from '@/components/admin/AdminMenuItems';
 import AdminUsers from '@/components/admin/AdminUsers';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
@@ -33,6 +35,7 @@ const tabs = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, color: 'bg-emerald-500', path: '/admin' },
   { id: 'orders', label: 'Orders', icon: ShoppingBag, color: 'bg-blue-500', path: '/admin/orders' },
   { id: 'restaurants', label: 'Restaurants', icon: Store, color: 'bg-purple-500', path: '/admin/restaurants' },
+  { id: 'menu', label: 'Menu Items', icon: UtensilsCrossed, color: 'bg-orange-500', path: '/admin/menu' },
   { id: 'drivers', label: 'Drivers', icon: Truck, color: 'bg-amber-500', path: '/admin/drivers' },
   { id: 'users', label: 'Users', icon: Users, color: 'bg-cyan-500', path: '/admin/users' },
   { id: 'finance', label: 'Finance', icon: DollarSign, color: 'bg-green-500', path: '/admin/finance' },
@@ -258,6 +261,7 @@ export default function AdminDashboard() {
     if (path === '/admin' || path === '/admin/') return 'overview';
     if (path.includes('/orders')) return 'orders';
     if (path.includes('/restaurants')) return 'restaurants';
+    if (path.includes('/menu')) return 'menu';
     if (path.includes('/users')) return 'users';
     if (path.includes('/drivers')) return 'drivers';
     if (path.includes('/finance')) return 'finance';
@@ -483,6 +487,7 @@ export default function AdminDashboard() {
         {activeTab === 'overview' && <AdminStats orders={orders} users={users} />}
         {activeTab === 'orders' && <AdminOrders orders={orders} drivers={drivers} onRefresh={refreshAll} />}
         {activeTab === 'restaurants' && <AdminRestaurants restaurants={restaurants} onRefresh={refreshAll} />}
+        {activeTab === 'menu' && <AdminMenuItems restaurants={restaurants} />}
         {activeTab === 'users' && <AdminUsers users={users} />}
         
         {activeTab === 'finance' && (

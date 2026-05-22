@@ -160,6 +160,7 @@ function App() {
                     <Route path="orders" element={<AdminDashboard />} />
                     <Route path="orders/:id" element={<AdminOrderDetails />} />
                     <Route path="restaurants" element={<AdminDashboard />} />
+                    <Route path="menu" element={<AdminDashboard />} />
                     <Route path="users" element={<AdminDashboard />} />
                     <Route path="drivers" element={<AdminDashboard />} />
                     <Route path="finance" element={<AdminDashboard />} />

@@ -47,6 +47,24 @@ const statuses = [
   'cancelled',
 ];
 
+// Helper function to format status for display
+const formatOrderStatus = (status) => {
+  if (!status) return 'Pending';
+  
+  const statusMap = {
+    'pending': 'Pending',
+    'confirmed': 'Confirmed',
+    'preparing': 'Preparing',
+    'ready_for_pickup': 'Ready for Pickup',
+    'picked_up': 'Picked Up',
+    'on_the_way': 'On the Way',
+    'delivered': 'Delivered',
+    'cancelled': 'Cancelled'
+  };
+  
+  return statusMap[status] || status.replace(/_/g, ' ');
+};
+
 const formatCurrency = (value) => {
   const num = Number(value);
   return Number.isNaN(num) ? 'R0.00' : `R${num.toFixed(2)}`;
@@ -158,11 +176,11 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
-              {statuses.map(s => (
-  <SelectItem key={s} value={s}>
-    {formatOrderStatus(s)}
-  </SelectItem>
-))}
+                {statuses.map(s => (
+                  <SelectItem key={s} value={s}>
+                    {formatOrderStatus(s)}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -241,7 +259,7 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
                         <SelectContent>
                           {statuses.map(s => (
                             <SelectItem key={s} value={s}>
-                              {s.replace(/_/g, ' ')}
+                              {formatOrderStatus(s)}
                             </SelectItem>
                           ))}
                         </SelectContent>

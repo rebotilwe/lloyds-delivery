@@ -94,10 +94,12 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
     return { pending, delivered, cancelled, total: orders.length };
   }, [orders]);
 
+  // FIXED: Use the correct backend endpoint format - /orders/status/:id
   const handleStatusChange = async (orderId, status) => {
     setUpdatingStatus(orderId);
     try {
-      const response = await api.put(`/orders/${orderId}/status`, { status });
+      // Correct endpoint: /orders/status/123
+      const response = await api.put(`/orders/status/${orderId}`, { status });
       if (response.data) {
         toast.success(`Order #${orderId} status updated to ${formatOrderStatus(status)}`);
         onRefresh?.();
@@ -110,6 +112,7 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
     }
   };
 
+  // FIXED: Use the correct backend endpoint format - /orders/accept/:id
   const handleAssignDriver = async (orderId, driverEmail) => {
     if (!driverEmail || driverEmail === 'none') {
       toast.error('Please select a driver');
@@ -124,10 +127,9 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
         return;
       }
 
-      const response = await api.put(`/orders/${orderId}/assign`, {
+      // Correct endpoint: /orders/accept/123
+      const response = await api.put(`/orders/accept/${orderId}`, {
         driver_id: driver.id,
-        driver_email: driver.email,
-        driver_name: driver.full_name || driver.name,
       });
       
       if (response.data) {
@@ -290,7 +292,7 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
                   <TableCell>
                     <div className="w-44">
                       <Select
-                        value={order.driver_email || 'none'}
+                        value={order.driver_id ? 'assigned' : 'none'}
                         onValueChange={val => handleAssignDriver(order.id, val)}
                         disabled={assigningDriver === order.id}
                       >
@@ -300,7 +302,7 @@ export default function AdminOrders({ orders = [], drivers = [], onRefresh }) {
                         <SelectContent>
                           <SelectItem value="none">Unassigned</SelectItem>
                           {drivers.map(d => (
-                            <SelectItem key={d.email} value={d.email}>
+                            <SelectItem key={d.id} value={d.email}>
                               {d.full_name || d.name || d.email}
                             </SelectItem>
                           ))}

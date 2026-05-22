@@ -117,16 +117,23 @@ const io = new Server(httpServer, {
 
 app.set("io", io);
 
-// ✅ IMPORTANT: CORS must come FIRST - before any routes
+// ✅ CORS configuration - Fixed (removed app.options('*', cors()) which was causing the error)
+const allowedOrigins = ["http://localhost:5173", "http://localhost:3000", "https://lloyds-delivery.netlify.app"];
+
 app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:3000", "https://lloyds-delivery.netlify.app"],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true,
 }));
-
-// Handle preflight requests
-app.options('*', cors());
 
 // Body parsing middleware
 app.use(express.json({ limit: "50mb" }));
@@ -135,7 +142,7 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 // Serve static files
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
-// ✅ Upload endpoint (only one - removed the duplicate)
+// ✅ Upload endpoint for menu items and restaurants
 app.post("/api/upload", uploadRestaurantImage.single("image"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ message: "No file uploaded" });

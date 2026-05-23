@@ -363,6 +363,14 @@ router.put("/accept/:id", async (req, res) => {
    UPDATE ORDER STATUS (DRIVER)
    URL: PUT /api/orders/status/:id
 ========================= */
+/* =========================
+   UPDATE ORDER STATUS (DRIVER)
+   URL: PUT /api/orders/status/:id
+========================= */
+/* =========================
+   UPDATE ORDER STATUS (DRIVER)
+   URL: PUT /api/orders/status/:id
+========================= */
 router.put("/status/:id", async (req, res) => {
   try {
     const { status } = req.body;
@@ -385,24 +393,26 @@ router.put("/status/:id", async (req, res) => {
       timestamp: new Date(),
     });
 
-    // Send email for status changes
+    // Send email for status changes (non-blocking)
     if (status !== previousStatus && status !== 'pending') {
-      try {
-        const orderData = await db.query(
-          `SELECT o.*, u.email, u.name as customer_name 
-           FROM orders o 
-           LEFT JOIN users u ON o.customer_id = u.id 
-           WHERE o.id = $1`,
-          [orderId]
-        );
-        if (orderData.rows[0]?.email) {
-          const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [orderId]);
-          const orderWithItems = { ...orderData.rows[0], items: items.rows };
-          sendOrderStatusUpdate(orderWithItems, orderData.rows[0].email, orderData.rows[0].customer_name, previousStatus, status);
+      (async () => {
+        try {
+          const orderData = await db.query(
+            `SELECT o.*, u.email, u.name as customer_name 
+             FROM orders o 
+             LEFT JOIN users u ON o.customer_id = u.id 
+             WHERE o.id = $1`,
+            [orderId]
+          );
+          if (orderData.rows[0]?.email) {
+            const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [orderId]);
+            const orderWithItems = { ...orderData.rows[0], items: items.rows };
+            await sendOrderStatusUpdate(orderWithItems, orderData.rows[0].email, orderData.rows[0].customer_name, previousStatus, status);
+          }
+        } catch (emailErr) {
+          console.error("Failed to send status email:", emailErr.message);
         }
-      } catch (emailErr) {
-        console.error("Failed to send status email:", emailErr);
-      }
+      })();
     }
 
     // Calculate earnings when delivered
@@ -414,21 +424,47 @@ router.put("/status/:id", async (req, res) => {
       
       const order = orders.rows[0];
       if (order && driverId) {
-        const earning = (order.delivery_fee || 0) + (order.total * 0.1);
-        await db.query("UPDATE orders SET driver_earning = $1 WHERE id = $2", [earning, orderId]);
-        await db.query("UPDATE users SET earnings = earnings + $1 WHERE id = $2", [earning, driverId]);
+        // FIXED: Proper number parsing with validation
+        const deliveryFee = parseFloat(order.delivery_fee) || 0;
+        const total = parseFloat(order.total) || 0;
+        
+        // Calculate 10% commission
+        const commission = total * 0.1;
+        const earning = deliveryFee + commission;
+        
+        // Round to 2 decimal places and ensure it's a valid number
+        const finalEarning = Math.round(earning * 100) / 100;
+        
+        // Validate the final earning is a finite number
+        if (isNaN(finalEarning) || !isFinite(finalEarning)) {
+          console.error(`Invalid earning calculation: deliveryFee=${deliveryFee}, total=${total}, earning=${earning}`);
+          return res.status(500).json({ message: "Invalid earning calculation" });
+        }
+        
+        console.log(`💰 Driver ${driverId} earning: R${finalEarning.toFixed(2)} (Delivery R${deliveryFee.toFixed(2)} + 10% of R${total.toFixed(2)} = R${commission.toFixed(2)})`);
+        
+        // Update driver earning as a properly formatted number
+        await db.query(
+          "UPDATE orders SET driver_earning = $1 WHERE id = $2", 
+          [finalEarning, orderId]
+        );
+        
+        await db.query(
+          "UPDATE users SET earnings = COALESCE(earnings, 0) + $1 WHERE id = $2", 
+          [finalEarning, driverId]
+        );
 
         io.to(`driver_${driverId}`).emit("earnings-updated", {
           orderId: parseInt(orderId),
-          earning: earning,
+          earning: finalEarning,
         });
       }
     }
     
     res.json({ message: "Status updated successfully", status });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error updating status" });
+    console.error("Error updating status:", err);
+    res.status(500).json({ message: "Error updating status", error: err.message });
   }
 });
 

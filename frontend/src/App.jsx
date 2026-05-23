@@ -25,6 +25,7 @@ import OrderConfirmation from '@/pages/OrderConfirmation';
 import DriverOnboarding from '@/pages/DriverOnboarding';
 import Contact from '@/pages/Contact';
 import FAQ from '@/pages/FAQ';
+import Privacy from '@/pages/Privacy';
 import PageNotFound from '@/lib/PageNotFound';
 
 // ---------------------
@@ -99,7 +100,7 @@ function App() {
                     <Route path="/order-confirmation" element={<OrderConfirmation />} />
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/faq" element={<FAQ />} />
-              
+                    <Route path="/privacy" element={<Privacy />} />
                     <Route path="/reset-password" element={<ResetPassword />} />
                   </Route>
 

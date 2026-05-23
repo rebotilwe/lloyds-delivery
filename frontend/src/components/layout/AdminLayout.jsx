@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { useSocket } from '@/context/SocketContext';
@@ -20,6 +20,7 @@ import {
   Clock,
   XCircle,
   Eye,
+  Home,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -68,14 +69,14 @@ function NavItem({ item, active, onClick }) {
       to={item.path}
       onClick={onClick}
       className={cn(
-        "group flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition",
+        "group flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200",
         active
           ? "bg-slate-900 text-white shadow-lg shadow-slate-900/20"
           : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
       )}
     >
       <Icon className="h-4 w-4" />
-      {item.label}
+      <span className="truncate">{item.label}</span>
     </Link>
   );
 }
@@ -89,6 +90,17 @@ export default function AdminLayout() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [mobileView, setMobileView] = useState(false);
+
+  // Check if mobile view
+  useEffect(() => {
+    const checkMobile = () => {
+      setMobileView(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Load notifications from localStorage on mount
   useEffect(() => {
@@ -96,8 +108,10 @@ export default function AdminLayout() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        setNotifications(parsed);
-        setUnreadCount(parsed.filter(n => !n.read).length);
+        // Limit to last 50 notifications
+        const limited = parsed.slice(0, 50);
+        setNotifications(limited);
+        setUnreadCount(limited.filter(n => !n.read).length);
       } catch (e) {
         console.error('Failed to load notifications:', e);
       }
@@ -112,8 +126,7 @@ export default function AdminLayout() {
   // Listen for socket events
   useEffect(() => {
     if (socket && online) {
-      // Listen for new orders
-      socket.on('new-order', (data) => {
+      const handleNewOrder = (data) => {
         const newNotification = {
           id: Date.now(),
           type: 'order_placed',
@@ -123,13 +136,23 @@ export default function AdminLayout() {
           read: false,
           orderId: data.orderId,
         };
-        setNotifications(prev => [newNotification, ...prev]);
+        setNotifications(prev => [newNotification, ...prev].slice(0, 50));
         setUnreadCount(prev => prev + 1);
-        toast.info(`📦 New order #${data.orderId} received!`);
-      });
+        
+        // Show toast with sound effect (vibrate on mobile if supported)
+        if (mobileView && 'vibrate' in navigator) {
+          navigator.vibrate(200);
+        }
+        toast.info(`📦 New order #${data.orderId} received!`, {
+          duration: 5000,
+          action: {
+            label: 'View',
+            onClick: () => navigate('/admin/orders'),
+          },
+        });
+      };
 
-      // Listen for order status updates
-      socket.on('order-status-update', (data) => {
+      const handleOrderStatusUpdate = (data) => {
         const newNotification = {
           id: Date.now(),
           type: 'order_status',
@@ -139,57 +162,61 @@ export default function AdminLayout() {
           read: false,
           orderId: data.orderId,
         };
-        setNotifications(prev => [newNotification, ...prev]);
+        setNotifications(prev => [newNotification, ...prev].slice(0, 50));
         setUnreadCount(prev => prev + 1);
-      });
+      };
+
+      socket.on('new-order', handleNewOrder);
+      socket.on('order-status-update', handleOrderStatusUpdate);
 
       return () => {
-        socket.off('new-order');
-        socket.off('order-status-update');
+        socket.off('new-order', handleNewOrder);
+        socket.off('order-status-update', handleOrderStatusUpdate);
       };
     }
-  }, [socket, online]);
+  }, [socket, online, navigate, mobileView]);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     logout();
     navigate('/login');
-  };
+  }, [logout, navigate]);
 
-  const isActive = (item) => {
+  const isActive = useCallback((item) => {
     if (item.exact) {
       return location.pathname === item.path;
     }
     return location.pathname.startsWith(item.path);
-  };
+  }, [location.pathname]);
 
-  const markAsRead = (notificationId) => {
+  const markAsRead = useCallback((notificationId) => {
     setNotifications(prev => 
       prev.map(n => 
         n.id === notificationId ? { ...n, read: true } : n
       )
     );
     setUnreadCount(prev => Math.max(0, prev - 1));
-  };
+  }, []);
 
-  const markAllAsRead = () => {
+  const markAllAsRead = useCallback(() => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     setUnreadCount(0);
     toast.success('All notifications marked as read');
-  };
+  }, []);
 
-  const clearNotifications = () => {
-    setNotifications([]);
-    setUnreadCount(0);
-    toast.success('Notifications cleared');
-  };
+  const clearNotifications = useCallback(() => {
+    if (window.confirm('Clear all notifications? This action cannot be undone.')) {
+      setNotifications([]);
+      setUnreadCount(0);
+      toast.success('Notifications cleared');
+    }
+  }, []);
 
-  const viewOrder = (orderId) => {
+  const viewOrder = useCallback((orderId) => {
     setShowNotifications(false);
     navigate(`/admin/orders`);
-    // You can also navigate to specific order: navigate(`/admin/orders/${orderId}`);
-  };
+  }, [navigate]);
 
-  const formatTimestamp = (timestamp) => {
+  const formatTimestamp = useCallback((timestamp) => {
     const date = new Date(timestamp);
     const now = new Date();
     const diffMs = now - date;
@@ -201,16 +228,21 @@ export default function AdminLayout() {
     if (diffMins < 60) return `${diffMins} min ago`;
     if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
     return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-  };
+  }, []);
 
-  const getUserInitials = () => {
+  const getUserInitials = useCallback(() => {
     const name = user?.full_name || user?.name || 'Admin';
     return name.charAt(0).toUpperCase();
-  };
+  }, [user]);
 
-  const getUserName = () => {
+  const getUserName = useCallback(() => {
     return user?.full_name?.split(' ')[0] || user?.name || 'Admin';
-  };
+  }, [user]);
+
+  // Close mobile menu when route changes
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -225,15 +257,15 @@ export default function AdminLayout() {
       <div className="flex">
         {/* Sidebar - Mobile friendly */}
         <aside className={cn(
-          "fixed inset-y-0 left-0 z-50 w-72 border-r border-slate-200 bg-white shadow-xl transition-transform duration-300 lg:relative lg:translate-x-0 lg:shadow-none",
+          "fixed inset-y-0 left-0 z-50 w-72 border-r border-slate-200 bg-white shadow-xl transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 lg:shadow-none",
           mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
         )}>
           <div className="flex h-full flex-col">
             {/* Logo Area */}
             <div className="flex items-center justify-between px-5 py-5 border-b">
-              <Link to="/admin" className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-white">
-                  🍔
+              <Link to="/admin" className="flex items-center gap-3 group">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-slate-900 to-slate-700 text-white shadow-md transition-transform group-hover:scale-105">
+                  <span className="text-xl">🍔</span>
                 </div>
                 <div>
                   <p className="text-sm font-semibold tracking-tight">Lloyd's Admin</p>
@@ -243,17 +275,22 @@ export default function AdminLayout() {
 
               <button
                 onClick={() => setMobileMenuOpen(false)}
-                className="rounded-lg p-2 hover:bg-slate-100 lg:hidden"
+                className="rounded-lg p-2 hover:bg-slate-100 transition-colors lg:hidden"
+                aria-label="Close menu"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             {/* User Info */}
-            <div className="mx-4 mt-5 rounded-xl bg-slate-900 px-4 py-4 text-white">
+            <div className="mx-4 mt-5 rounded-xl bg-gradient-to-r from-slate-900 to-slate-800 px-4 py-4 text-white shadow-lg">
               <p className="text-xs text-white/70">Signed in as</p>
-              <p className="mt-1 font-semibold truncate">{user?.full_name || user?.name || 'Admin'}</p>
-              <p className="text-xs text-white/60 truncate">{user?.email || ''}</p>
+              <p className="mt-1 font-semibold truncate text-sm">{user?.full_name || user?.name || 'Admin'}</p>
+              <p className="text-xs text-white/60 truncate mt-0.5">{user?.email || ''}</p>
+              <div className="mt-2 flex items-center gap-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></div>
+                <p className="text-[10px] text-white/50">Admin Access</p>
+              </div>
             </div>
 
             {/* Navigation */}
@@ -272,7 +309,7 @@ export default function AdminLayout() {
             <div className="p-4 border-t">
               <button
                 onClick={handleLogout}
-                className="flex w-full items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 transition hover:bg-rose-100"
+                className="flex w-full items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700 transition-all hover:bg-rose-100 hover:border-rose-300"
               >
                 <LogOut className="h-4 w-4" />
                 Logout
@@ -289,7 +326,8 @@ export default function AdminLayout() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setMobileMenuOpen(true)}
-                  className="rounded-lg border bg-white p-2 shadow-sm hover:bg-slate-50 lg:hidden"
+                  className="rounded-lg border bg-white p-2 shadow-sm hover:bg-slate-50 transition-colors lg:hidden"
+                  aria-label="Open menu"
                 >
                   <Menu className="h-5 w-5" />
                 </button>
@@ -301,33 +339,39 @@ export default function AdminLayout() {
               </div>
 
               <div className="flex items-center gap-2">
+                {/* Connection Status - Mobile friendly */}
+                <div className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-full bg-slate-100 text-xs">
+                  <div className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+                  <span className="text-slate-600">{online ? 'Live' : 'Offline'}</span>
+                </div>
+
                 {/* Notifications Dropdown */}
                 <DropdownMenu open={showNotifications} onOpenChange={setShowNotifications}>
                   <DropdownMenuTrigger asChild>
-                    <button className="relative rounded-lg border bg-white p-2 shadow-sm hover:bg-slate-50">
+                    <button className="relative rounded-lg border bg-white p-2 shadow-sm hover:bg-slate-50 transition-colors">
                       <Bell className="h-5 w-5 text-slate-600" />
                       {unreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 text-[10px] font-medium text-white flex items-center justify-center">
-                          {unreadCount > 9 ? '9+' : unreadCount}
+                        <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-[11px] font-medium text-white flex items-center justify-center shadow-md">
+                          {unreadCount > 99 ? '99+' : unreadCount}
                         </span>
                       )}
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-80 p-0">
-                    <div className="flex items-center justify-between border-b p-3">
+                  <DropdownMenuContent align="end" className="w-80 sm:w-96 p-0">
+                    <div className="flex items-center justify-between border-b p-3 sticky top-0 bg-white z-10">
                       <DropdownMenuLabel className="p-0 font-semibold">Notifications</DropdownMenuLabel>
                       <div className="flex gap-2">
                         {notifications.length > 0 && (
                           <>
                             <button
                               onClick={markAllAsRead}
-                              className="text-xs text-blue-500 hover:text-blue-600"
+                              className="text-xs text-blue-500 hover:text-blue-600 transition-colors"
                             >
                               Mark all read
                             </button>
                             <button
                               onClick={clearNotifications}
-                              className="text-xs text-red-500 hover:text-red-600"
+                              className="text-xs text-red-500 hover:text-red-600 transition-colors"
                             >
                               Clear all
                             </button>
@@ -337,17 +381,17 @@ export default function AdminLayout() {
                     </div>
                     <ScrollArea className="h-96">
                       {notifications.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-8 text-center">
-                          <Bell className="h-8 w-8 text-gray-300 mb-2" />
+                        <div className="flex flex-col items-center justify-center py-12 text-center">
+                          <Bell className="h-12 w-12 text-gray-200 mb-3" />
                           <p className="text-sm text-gray-500">No notifications yet</p>
-                          <p className="text-xs text-gray-400">Orders will appear here</p>
+                          <p className="text-xs text-gray-400 mt-1">New orders will appear here</p>
                         </div>
                       ) : (
                         notifications.map((notification) => (
                           <div
                             key={notification.id}
                             className={cn(
-                              "border-b p-3 cursor-pointer transition hover:bg-slate-50",
+                              "border-b p-3 cursor-pointer transition-all hover:bg-slate-50",
                               !notification.read && "bg-blue-50/50"
                             )}
                             onClick={() => markAsRead(notification.id)}
@@ -373,7 +417,7 @@ export default function AdminLayout() {
                                         e.stopPropagation();
                                         viewOrder(notification.orderId);
                                       }}
-                                      className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1"
+                                      className="text-xs text-blue-500 hover:text-blue-600 flex items-center gap-1 transition-colors"
                                     >
                                       <Eye className="w-3 h-3" />
                                       View Order
@@ -390,7 +434,7 @@ export default function AdminLayout() {
                       )}
                     </ScrollArea>
                     {notifications.length > 0 && (
-                      <div className="border-t p-2 text-center">
+                      <div className="border-t p-2 text-center bg-slate-50">
                         <p className="text-xs text-gray-400">
                           {unreadCount} unread · {notifications.length} total
                         </p>
@@ -402,8 +446,8 @@ export default function AdminLayout() {
                 {/* User Dropdown Menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <button className="flex items-center gap-2 rounded-lg border bg-white px-2 py-1.5 shadow-sm hover:bg-slate-50 lg:px-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
+                    <button className="flex items-center gap-2 rounded-lg border bg-white px-2 py-1.5 shadow-sm hover:bg-slate-50 transition-colors lg:px-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-slate-900 to-slate-700 text-sm font-semibold text-white shadow-md">
                         {getUserInitials()}
                       </div>
                       <span className="hidden text-sm font-medium text-slate-700 md:inline">
@@ -419,7 +463,12 @@ export default function AdminLayout() {
                       <User className="mr-2 h-4 w-4" />
                       Profile Settings
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-600">
+                    <DropdownMenuItem onClick={() => navigate('/')} className="cursor-pointer">
+                      <Home className="mr-2 h-4 w-4" />
+                      Visit Website
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-600 focus:text-red-600">
                       <LogOut className="mr-2 h-4 w-4" />
                       Logout
                     </DropdownMenuItem>
@@ -430,8 +479,16 @@ export default function AdminLayout() {
 
             {/* Mobile Title (visible only on small screens) */}
             <div className="block border-t px-4 py-2 sm:hidden">
-              <h1 className="text-base font-semibold">Admin Dashboard</h1>
-              <p className="text-xs text-slate-500">Manage your platform</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-base font-semibold">Admin Dashboard</h1>
+                  <p className="text-xs text-slate-500">Manage your platform</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+                  <span className="text-[10px] text-slate-500">{online ? 'Live' : 'Offline'}</span>
+                </div>
+              </div>
             </div>
           </header>
 

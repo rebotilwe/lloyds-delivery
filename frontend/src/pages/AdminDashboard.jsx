@@ -17,6 +17,9 @@ import {
   Settings,
   Download,
   UtensilsCrossed,
+  TrendingUp,
+  Calendar,
+  AlertCircle,
 } from 'lucide-react';
 
 import AdminStats from '@/components/admin/AdminStats';
@@ -24,11 +27,13 @@ import AdminOrders from '@/components/admin/AdminOrders';
 import AdminRestaurants from '@/components/admin/AdminRestaurants';
 import AdminMenuItems from '@/components/admin/AdminMenuItems';
 import AdminUsers from '@/components/admin/AdminUsers';
+import RevenueChart from '@/components/admin/RevenueChart';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 // Simplified tabs for mobile with paths
 const tabs = [
@@ -44,19 +49,19 @@ const tabs = [
 
 // Simplified Stat Card
 const StatCard = ({ title, value, icon: Icon, color, trend }) => (
-  <div className="bg-white rounded-xl border p-4 hover:shadow-md transition">
+  <div className="bg-white rounded-xl border p-3 sm:p-4 hover:shadow-md transition group">
     <div className="flex items-center justify-between">
       <div>
-        <p className="text-xs text-gray-500">{title}</p>
-        <p className="text-xl font-bold mt-1">{value}</p>
+        <p className="text-[10px] sm:text-xs text-gray-500">{title}</p>
+        <p className="text-base sm:text-xl font-bold mt-0.5 sm:mt-1">{value}</p>
         {trend && (
-          <p className={cn("text-xs mt-1", trend > 0 ? "text-green-600" : "text-red-600")}>
+          <p className={cn("text-[10px] sm:text-xs mt-0.5", trend > 0 ? "text-green-600" : "text-red-600")}>
             {trend > 0 ? "↑" : "↓"} {Math.abs(trend)}%
           </p>
         )}
       </div>
-      <div className={cn("p-3 rounded-xl", color)}>
-        <Icon className="w-5 h-5 text-white" />
+      <div className={cn("p-2 sm:p-3 rounded-xl transition-transform group-hover:scale-105", color)}>
+        <Icon className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
       </div>
     </div>
   </div>
@@ -69,16 +74,16 @@ const MobileTabButton = ({ tab, active, onClick, badge }) => {
     <button
       onClick={onClick}
       className={cn(
-        "flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition min-w-[70px] relative",
+        "flex flex-col items-center gap-1 px-2 py-2 rounded-lg transition min-w-[60px] sm:min-w-[70px] relative",
         active 
-          ? "bg-navy text-white" 
+          ? "bg-navy text-white shadow-md" 
           : "bg-white text-gray-600 hover:bg-gray-50 border"
       )}
     >
-      <Icon className="w-5 h-5" />
-      <span className="text-xs">{tab.label}</span>
+      <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+      <span className="text-[10px] sm:text-xs">{tab.label}</span>
       {badge > 0 && (
-        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] sm:text-xs rounded-full w-3.5 h-3.5 sm:w-4 sm:h-4 flex items-center justify-center">
           {badge}
         </span>
       )}
@@ -93,7 +98,7 @@ const DesktopTabButton = ({ tab, active, onClick, badge }) => {
     <button
       onClick={onClick}
       className={cn(
-        "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap",
+        "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap",
         active
           ? "bg-navy text-white shadow"
           : "bg-white text-gray-600 hover:bg-gray-50 border"
@@ -110,9 +115,10 @@ const DesktopTabButton = ({ tab, active, onClick, badge }) => {
   );
 };
 
-// Driver Documents Review Component
+// Driver Documents Review Component (Mobile Optimized)
 const DriverDocuments = ({ driver, onClose, onApprove, onReject }) => {
   const [viewingDoc, setViewingDoc] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   const documents = [
     { key: 'id_copy', label: 'ID Copy', required: true },
@@ -128,15 +134,24 @@ const DriverDocuments = ({ driver, onClose, onApprove, onReject }) => {
     return `https://lloyds-delivery.onrender.com${docPath}`;
   };
 
-  const isImage = (url) => url?.match(/\.(jpeg|jpg|gif|png|webp)$/i) !== null;
-  const isPDF = (url) => url?.match(/\.(pdf)$/i) !== null;
+  const handleApproveClick = async () => {
+    setLoading(true);
+    await onApprove();
+    setLoading(false);
+  };
+
+  const handleRejectClick = async () => {
+    setLoading(true);
+    await onReject();
+    setLoading(false);
+  };
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
-          <DialogTitle>Review Driver Documents</DialogTitle>
-          <p className="text-sm text-gray-500">
+          <DialogTitle className="text-lg sm:text-xl">Review Driver Documents</DialogTitle>
+          <p className="text-xs sm:text-sm text-gray-500">
             {driver.full_name || driver.name} ({driver.email})
           </p>
         </DialogHeader>
@@ -153,13 +168,13 @@ const DriverDocuments = ({ driver, onClose, onApprove, onReject }) => {
             {documents.map(doc => {
               const docUrl = getDocumentUrl(doc.key);
               return (
-                <div key={doc.key} className="flex justify-between items-center p-3 border rounded-lg">
+                <div key={doc.key} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 p-3 border rounded-lg">
                   <div>
                     <p className="font-medium text-sm">{doc.label}</p>
                     <p className="text-xs text-gray-500">{docUrl ? 'Uploaded' : 'Not uploaded'}</p>
                   </div>
                   {docUrl && (
-                    <Button size="sm" variant="outline" onClick={() => setViewingDoc(docUrl)}>
+                    <Button size="sm" variant="outline" onClick={() => setViewingDoc(docUrl)} className="w-full sm:w-auto">
                       <Eye className="w-4 h-4 mr-1" /> View
                     </Button>
                   )}
@@ -168,28 +183,23 @@ const DriverDocuments = ({ driver, onClose, onApprove, onReject }) => {
             })}
           </div>
 
-          <div className="flex gap-3 pt-2">
-            <Button onClick={onApprove} className="flex-1 bg-green text-white">Approve</Button>
-            <Button onClick={onReject} variant="destructive" className="flex-1">Reject</Button>
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <Button onClick={handleApproveClick} disabled={loading} className="flex-1 bg-green text-white order-2 sm:order-1">
+              {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+              Approve Driver
+            </Button>
+            <Button onClick={handleRejectClick} disabled={loading} variant="destructive" className="flex-1 order-1 sm:order-2">
+              <XCircle className="w-4 h-4 mr-2" />
+              Reject Driver
+            </Button>
           </div>
         </div>
-
-        {viewingDoc && (
-          <Dialog open={!!viewingDoc} onOpenChange={() => setViewingDoc(null)}>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader><DialogTitle>Document Preview</DialogTitle></DialogHeader>
-              {isImage(viewingDoc) && <img src={viewingDoc} alt="Document" className="w-full rounded" />}
-              {isPDF(viewingDoc) && <iframe src={viewingDoc} className="w-full h-96 rounded" />}
-              <Button variant="outline" onClick={() => window.open(viewingDoc, '_blank')}>Download</Button>
-            </DialogContent>
-          </Dialog>
-        )}
       </DialogContent>
     </Dialog>
   );
 };
 
-// Settings Component
+// Settings Component (Mobile Optimized)
 const AdminSettings = () => {
   const { user, setUser } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -225,8 +235,8 @@ const AdminSettings = () => {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border p-5">
-        <h2 className="font-bold mb-4">Profile Settings</h2>
+      <div className="bg-white rounded-xl border p-4 sm:p-5">
+        <h2 className="font-bold text-base sm:text-lg mb-4">Profile Settings</h2>
         <div className="space-y-3">
           <Input placeholder="Full Name" value={formData.full_name} onChange={e => setFormData({ ...formData, full_name: e.target.value })} />
           <Input value={user?.email} disabled className="bg-gray-50" />
@@ -234,8 +244,8 @@ const AdminSettings = () => {
           <Button onClick={updateProfile} disabled={loading} className="w-full bg-navy text-white">Save Changes</Button>
         </div>
       </div>
-      <div className="bg-white rounded-xl border p-5">
-        <h2 className="font-bold mb-4">Change Password</h2>
+      <div className="bg-white rounded-xl border p-4 sm:p-5">
+        <h2 className="font-bold text-base sm:text-lg mb-4">Change Password</h2>
         <div className="space-y-3">
           <Input type="password" placeholder="Current Password" value={formData.current_password} onChange={e => setFormData({ ...formData, current_password: e.target.value })} />
           <Input type="password" placeholder="New Password" value={formData.new_password} onChange={e => setFormData({ ...formData, new_password: e.target.value })} />
@@ -247,6 +257,9 @@ const AdminSettings = () => {
   );
 };
 
+// Import missing icons
+import { CheckCircle, XCircle } from 'lucide-react';
+
 /* ---------------------- MAIN ---------------------- */
 export default function AdminDashboard() {
   const location = useLocation();
@@ -255,6 +268,17 @@ export default function AdminDashboard() {
   const { user } = useAuth();
   const [selectedDriver, setSelectedDriver] = useState(null);
   const [showDocuments, setShowDocuments] = useState(false);
+  const [mobileView, setMobileView] = useState(false);
+
+  // Check if mobile view
+  useEffect(() => {
+    const checkMobile = () => {
+      setMobileView(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const getActiveTabFromPath = () => {
     const path = location.pathname;
@@ -281,7 +305,7 @@ export default function AdminDashboard() {
   };
 
   // Data fetching
-  const { data: orders = [], isLoading: ordersLoading, error: ordersError } = useQuery({
+  const { data: orders = [], isLoading: ordersLoading } = useQuery({
     queryKey: ['orders'],
     queryFn: async () => {
       try {
@@ -446,17 +470,24 @@ export default function AdminDashboard() {
         </Button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
+      {/* Stats Cards - Responsive Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-5">
         <StatCard title="Revenue" value={`R${totalRevenue.toFixed(2)}`} icon={DollarSign} color="bg-green" />
         <StatCard title="Orders" value={orders.length} icon={ShoppingBag} color="bg-blue-500" />
         <StatCard title="Active Drivers" value={activeDrivers.length} icon={Truck} color="bg-purple-500" />
         <StatCard title="Pending Orders" value={pendingOrders.length} icon={Clock} color="bg-orange-500" />
       </div>
 
-      {/* Mobile Tabs */}
+      {/* Revenue Chart - Only show on overview tab or finance tab */}
+      {(activeTab === 'overview' || activeTab === 'finance') && (
+        <div className="mb-6">
+          <RevenueChart orders={orders} />
+        </div>
+      )}
+
+      {/* Mobile Tabs - Horizontal Scroll */}
       <div className="sm:hidden overflow-x-auto pb-2 mb-4">
-        <div className="flex gap-2 min-w-max">
+        <div className="flex gap-1 min-w-max">
           {tabs.map(tab => (
             <MobileTabButton
               key={tab.id}
@@ -494,79 +525,60 @@ export default function AdminDashboard() {
           <div className="space-y-4">
             {/* Export Buttons */}
             <div className="flex flex-wrap gap-3 pb-3 border-b">
-              <Button onClick={exportOrdersToCSV} className="bg-green text-white">
+              <Button onClick={exportOrdersToCSV} className="bg-green text-white text-sm">
                 <Download className="w-4 h-4 mr-2" />
-                Export Orders (CSV)
+                Export Orders
               </Button>
-              <Button onClick={exportRevenueSummary} variant="outline">
+              <Button onClick={exportRevenueSummary} variant="outline" className="text-sm">
                 <Download className="w-4 h-4 mr-2" />
-                Export Revenue Summary
+                Export Revenue
               </Button>
             </div>
 
             {/* Revenue Overview */}
-            <div className="bg-white rounded-xl border p-5">
-              <h2 className="text-lg font-bold mb-4">Revenue Overview</h2>
+            <div className="bg-white rounded-xl border p-4 sm:p-5">
+              <h2 className="text-base sm:text-lg font-bold mb-4">Revenue Overview</h2>
               <div className="space-y-3">
                 <div className="flex justify-between items-center pb-2 border-b">
-                  <span className="text-gray-600">Total Revenue</span>
-                  <span className="text-2xl font-bold text-green">R{totalRevenue.toFixed(2)}</span>
+                  <span className="text-gray-600 text-sm">Total Revenue</span>
+                  <span className="text-xl sm:text-2xl font-bold text-green">R{totalRevenue.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center pb-2 border-b">
-                  <span className="text-gray-600">Today's Revenue</span>
-                  <span className="text-lg font-semibold">R{todayRevenue.toFixed(2)}</span>
+                  <span className="text-gray-600 text-sm">Today's Revenue</span>
+                  <span className="text-base sm:text-lg font-semibold">R{todayRevenue.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center pb-2 border-b">
-                  <span className="text-gray-600">Completion Rate</span>
-                  <span className="text-lg font-semibold">{completionRate.toFixed(1)}%</span>
+                  <span className="text-gray-600 text-sm">Completion Rate</span>
+                  <span className="text-base sm:text-lg font-semibold">{completionRate.toFixed(1)}%</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Average Order Value</span>
-                  <span className="text-lg font-semibold">R{averageOrderValue.toFixed(2)}</span>
+                  <span className="text-gray-600 text-sm">Average Order Value</span>
+                  <span className="text-base sm:text-lg font-semibold">R{averageOrderValue.toFixed(2)}</span>
                 </div>
               </div>
             </div>
 
             {/* Order Statistics */}
-            <div className="bg-white rounded-xl border p-5">
-              <h2 className="text-lg font-bold mb-4">Order Statistics</h2>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span>Total Orders</span>
-                  <span className="font-semibold">{orders.length}</span>
+            <div className="bg-white rounded-xl border p-4 sm:p-5">
+              <h2 className="text-base sm:text-lg font-bold mb-4">Order Statistics</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-blue-600">{orders.length}</p>
+                  <p className="text-xs text-gray-500">Total</p>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span>Completed</span>
-                  <span className="font-semibold text-green">{completedOrders.length}</span>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-green-600">{completedOrders.length}</p>
+                  <p className="text-xs text-gray-500">Completed</p>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span>Pending</span>
-                  <span className="font-semibold text-yellow-600">{pendingOrders.length}</span>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-yellow-600">{pendingOrders.length}</p>
+                  <p className="text-xs text-gray-500">Pending</p>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span>Cancelled</span>
-                  <span className="font-semibold text-red-500">
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-red-500">
                     {orders.filter(o => o.status === 'cancelled').length}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Additional Metrics */}
-            <div className="bg-white rounded-xl border p-5">
-              <h2 className="text-lg font-bold mb-4">Additional Metrics</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Total Delivery Fees</p>
-                  <p className="text-xl font-bold text-blue-600">
-                    R{orders.reduce((sum, o) => sum + (Number(o.delivery_fee) || 0), 0).toFixed(2)}
                   </p>
-                </div>
-                <div className="bg-gray-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Total Driver Earnings</p>
-                  <p className="text-xl font-bold text-purple-600">
-                    R{orders.reduce((sum, o) => sum + (Number(o.driver_earning) || 0), 0).toFixed(2)}
-                  </p>
+                  <p className="text-xs text-gray-500">Cancelled</p>
                 </div>
               </div>
             </div>
@@ -578,36 +590,36 @@ export default function AdminDashboard() {
         {activeTab === 'drivers' && (
           <div className="space-y-4">
             {/* Quick Stats */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
               <div className="text-center p-2 bg-gray-50 rounded-lg">
-                <p className="text-xl font-bold">{drivers.length}</p>
-                <p className="text-xs text-gray-500">Total</p>
+                <p className="text-lg sm:text-xl font-bold">{drivers.length}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500">Total</p>
               </div>
               <div className="text-center p-2 bg-gray-50 rounded-lg">
-                <p className="text-xl font-bold text-green">{activeDrivers.length}</p>
-                <p className="text-xs text-gray-500">Active</p>
+                <p className="text-lg sm:text-xl font-bold text-green">{activeDrivers.length}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500">Active</p>
               </div>
               <div className="text-center p-2 bg-gray-50 rounded-lg">
-                <p className="text-xl font-bold text-yellow-600">{pendingDrivers.length}</p>
-                <p className="text-xs text-gray-500">Pending</p>
+                <p className="text-lg sm:text-xl font-bold text-yellow-600">{pendingDrivers.length}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500">Pending</p>
               </div>
             </div>
 
             {/* Pending Drivers */}
             {pendingDrivers.length > 0 && (
               <div>
-                <h3 className="font-semibold mb-2">Pending Approval ({pendingDrivers.length})</h3>
+                <h3 className="font-semibold text-sm sm:text-base mb-2">Pending Approval ({pendingDrivers.length})</h3>
                 <div className="space-y-2">
                   {pendingDrivers.map(driver => (
-                    <div key={driver.id} className="flex justify-between items-center p-3 border rounded-lg">
+                    <div key={driver.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-3 border rounded-lg">
                       <div>
                         <p className="font-medium text-sm">{driver.name}</p>
                         <p className="text-xs text-gray-500">{driver.email}</p>
                       </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => { setSelectedDriver(driver); setShowDocuments(true); }} className="p-1.5 bg-blue-500 text-white rounded text-xs">Review</button>
-                        <button onClick={() => approveDriver(driver)} className="p-1.5 bg-green text-white rounded text-xs">Approve</button>
-                        <button onClick={() => rejectDriver(driver)} className="p-1.5 bg-red-500 text-white rounded text-xs">Reject</button>
+                      <div className="flex gap-2 w-full sm:w-auto">
+                        <button onClick={() => { setSelectedDriver(driver); setShowDocuments(true); }} className="flex-1 sm:flex-none p-1.5 bg-blue-500 text-white rounded text-xs">Review</button>
+                        <button onClick={() => approveDriver(driver)} className="flex-1 sm:flex-none p-1.5 bg-green text-white rounded text-xs">Approve</button>
+                        <button onClick={() => rejectDriver(driver)} className="flex-1 sm:flex-none p-1.5 bg-red-500 text-white rounded text-xs">Reject</button>
                       </div>
                     </div>
                   ))}
@@ -618,7 +630,7 @@ export default function AdminDashboard() {
             {/* Active Drivers */}
             {activeDrivers.length > 0 && (
               <div>
-                <h3 className="font-semibold mb-2">Active Drivers</h3>
+                <h3 className="font-semibold text-sm sm:text-base mb-2">Active Drivers</h3>
                 <div className="space-y-2">
                   {activeDrivers.map(driver => (
                     <div key={driver.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">

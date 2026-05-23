@@ -209,133 +209,6 @@ router.get("/driver/:id", async (req, res) => {
     res.json([]);
   }
 });
-/* =========================
-   ADMIN ASSIGNS DRIVER TO ORDER (offers trip)
-   URL: PUT /api/orders/assign/:id
-   IMPORTANT: Place this BEFORE the /:id route
-========================= */
-router.put("/assign/:id", async (req, res) => {
-  try {
-    const { driver_id } = req.body;
-    const orderId = req.params.id;
-    const io = req.app.get("io");
-
-    console.log(`👑 Admin assigning driver ${driver_id} to order ${orderId}`);
-
-    if (!driver_id) {
-      return res.status(400).json({ message: "driver_id is required" });
-    }
-
-    // Check if order exists and is available
-    const orderCheck = await db.query(
-      "SELECT * FROM orders WHERE id = $1 AND (driver_id IS NULL OR driver_id = 0) AND status = 'pending'",
-      [orderId]
-    );
-    
-    if (orderCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Order not found or already assigned" });
-    }
-
-    const order = orderCheck.rows[0];
-
-    // Check if driver exists and is approved
-    const driverCheck = await db.query(
-      "SELECT * FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
-      [driver_id]
-    );
-    
-    if (driverCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Driver not found or not approved" });
-    }
-
-    // Assign driver to order (status remains pending until driver accepts)
-    await db.query(
-      "UPDATE orders SET driver_id = $1 WHERE id = $2",
-      [driver_id, orderId]
-    );
-
-    // Notify driver via socket that they have been offered an order
-    if (io) {
-      io.to(`driver_${driver_id}`).emit("order-offered", {
-        orderId: parseInt(orderId),
-        restaurantName: order.restaurant_name,
-        customerAddress: order.delivery_address,
-        orderTotal: order.total,
-        message: "You have been offered a delivery trip!"
-      });
-    }
-
-    res.json({ 
-      message: "Order offered to driver successfully",
-      orderId: orderId,
-      driverId: driver_id
-    });
-  } catch (err) {
-    console.error("Error assigning driver:", err);
-    res.status(500).json({ message: "Error assigning driver" });
-  }
-});
-/* =========================
-   DRIVER ACCEPTS ORDER (from available list)
-   URL: PUT /api/orders/accept/:id
-========================= */
-router.put("/accept/:id", async (req, res) => {
-  try {
-    const { driver_id } = req.body;
-    const orderId = req.params.id;
-    const io = req.app.get("io");
-
-    console.log(`🚚 Driver ${driver_id} accepting order ${orderId}`);
-
-    if (!driver_id) {
-      return res.status(400).json({ message: "driver_id is required" });
-    }
-
-    // Check if order exists and is available
-    const orderCheck = await db.query(
-      "SELECT * FROM orders WHERE id = $1 AND (driver_id IS NULL OR driver_id = 0) AND status = 'pending'",
-      [orderId]
-    );
-    
-    if (orderCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Order not found or already accepted" });
-    }
-
-    const order = orderCheck.rows[0];
-
-    // Check if driver exists and is approved
-    const driverCheck = await db.query(
-      "SELECT * FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
-      [driver_id]
-    );
-    
-    if (driverCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Driver not found or not approved" });
-    }
-
-    // Update order with driver and change status to confirmed
-    await db.query(
-      "UPDATE orders SET driver_id = $1, status = 'confirmed' WHERE id = $2",
-      [driver_id, orderId]
-    );
-
-    // Notify admin and customer via socket
-    io.to(`order_${orderId}`).emit("order-accepted", {
-      orderId: parseInt(orderId),
-      driverId: driver_id,
-      status: "confirmed",
-      message: "A driver has accepted your order",
-    });
-
-    res.json({ 
-      message: "Order accepted successfully",
-      orderId: orderId
-    });
-  } catch (err) {
-    console.error("Error accepting order:", err);
-    res.status(500).json({ message: "Error accepting order" });
-  }
-});
 
 /* =========================
    ADMIN ASSIGNS DRIVER TO ORDER (offers trip)
@@ -396,6 +269,68 @@ router.put("/assign/:id", async (req, res) => {
   } catch (err) {
     console.error("Error assigning driver:", err);
     res.status(500).json({ message: "Error assigning driver" });
+  }
+});
+
+/* =========================
+   DRIVER ACCEPTS ORDER (from available list)
+   URL: PUT /api/orders/accept/:id
+========================= */
+router.put("/accept/:id", async (req, res) => {
+  try {
+    const { driver_id } = req.body;
+    const orderId = req.params.id;
+    const io = req.app.get("io");
+
+    console.log(`🚚 Driver ${driver_id} accepting order ${orderId}`);
+
+    if (!driver_id) {
+      return res.status(400).json({ message: "driver_id is required" });
+    }
+
+    // Check if order exists and is available
+    const orderCheck = await db.query(
+      "SELECT * FROM orders WHERE id = $1 AND (driver_id IS NULL OR driver_id = 0) AND status = 'pending'",
+      [orderId]
+    );
+    
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found or already accepted" });
+    }
+
+    const order = orderCheck.rows[0];
+
+    // Check if driver exists and is approved
+    const driverCheck = await db.query(
+      "SELECT * FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
+      [driver_id]
+    );
+    
+    if (driverCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Driver not found or not approved" });
+    }
+
+    // Update order with driver and change status to confirmed
+    await db.query(
+      "UPDATE orders SET driver_id = $1, status = 'confirmed' WHERE id = $2",
+      [driver_id, orderId]
+    );
+
+    // Notify admin and customer via socket
+    io.to(`order_${orderId}`).emit("order-accepted", {
+      orderId: parseInt(orderId),
+      driverId: driver_id,
+      status: "confirmed",
+      message: "A driver has accepted your order",
+    });
+
+    res.json({ 
+      message: "Order accepted successfully",
+      orderId: orderId
+    });
+  } catch (err) {
+    console.error("Error accepting order:", err);
+    res.status(500).json({ message: "Error accepting order" });
   }
 });
 

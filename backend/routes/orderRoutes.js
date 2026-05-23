@@ -55,36 +55,60 @@ router.post("/create", async (req, res) => {
     );
 
     const orderId = result.rows[0].id;
-    console.log(`Order created with ID: ${orderId}`);
+    console.log(`✅ Order created with ID: ${orderId}`);
 
+    // Insert order items with proper error handling
     if (items && Array.isArray(items) && items.length > 0) {
+      console.log(`Processing ${items.length} items for order ${orderId}`);
+      
       for (const item of items) {
         const menuItemId = item.id || item.menu_item_id;
         const itemName = item.name;
         const quantity = item.quantity || 1;
         const price = parseFloat(item.price) || 0;
         
+        console.log(`Item: ${itemName} (ID: ${menuItemId}) x${quantity} @ R${price}`);
+        
+        // Check if menu item exists in database
+        let finalMenuItemId = null;
+        if (menuItemId) {
+          const menuItemCheck = await db.query(
+            "SELECT id FROM menu_items WHERE id = $1",
+            [menuItemId]
+          );
+          if (menuItemCheck.rows.length > 0) {
+            finalMenuItemId = menuItemId;
+          } else {
+            console.log(`⚠️ Menu item ID ${menuItemId} not found, saving without reference`);
+          }
+        }
+        
+        // Insert order item (menu_item_id can be NULL)
         await db.query(
           `INSERT INTO order_items 
            (order_id, menu_item_id, name, quantity, price) 
            VALUES ($1, $2, $3, $4, $5)`,
-          [orderId, menuItemId, itemName, quantity, price]
+          [orderId, finalMenuItemId, itemName, quantity, price]
         );
       }
+      console.log(`✅ Successfully inserted ${items.length} items for order ${orderId}`);
     } else {
-      let defaultItem = { id: 101, name: 'Menu Item', price: total };
-      if (restaurant_id == 1) defaultItem = { id: 101, name: 'Classic Cheeseburger', price: total };
-      if (restaurant_id == 2) defaultItem = { id: 201, name: 'Margherita Pizza', price: total };
-      if (restaurant_id == 3) defaultItem = { id: 301, name: 'California Roll', price: total };
+      console.warn(`⚠️ No items provided for order ${orderId}`);
+      // Add a default item based on restaurant
+      let defaultItem = { name: 'Menu Item', price: total };
+      if (restaurant_id == 1) defaultItem = { name: 'Classic Cheeseburger', price: total };
+      if (restaurant_id == 2) defaultItem = { name: 'Margherita Pizza', price: total };
+      if (restaurant_id == 3) defaultItem = { name: 'California Roll', price: total };
       
       await db.query(
         `INSERT INTO order_items 
          (order_id, menu_item_id, name, quantity, price) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [orderId, defaultItem.id, defaultItem.name, 1, defaultItem.price]
+         VALUES ($1, NULL, $2, $3, $4)`,
+        [orderId, defaultItem.name, 1, defaultItem.price]
       );
     }
 
+    // Send email confirmation (non-blocking)
     try {
       const customer = await db.query("SELECT email, name FROM users WHERE id = $1", [customer_id]);
       if (customer.rows[0]?.email) {
@@ -92,10 +116,12 @@ router.post("/create", async (req, res) => {
         const orderItems = await db.query("SELECT * FROM order_items WHERE order_id = $1", [orderId]);
         const orderWithItems = { ...newOrder.rows[0], items: orderItems.rows };
         
-        sendOrderConfirmation(orderWithItems, customer.rows[0].email, customer.rows[0].name || customer_name);
+        // Don't await email - let it run in background
+        sendOrderConfirmation(orderWithItems, customer.rows[0].email, customer.rows[0].name || customer_name)
+          .catch(emailErr => console.error("Email error:", emailErr.message));
       }
     } catch (emailErr) {
-      console.error("Failed to send email:", emailErr);
+      console.error("Failed to send email:", emailErr.message);
     }
 
     res.status(201).json({ 
@@ -113,7 +139,6 @@ router.post("/create", async (req, res) => {
     });
   }
 });
-
 /* =========================
    GET ALL ORDERS (ADMIN)
 ========================= */

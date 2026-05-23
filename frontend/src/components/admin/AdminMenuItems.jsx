@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, Pencil, Trash2, Upload, Image as ImageIcon, X, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { api } from '@/api/client';
 import { toast } from 'sonner';
 
@@ -18,7 +18,6 @@ const emptyForm = {
   price: 0,
   category: 'Mains',
   restaurant_id: '',
-  image_url: '',
 };
 
 export default function AdminMenuItems({ restaurants = [] }) {
@@ -26,8 +25,6 @@ export default function AdminMenuItems({ restaurants = [] }) {
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const fileInputRef = React.useRef(null);
   const queryClient = useQueryClient();
 
   // Fetch menu items from API
@@ -53,64 +50,6 @@ export default function AdminMenuItems({ restaurants = [] }) {
     const restaurant = restaurants.find(r => r.id === restaurantId);
     return restaurant?.name || '-';
   };
-
- // Handle image upload
-const handleImageUpload = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  // Validate file type
-  if (!file.type.startsWith('image/')) {
-    toast.error('Please upload an image file');
-    return;
-  }
-
-  // Validate file size (max 5MB)
-  if (file.size > 5 * 1024 * 1024) {
-    toast.error('Image must be less than 5MB');
-    return;
-  }
-
-  setUploadingImage(true);
-
-  const uploadFormData = new FormData();
-  uploadFormData.append('image', file);
-
-  try {
-    // Use the same endpoint as restaurant images
-    const response = await fetch('https://lloyds-delivery.onrender.com/api/upload', {
-      method: 'POST',
-      body: uploadFormData,
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || 'Upload failed');
-    }
-
-    // Handle the response format from your backend
-    // Your backend returns: { success: true, imageUrl: "/uploads/restaurants/filename.jpg" }
-    let fullImageUrl = data.imageUrl;
-    
-    // If it's a relative path, convert to full URL
-    if (fullImageUrl && fullImageUrl.startsWith('/uploads')) {
-      fullImageUrl = `https://lloyds-delivery.onrender.com${fullImageUrl}`;
-    }
-    
-    // Update form data with the uploaded image URL
-    setForm(prev => ({ ...prev, image_url: fullImageUrl }));
-    toast.success('Image uploaded successfully');
-
-  } catch (error) {
-    console.error('Upload error:', error);
-    toast.error(error.message || 'Failed to upload image');
-  } finally {
-    setUploadingImage(false);
-    // Clear file input
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  }
-};
 
   const handleSave = async () => {
     if (!form.name || !form.restaurant_id || form.price <= 0) {
@@ -154,7 +93,6 @@ const handleImageUpload = async (e) => {
       price: typeof item.price === 'string' ? parseFloat(item.price) : (item.price || 0),
       category: item.category || 'Mains',
       restaurant_id: item.restaurant_id || '',
-      image_url: item.image_url || '',
     });
     setEditId(item.id);
     setOpen(true);
@@ -240,82 +178,11 @@ const handleImageUpload = async (e) => {
               <div>
                 <label className="block text-sm font-medium mb-1">Description</label>
                 <Textarea 
-                  placeholder="Item description" 
+                  placeholder="Item description (e.g., Grilled chicken breast with lettuce and mayo)" 
                   value={form.description} 
                   onChange={e => setForm({ ...form, description: e.target.value })} 
                   rows={2}
                 />
-              </div>
-              
-              {/* Image Upload Section */}
-              <div>
-                <label className="block text-sm font-medium mb-1">Item Image</label>
-                <div className="flex gap-4 items-start">
-                  {/* Image Preview */}
-                  <div className="w-24 h-24 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 border">
-                    {form.image_url ? (
-                      <img 
-                        src={form.image_url} 
-                        alt="Preview" 
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <ImageIcon className="w-8 h-8 text-gray-400" />
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Upload Button */}
-                  <div className="flex-1">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      className="hidden"
-                      id="menu-item-image-upload"
-                    />
-                    <label htmlFor="menu-item-image-upload">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="w-full cursor-pointer"
-                        disabled={uploadingImage}
-                        asChild
-                      >
-                        <span>
-                          {uploadingImage ? (
-                            <>
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              Uploading...
-                            </>
-                          ) : (
-                            <>
-                              <Upload className="w-4 h-4 mr-2" />
-                              Upload Image
-                            </>
-                          )}
-                        </span>
-                      </Button>
-                    </label>
-                    <p className="text-xs text-gray-500 mt-1">
-                      JPG, PNG or GIF. Max 5MB
-                    </p>
-                  </div>
-                </div>
-                {form.image_url && !uploadingImage && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-500 mt-2"
-                    onClick={() => setForm(prev => ({ ...prev, image_url: '' }))}
-                  >
-                    <X className="w-3 h-3 mr-1" />
-                    Remove Image
-                  </Button>
-                )}
               </div>
               
               <div className="grid grid-cols-2 gap-4">
@@ -360,10 +227,10 @@ const handleImageUpload = async (e) => {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Image</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Restaurant</TableHead>
               <TableHead>Category</TableHead>
+              <TableHead>Description</TableHead>
               <TableHead>Price</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
@@ -378,22 +245,12 @@ const handleImageUpload = async (e) => {
             ) : (
               menuItems.map(item => (
                 <TableRow key={item.id}>
-                  <TableCell>
-                    {item.image_url ? (
-                      <img 
-                        src={item.image_url} 
-                        alt={item.name} 
-                        className="w-10 h-10 rounded-lg object-cover"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-                        <ImageIcon className="w-5 h-5 text-gray-400" />
-                      </div>
-                    )}
-                  </TableCell>
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell className="text-sm">{getRestaurantName(item.restaurant_id)}</TableCell>
                   <TableCell className="text-sm">{item.category || '-'}</TableCell>
+                  <TableCell className="text-sm text-gray-600 max-w-xs truncate">
+                    {item.description || '-'}
+                  </TableCell>
                   <TableCell className="font-semibold text-green">
                     R{typeof item.price === 'number' ? item.price.toFixed(2) : parseFloat(item.price || 0).toFixed(2)}
                   </TableCell>

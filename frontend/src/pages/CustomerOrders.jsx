@@ -1,12 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
-import { Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, AlertCircle, Navigation, Star } from 'lucide-react';
+import { 
+  Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, 
+  AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
+  Calendar, Clock as ClockIcon 
+} from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useSocket } from '@/context/SocketContext';
 import { useAuth } from '@/lib/AuthContext';
+import { useCart } from '@/lib/cartStore';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import ReviewModal from '@/components/ReviewModal';
@@ -123,7 +130,7 @@ function LiveMap({ driverLocation, orderStatus }) {
 }
 
 // Active order card component (mobile optimized)
-function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
+function ActiveOrderCard({ order, onCancel, onReorder, driverLocation }) {
   const [expanded, setExpanded] = useState(false);
   const currentStep = getCurrentStep(order.status);
 
@@ -132,6 +139,13 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
   const canCancel = order.status === 'pending' || order.status === 'confirmed';
   const showMap = order.status === 'on_the_way';
 
+  const estimatedDeliveryTime = () => {
+    if (order.status === 'on_the_way') return 'Arriving soon';
+    if (order.status === 'confirmed') return 'Preparing (15-25 min)';
+    if (order.status === 'preparing') return 'Almost ready (10-15 min)';
+    return 'Estimated 25-35 min';
+  };
+
   return (
     <Card className="overflow-hidden border-2 border-green/20 shadow-md">
       <div className="bg-gradient-to-r from-green to-green/80 px-3 sm:px-4 py-2 flex items-center justify-between">
@@ -139,9 +153,12 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
           <Truck className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
           <span className="text-white text-xs sm:text-sm font-semibold">Live Order</span>
         </div>
-        <span className="text-white/80 text-[10px] sm:text-xs truncate max-w-[120px] sm:max-w-none">
-          {order.restaurant_name || 'Restaurant'}
-        </span>
+        <div className="flex items-center gap-2">
+          <ClockIcon className="w-3 h-3 text-white" />
+          <span className="text-white/80 text-[10px] sm:text-xs">
+            {estimatedDeliveryTime()}
+          </span>
+        </div>
       </div>
       
       <CardContent className="p-3 sm:p-4 space-y-3 sm:space-y-4">
@@ -191,7 +208,7 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
           <span className="text-xs sm:text-sm break-words flex-1">{order.delivery_address || 'No address provided'}</span>
         </div>
 
-        {/* Status Message - Using formatted status */}
+        {/* Status Message */}
         {order.status === 'confirmed' && (
           <div className="bg-blue-50 p-2 rounded-lg text-center">
             <p className="text-[10px] sm:text-xs text-blue-700">⏱️ Restaurant is preparing your order</p>
@@ -213,17 +230,28 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
           <LiveMap driverLocation={driverLocation} orderStatus={order.status} />
         )}
 
-        {/* Cancel Button */}
-        {canCancel && (
+        {/* Action Buttons */}
+        <div className="flex gap-2">
+          {canCancel && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-9"
+              onClick={() => onCancel(order.id)}
+            >
+              Cancel Order
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
-            className="w-full border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-9"
-            onClick={() => onCancel(order.id)}
+            className="flex-1 border-green-300 text-green-600 hover:bg-green-50 text-xs sm:text-sm h-8 sm:h-9"
+            onClick={() => onReorder(order)}
           >
-            Cancel Order
+            <RotateCcw className="w-3 h-3 mr-1" />
+            Order Again
           </Button>
-        )}
+        </div>
 
         {/* Order Items Expandable */}
         {items.length > 0 && (
@@ -262,7 +290,7 @@ function ActiveOrderCard({ order, onCancel, currentUserId, driverLocation }) {
 }
 
 // Order history card component (mobile optimized)
-function OrderHistoryCard({ order, onReviewOrder }) {
+function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
   const [expanded, setExpanded] = useState(false);
   
   const getStatusColor = (status) => {
@@ -290,9 +318,14 @@ function OrderHistoryCard({ order, onReviewOrder }) {
               <h3 className="font-semibold text-gray-900 text-sm sm:text-base truncate">
                 {order.restaurant_name || 'Restaurant'}
               </h3>
-              <p className="text-[10px] sm:text-xs text-gray-500">
-                {order.created_at ? format(new Date(order.created_at), 'dd MMM yyyy') : ''}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <p className="text-[10px] sm:text-xs text-gray-500">
+                  {order.created_at ? format(new Date(order.created_at), 'dd MMM yyyy') : ''}
+                </p>
+                {order.delivered_at && (
+                  <p className="text-[10px] text-green-500">✓ Delivered</p>
+                )}
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
@@ -332,17 +365,28 @@ function OrderHistoryCard({ order, onReviewOrder }) {
             </div>
           )}
           
-          {/* Review Button */}
-          {order.status === 'delivered' && !order.reviewed && (
+          {/* Action Buttons */}
+          <div className="flex gap-2 pt-2">
+            {order.status === 'delivered' && !order.reviewed && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 border-yellow-400 text-yellow-600 hover:bg-yellow-50 text-xs sm:text-sm h-8 sm:h-9"
+                onClick={() => onReviewOrder(order)}
+              >
+                <Star className="w-3 h-3 sm:w-4 sm:h-4 mr-1" /> Rate
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
-              className="w-full mt-2 border-yellow-400 text-yellow-600 hover:bg-yellow-50 text-xs sm:text-sm h-8 sm:h-9"
-              onClick={() => onReviewOrder(order)}
+              className="flex-1 border-green-300 text-green-600 hover:bg-green-50 text-xs sm:text-sm h-8 sm:h-9"
+              onClick={() => onReorder(order)}
             >
-              <Star className="w-3 h-3 sm:w-4 sm:h-4 mr-1" /> Rate this order
+              <RotateCcw className="w-3 h-3 mr-1" />
+              Order Again
             </Button>
-          )}
+          </div>
         </CardContent>
       )}
     </Card>
@@ -352,11 +396,15 @@ function OrderHistoryCard({ order, onReviewOrder }) {
 export default function CustomerOrders() {
   const { socket, online } = useSocket();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const { addToCart } = useCart();
   const queryClient = useQueryClient();
   const [liveUpdates, setLiveUpdates] = useState({});
   const [driverLocation, setDriverLocation] = useState(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [visibleCount, setVisibleCount] = useState(10);
 
   // Listen for driver location updates
   useEffect(() => {
@@ -421,6 +469,26 @@ export default function CustomerOrders() {
     }
   };
 
+  // Handle reorder
+  const handleReorder = (order) => {
+    const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+    
+    // Clear current cart first
+    if (window.confirm(`Add items from ${order.restaurant_name} to your cart? This will replace your current cart.`)) {
+      // Add items to cart
+      items.forEach(item => {
+        addToCart({
+          id: item.id || item.menu_item_id,
+          name: item.name,
+          price: item.price,
+          image: item.image_url
+        }, order.restaurant_id, order.restaurant_name);
+      });
+      toast.success(`${items.length} items added to cart from ${order.restaurant_name}`);
+      navigate('/cart');
+    }
+  };
+
   const handleReviewOrder = (order) => {
     setSelectedOrder(order);
     setShowReviewModal(true);
@@ -451,7 +519,19 @@ export default function CustomerOrders() {
   // Filter orders
   const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way'];
   const activeOrders = orders.filter(o => activeStatuses.includes(o.status));
+  
+  // Filter past orders by search term
   const pastOrders = orders.filter(o => !activeStatuses.includes(o.status));
+  const filteredPastOrders = pastOrders.filter(order => 
+    order.restaurant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    order.id?.toString().includes(searchTerm)
+  );
+  
+  // Pagination
+  const displayedPastOrders = filteredPastOrders.slice(0, visibleCount);
+  const hasMore = filteredPastOrders.length > visibleCount;
+
+  const loadMore = () => setVisibleCount(prev => prev + 10);
 
   if (isLoading) {
     return (
@@ -496,6 +576,9 @@ export default function CustomerOrders() {
           <Package className="w-12 h-12 sm:w-16 sm:h-16 text-gray-300 mx-auto mb-3 sm:mb-4" />
           <p className="text-sm sm:text-base text-gray-500">No orders yet</p>
           <p className="text-xs sm:text-sm text-gray-400 mt-1">Browse restaurants and place your first order</p>
+          <Button onClick={() => navigate('/')} className="mt-4 bg-green text-white">
+            Browse Restaurants
+          </Button>
         </div>
       ) : (
         <div className="space-y-6 sm:space-y-8">
@@ -511,7 +594,7 @@ export default function CustomerOrders() {
                     key={order.id} 
                     order={liveUpdates[order.id] ? { ...order, status: liveUpdates[order.id] } : order}
                     onCancel={handleCancelOrder}
-                    currentUserId={user?.id}
+                    onReorder={handleReorder}
                     driverLocation={driverLocation}
                   />
                 ))}
@@ -522,17 +605,48 @@ export default function CustomerOrders() {
           {/* Order History */}
           {pastOrders.length > 0 && (
             <div>
-              <h2 className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 sm:mb-4">
-                Order History ({pastOrders.length})
-              </h2>
-              <div className="space-y-2 sm:space-y-3">
-                {pastOrders.map(order => (
-                  <OrderHistoryCard 
-                    key={order.id} 
-                    order={order} 
-                    onReviewOrder={handleReviewOrder}
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3 sm:mb-4">
+                <h2 className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wider">
+                  Order History ({filteredPastOrders.length} of {pastOrders.length})
+                </h2>
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400" />
+                  <Input
+                    placeholder="Search by restaurant..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-8 h-8 text-sm"
                   />
-                ))}
+                </div>
+              </div>
+              
+              <div className="space-y-2 sm:space-y-3">
+                {displayedPastOrders.length === 0 ? (
+                  <div className="text-center py-8 bg-gray-50 rounded-lg">
+                    <p className="text-sm text-gray-500">No orders match your search</p>
+                  </div>
+                ) : (
+                  <>
+                    {displayedPastOrders.map(order => (
+                      <OrderHistoryCard 
+                        key={order.id} 
+                        order={order} 
+                        onReviewOrder={handleReviewOrder}
+                        onReorder={handleReorder}
+                      />
+                    ))}
+                    
+                    {hasMore && (
+                      <Button
+                        onClick={loadMore}
+                        variant="outline"
+                        className="w-full mt-2"
+                      >
+                        Load More Orders ({filteredPastOrders.length - visibleCount} remaining)
+                      </Button>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           )}

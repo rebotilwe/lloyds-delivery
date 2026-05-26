@@ -78,7 +78,6 @@ export default function DriverOnboarding() {
       return;
     }
 
-    // Create preview
     if (file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -86,7 +85,6 @@ export default function DriverOnboarding() {
       };
       reader.readAsDataURL(file);
     } else {
-      // For PDFs, show file name
       setPreviews(prev => ({ ...prev, [field]: file.name }));
     }
 
@@ -207,7 +205,6 @@ export default function DriverOnboarding() {
     </div>
   );
 
-  // Driver info card component
   const DriverInfoCard = () => (
     <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-3 sm:p-4 mb-4">
       <div className="flex items-start gap-3">
@@ -241,7 +238,8 @@ export default function DriverOnboarding() {
     );
   }
 
-  if (submitted || user.driver_status === 'pending') {
+  // ✅ FIX: After submission, show Under Review
+  if (submitted) {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
         <Card>
@@ -249,7 +247,7 @@ export default function DriverOnboarding() {
             <FileCheck className="w-12 h-12 sm:w-16 sm:h-16 mx-auto text-yellow-500" />
             <h2 className="text-xl sm:text-2xl font-bold">Under Review</h2>
             <p className="text-sm text-gray-500">
-              Your application is being reviewed by admin.
+              Your application has been submitted and is being reviewed by admin.
             </p>
             <p className="text-xs text-gray-400 mt-2">
               You will be notified once approved. This usually takes 24-48 hours.
@@ -260,6 +258,7 @@ export default function DriverOnboarding() {
     );
   }
 
+  // ✅ Approved state
   if (user.driver_status === 'approved') {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
@@ -282,6 +281,7 @@ export default function DriverOnboarding() {
     );
   }
 
+  // ✅ Rejected state
   if (user.driver_status === 'rejected') {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
@@ -298,6 +298,7 @@ export default function DriverOnboarding() {
     );
   }
 
+  // ✅ Show onboarding form (driver_status is null or not pending/approved/rejected)
   return (
     <div className="max-w-2xl mx-auto py-6 sm:py-10 px-3 sm:px-4">
       <Card className="overflow-hidden">
@@ -309,7 +310,6 @@ export default function DriverOnboarding() {
             </p>
           </div>
 
-          {/* Driver Information Card */}
           <DriverInfoCard />
 
           {/* Vehicle Information */}
@@ -407,7 +407,6 @@ export default function DriverOnboarding() {
             />
           </div>
 
-          {/* Info Box */}
           <div className="bg-blue-50 rounded-lg p-3 flex gap-2">
             <Info className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500 shrink-0 mt-0.5" />
             <div>
@@ -419,7 +418,6 @@ export default function DriverOnboarding() {
             </div>
           </div>
 
-          {/* Submit Button */}
           <Button 
             onClick={submitDocs} 
             disabled={loading} 
@@ -435,7 +433,6 @@ export default function DriverOnboarding() {
             )}
           </Button>
 
-          {/* Upload Status */}
           {(documents.id_copy || documents.pdp || documents.profile_photo) && (
             <div className="flex flex-wrap gap-2 pt-2">
               {documents.id_copy && (

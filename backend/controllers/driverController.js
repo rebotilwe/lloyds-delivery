@@ -5,24 +5,30 @@ export const submitDriverApplication = async (req, res) => {
   try {
     const { userId, car_info } = req.body;
 
+    console.log("📝 Submitting driver application for userId:", userId);
+    console.log("📦 Files received:", req.files ? Object.keys(req.files) : "No files");
+    console.log("🚗 Car info:", car_info);
+
     if (!userId) {
       return res.status(400).json({ message: "User ID is required" });
     }
 
     // Parse car info
-    let car;
+    let car = {};
     try {
-      car = JSON.parse(car_info);
+      car = typeof car_info === 'string' ? JSON.parse(car_info) : (car_info || {});
     } catch (e) {
-      car = car_info;
+      console.error("Error parsing car_info:", e);
+      car = {};
     }
 
-    // Get uploaded file paths - convert to relative URLs
+    // Get uploaded file paths - convert to relative URLs for PostgreSQL
     const getRelativePath = (file) => {
       if (!file) return null;
-      // Return just the filename with uploads/ prefix
+      // Extract just the filename from the full path
       const filename = path.basename(file.path);
-      return `/uploads/${filename}`;
+      // Return in the format expected by the backend
+      return `/uploads/drivers/${filename}`;
     };
 
     const id_copy = getRelativePath(req.files?.id_copy?.[0]);
@@ -30,25 +36,29 @@ export const submitDriverApplication = async (req, res) => {
     const profile_photo = getRelativePath(req.files?.profile_photo?.[0]);
     const car_license = getRelativePath(req.files?.car_license?.[0]);
 
+    console.log("📄 Document paths:", { id_copy, pdp, profile_photo, car_license });
+
     if (!id_copy || !pdp || !profile_photo) {
-      return res.status(400).json({ message: "Missing required files" });
+      return res.status(400).json({ message: "Missing required files: ID copy, PDP, and profile photo are required" });
     }
 
-    // Update user with driver application data
+    // ✅ FIX: Use PostgreSQL placeholders ($1, $2, etc.) instead of (?)
     const sql = `
       UPDATE users 
       SET 
         driver_status = 'pending',
-        id_copy = ?,
-        pdp = ?,
-        profile_photo = ?,
-        car_license = ?,
-        car_make = ?,
-        car_model = ?,
-        car_year = ?,
-        car_color = ?,
-        license_plate = ?
-      WHERE id = ?
+        id_copy = $1,
+        pdp = $2,
+        profile_photo = $3,
+        car_license = $4,
+        car_make = $5,
+        car_model = $6,
+        car_year = $7,
+        car_color = $8,
+        license_plate = $9,
+        car_info = $10
+      WHERE id = $11
+      RETURNING id
     `;
 
     const values = [
@@ -61,10 +71,17 @@ export const submitDriverApplication = async (req, res) => {
       car?.year || null,
       car?.color || null,
       car?.license_plate || null,
+      JSON.stringify(car),
       userId,
     ];
 
-    await db.query(sql, values);
+    const result = await db.query(sql, values);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    console.log("✅ Driver application submitted successfully for user:", userId);
 
     return res.json({
       success: true,

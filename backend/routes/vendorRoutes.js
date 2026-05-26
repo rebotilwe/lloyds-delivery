@@ -22,7 +22,7 @@ router.get("/restaurant", async (req, res) => {
     
     res.json(result.rows[0]);
   } catch (error) {
-    console.error(error);
+    console.error("Error fetching restaurant:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -77,217 +77,7 @@ router.get("/orders", async (req, res) => {
     
     res.json(ordersWithItems);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Update order status (vendor)
-router.put("/orders/:id/status", async (req, res) => {
-  try {
-    const { status, estimated_prep_time, rejection_reason } = req.body;
-    const orderId = req.params.id;
-    const io = req.app.get("io");
-    
-    // Check if this order belongs to vendor's restaurant
-    const restaurant = await db.query(
-      "SELECT id FROM restaurants WHERE owner_id = $1",
-      [req.user.id]
-    );
-    
-    if (restaurant.rows.length === 0) {
-      return res.status(404).json({ message: "Restaurant not found" });
-    }
-    
-    const orderCheck = await db.query(
-      "SELECT * FROM orders WHERE id = $1 AND restaurant_id = $2",
-      [orderId, restaurant.rows[0].id]
-    );
-    
-    if (orderCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Order not found" });
-    }
-    
-    const order = orderCheck.rows[0];
-    const previousStatus = order.status;
-    
-    // Update order
-    await db.query(
-      `UPDATE orders 
-       SET status = $1, 
-           estimated_prep_time = COALESCE($2, estimated_prep_time),
-           rejection_reason = COALESCE($3, rejection_reason)
-       WHERE id = $4`,
-      [status, estimated_prep_time, rejection_reason, orderId]
-    );
-    
-    // Notify via socket
-    io.to(`order_${orderId}`).emit("order-status-update", {
-      orderId: parseInt(orderId),
-      status: status,
-      previousStatus: previousStatus,
-      timestamp: new Date(),
-    });
-    
-    // If vendor accepts order (confirmed), notify drivers
-    if (status === "confirmed") {
-      io.emit("order-ready-for-driver", {
-        orderId: parseInt(orderId),
-        restaurantName: order.restaurant_name,
-        pickupAddress: order.delivery_address,
-        orderTotal: order.total,
-      });
-    }
-    
-    // If vendor rejects order
-    if (status === "rejected") {
-      // Notify customer
-      io.to(`order_${orderId}`).emit("order-rejected", {
-        orderId: parseInt(orderId),
-        reason: rejection_reason || "Restaurant cannot fulfill this order",
-      });
-    }
-    
-    res.json({ 
-      message: "Order status updated successfully",
-      status: status
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Get vendor's menu items
-router.get("/menu", async (req, res) => {
-  try {
-    const restaurant = await db.query(
-      "SELECT id FROM restaurants WHERE owner_id = $1",
-      [req.user.id]
-    );
-    
-    if (restaurant.rows.length === 0) {
-      return res.json([]);
-    }
-    
-    const menuItems = await db.query(
-      "SELECT * FROM menu_items WHERE restaurant_id = $1 ORDER BY category, name",
-      [restaurant.rows[0].id]
-    );
-    
-    res.json(menuItems.rows);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Add menu item (vendor)
-router.post("/menu", async (req, res) => {
-  try {
-    const { name, description, price, category, image_url } = req.body;
-    
-    const restaurant = await db.query(
-      "SELECT id FROM restaurants WHERE owner_id = $1",
-      [req.user.id]
-    );
-    
-    if (restaurant.rows.length === 0) {
-      return res.status(404).json({ message: "Restaurant not found" });
-    }
-    
-    const result = await db.query(
-      `INSERT INTO menu_items 
-       (restaurant_id, name, description, price, category, image_url) 
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [restaurant.rows[0].id, name, description, price, category, image_url]
-    );
-    
-    res.status(201).json({ 
-      id: result.rows[0].id,
-      message: "Menu item added successfully"
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Update menu item
-router.put("/menu/:id", async (req, res) => {
-  try {
-    const { name, description, price, category, image_url } = req.body;
-    const menuItemId = req.params.id;
-    
-    const restaurant = await db.query(
-      "SELECT id FROM restaurants WHERE owner_id = $1",
-      [req.user.id]
-    );
-    
-    if (restaurant.rows.length === 0) {
-      return res.status(404).json({ message: "Restaurant not found" });
-    }
-    
-    await db.query(
-      `UPDATE menu_items 
-       SET name = $1, description = $2, price = $3, category = $4, image_url = $5
-       WHERE id = $6 AND restaurant_id = $7`,
-      [name, description, price, category, image_url, menuItemId, restaurant.rows[0].id]
-    );
-    
-    res.json({ message: "Menu item updated successfully" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Delete menu item
-router.delete("/menu/:id", async (req, res) => {
-  try {
-    const menuItemId = req.params.id;
-    
-    const restaurant = await db.query(
-      "SELECT id FROM restaurants WHERE owner_id = $1",
-      [req.user.id]
-    );
-    
-    if (restaurant.rows.length === 0) {
-      return res.status(404).json({ message: "Restaurant not found" });
-    }
-    
-    await db.query(
-      "DELETE FROM menu_items WHERE id = $1 AND restaurant_id = $2",
-      [menuItemId, restaurant.rows[0].id]
-    );
-    
-    res.json({ message: "Menu item deleted successfully" });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// Update vendor settings
-router.put("/settings", async (req, res) => {
-  try {
-    const { is_accepting_orders, max_prep_time, auto_accept_orders } = req.body;
-    
-    await db.query(
-      `INSERT INTO vendor_settings (vendor_id, is_accepting_orders, max_prep_time, auto_accept_orders, updated_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (vendor_id) 
-       DO UPDATE SET 
-         is_accepting_orders = EXCLUDED.is_accepting_orders,
-         max_prep_time = EXCLUDED.max_prep_time,
-         auto_accept_orders = EXCLUDED.auto_accept_orders,
-         updated_at = NOW()`,
-      [req.user.id, is_accepting_orders, max_prep_time, auto_accept_orders]
-    );
-    
-    res.json({ message: "Settings updated successfully" });
-  } catch (error) {
-    console.error(error);
+    console.error("Error fetching orders:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -342,7 +132,233 @@ router.get("/analytics", async (req, res) => {
       }
     });
   } catch (error) {
-    console.error(error);
+    console.error("Error fetching analytics:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Update order status (vendor)
+router.put("/orders/:id/status", async (req, res) => {
+  try {
+    const { status, estimated_prep_time, rejection_reason } = req.body;
+    const orderId = req.params.id;
+    const io = req.app.get("io");
+    
+    // Check if this order belongs to vendor's restaurant
+    const restaurant = await db.query(
+      "SELECT id FROM restaurants WHERE owner_id = $1",
+      [req.user.id]
+    );
+    
+    if (restaurant.rows.length === 0) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+    
+    const orderCheck = await db.query(
+      "SELECT * FROM orders WHERE id = $1 AND restaurant_id = $2",
+      [orderId, restaurant.rows[0].id]
+    );
+    
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+    
+    const order = orderCheck.rows[0];
+    const previousStatus = order.status;
+    
+    // Update order
+    await db.query(
+      `UPDATE orders 
+       SET status = $1, 
+           estimated_prep_time = COALESCE($2, estimated_prep_time),
+           rejection_reason = COALESCE($3, rejection_reason)
+       WHERE id = $4`,
+      [status, estimated_prep_time, rejection_reason, orderId]
+    );
+    
+    // Notify via socket
+    if (io) {
+      io.to(`order_${orderId}`).emit("order-status-update", {
+        orderId: parseInt(orderId),
+        status: status,
+        previousStatus: previousStatus,
+        timestamp: new Date(),
+      });
+      
+      // If vendor accepts order (confirmed), notify drivers
+      if (status === "confirmed") {
+        io.emit("order-ready-for-driver", {
+          orderId: parseInt(orderId),
+          restaurantName: order.restaurant_name,
+          pickupAddress: order.delivery_address,
+          orderTotal: order.total,
+        });
+      }
+    }
+    
+    res.json({ 
+      message: "Order status updated successfully",
+      status: status
+    });
+  } catch (error) {
+    console.error("Error updating order status:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get vendor's menu items
+router.get("/menu", async (req, res) => {
+  try {
+    const restaurant = await db.query(
+      "SELECT id FROM restaurants WHERE owner_id = $1",
+      [req.user.id]
+    );
+    
+    if (restaurant.rows.length === 0) {
+      return res.json([]);
+    }
+    
+    const menuItems = await db.query(
+      "SELECT * FROM menu_items WHERE restaurant_id = $1 ORDER BY category, name",
+      [restaurant.rows[0].id]
+    );
+    
+    res.json(menuItems.rows);
+  } catch (error) {
+    console.error("Error fetching menu:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Add menu item
+router.post("/menu", async (req, res) => {
+  try {
+    const { name, description, price, category, image_url } = req.body;
+    
+    const restaurant = await db.query(
+      "SELECT id FROM restaurants WHERE owner_id = $1",
+      [req.user.id]
+    );
+    
+    if (restaurant.rows.length === 0) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+    
+    const result = await db.query(
+      `INSERT INTO menu_items 
+       (restaurant_id, name, description, price, category, image_url) 
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [restaurant.rows[0].id, name, description, price, category, image_url]
+    );
+    
+    res.status(201).json({ 
+      id: result.rows[0].id,
+      message: "Menu item added successfully"
+    });
+  } catch (error) {
+    console.error("Error adding menu item:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Update menu item
+router.put("/menu/:id", async (req, res) => {
+  try {
+    const { name, description, price, category, image_url } = req.body;
+    const menuItemId = req.params.id;
+    
+    const restaurant = await db.query(
+      "SELECT id FROM restaurants WHERE owner_id = $1",
+      [req.user.id]
+    );
+    
+    if (restaurant.rows.length === 0) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+    
+    await db.query(
+      `UPDATE menu_items 
+       SET name = $1, description = $2, price = $3, category = $4, image_url = $5
+       WHERE id = $6 AND restaurant_id = $7`,
+      [name, description, price, category, image_url, menuItemId, restaurant.rows[0].id]
+    );
+    
+    res.json({ message: "Menu item updated successfully" });
+  } catch (error) {
+    console.error("Error updating menu item:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Delete menu item
+router.delete("/menu/:id", async (req, res) => {
+  try {
+    const menuItemId = req.params.id;
+    
+    const restaurant = await db.query(
+      "SELECT id FROM restaurants WHERE owner_id = $1",
+      [req.user.id]
+    );
+    
+    if (restaurant.rows.length === 0) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+    
+    await db.query(
+      "DELETE FROM menu_items WHERE id = $1 AND restaurant_id = $2",
+      [menuItemId, restaurant.rows[0].id]
+    );
+    
+    res.json({ message: "Menu item deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting menu item:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Update vendor settings
+router.put("/settings", async (req, res) => {
+  try {
+    const { is_accepting_orders, max_prep_time, auto_accept_orders } = req.body;
+    
+    await db.query(
+      `INSERT INTO vendor_settings (vendor_id, is_accepting_orders, max_prep_time, auto_accept_orders, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (vendor_id) 
+       DO UPDATE SET 
+         is_accepting_orders = EXCLUDED.is_accepting_orders,
+         max_prep_time = EXCLUDED.max_prep_time,
+         auto_accept_orders = EXCLUDED.auto_accept_orders,
+         updated_at = NOW()`,
+      [req.user.id, is_accepting_orders, max_prep_time, auto_accept_orders]
+    );
+    
+    res.json({ message: "Settings updated successfully" });
+  } catch (error) {
+    console.error("Error updating settings:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get vendor settings
+router.get("/settings", async (req, res) => {
+  try {
+    const result = await db.query(
+      "SELECT * FROM vendor_settings WHERE vendor_id = $1",
+      [req.user.id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.json({
+        is_accepting_orders: true,
+        max_prep_time: 30,
+        auto_accept_orders: false,
+      });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error fetching settings:", error);
     res.status(500).json({ message: "Server error" });
   }
 });

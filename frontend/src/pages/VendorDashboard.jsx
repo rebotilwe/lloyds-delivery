@@ -17,7 +17,7 @@ const StatCard = ({ title, value, icon: Icon, color }) => (
     <CardContent className="p-4 flex items-center justify-between">
       <div>
         <p className="text-xs text-gray-500">{title}</p>
-        <p className="text-xl font-bold mt-1">{value}</p>
+        <p className="text-xl font-bold mt-1">{value ?? 0}</p>
       </div>
       <div className={`p-3 rounded-lg ${color}`}>
         <Icon className="w-5 h-5 text-white" />
@@ -39,7 +39,11 @@ const getAuthHeaders = () => {
 
 export default function VendorDashboard() {
   const [restaurant, setRestaurant] = useState(null);
-  const [analytics, setAnalytics] = useState(null);
+  const [analytics, setAnalytics] = useState({
+    today: { orders: 0, revenue: 0 },
+    pending: 0,
+    weekly: { orders: 0, revenue: 0 }
+  });
   const [recentOrders, setRecentOrders] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -47,26 +51,44 @@ export default function VendorDashboard() {
     fetchVendorData();
   }, []);
 
-// In VendorDashboard.jsx, update the fetchVendorData function:
-const fetchVendorData = async () => {
-  setLoading(true);
-  try {
-    const [restaurantRes, analyticsRes, ordersRes] = await Promise.all([
-      api.get('/vendor/restaurant'),
-      api.get('/vendor/analytics'),
-      api.get('/vendor/orders'),
-    ]);
+  const fetchVendorData = async () => {
+    setLoading(true);
+    try {
+      const headers = getAuthHeaders();
+      
+      const [restaurantRes, analyticsRes, ordersRes] = await Promise.all([
+        fetch(`${API_URL}/vendor/restaurant`, { headers }),
+        fetch(`${API_URL}/vendor/analytics`, { headers }),
+        fetch(`${API_URL}/vendor/orders`, { headers }),
+      ]);
 
-    setRestaurant(restaurantRes);
-    setAnalytics(analyticsRes);
-    setRecentOrders(Array.isArray(ordersRes) ? ordersRes.slice(0, 5) : []);
-  } catch (error) {
-    console.error('Error fetching vendor data:', error);
-    toast.error('Failed to load dashboard data');
-  } finally {
-    setLoading(false);
-  }
-};
+      const restaurantData = await restaurantRes.json();
+      const analyticsData = await analyticsRes.json();
+      const ordersData = await ordersRes.json();
+
+      setRestaurant(restaurantData);
+      
+      // Safely set analytics with fallback values
+      setAnalytics({
+        today: {
+          orders: analyticsData?.today?.orders ?? 0,
+          revenue: analyticsData?.today?.revenue ?? 0
+        },
+        pending: analyticsData?.pending ?? 0,
+        weekly: {
+          orders: analyticsData?.weekly?.orders ?? 0,
+          revenue: analyticsData?.weekly?.revenue ?? 0
+        }
+      });
+      
+      setRecentOrders(Array.isArray(ordersData) ? ordersData.slice(0, 5) : []);
+    } catch (error) {
+      console.error('Error fetching vendor data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const getStatusBadge = (status) => {
     const statusConfig = {
@@ -110,29 +132,29 @@ const fetchVendorData = async () => {
         </Button>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats Cards - with safe fallbacks */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Today's Orders"
-          value={analytics?.today?.orders || 0}
+          value={analytics.today.orders}
           icon={ShoppingBag}
           color="bg-blue-500"
         />
         <StatCard
           title="Today's Revenue"
-          value={`R${(analytics?.today?.revenue || 0).toFixed(2)}`}
+          value={`R${analytics.today.revenue.toFixed(2)}`}
           icon={DollarSign}
           color="bg-green-500"
         />
         <StatCard
           title="Pending Orders"
-          value={analytics?.pending || 0}
+          value={analytics.pending}
           icon={Clock}
           color="bg-orange-500"
         />
         <StatCard
           title="Weekly Orders"
-          value={analytics?.weekly?.orders || 0}
+          value={analytics.weekly.orders}
           icon={TrendingUp}
           color="bg-purple-500"
         />
@@ -164,7 +186,7 @@ const fetchVendorData = async () => {
               <span className="text-sm">Online - Accepting Orders</span>
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              {restaurant?.address}
+              {restaurant?.address || 'Address not set'}
             </p>
           </CardContent>
         </Card>
@@ -187,11 +209,11 @@ const fetchVendorData = async () => {
                     <p className="text-xs text-gray-500">
                       {order.created_at ? format(new Date(order.created_at), 'dd MMM, h:mm a') : '-'}
                     </p>
-                    <p className="text-sm mt-1">{order.customer_name}</p>
+                    <p className="text-sm mt-1">{order.customer_name || 'Guest'}</p>
                   </div>
                   <div className="text-right">
                     {getStatusBadge(order.status)}
-                    <p className="font-bold text-green mt-1">R{Number(order.total).toFixed(2)}</p>
+                    <p className="font-bold text-green mt-1">R{Number(order.total || 0).toFixed(2)}</p>
                   </div>
                 </div>
               ))}

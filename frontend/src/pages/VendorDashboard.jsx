@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/api/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -9,11 +7,8 @@ import {
   ShoppingBag,
   DollarSign,
   Clock,
-  CheckCircle,
-  XCircle,
   RefreshCw,
   TrendingUp,
-  Users,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -31,6 +26,17 @@ const StatCard = ({ title, value, icon: Icon, color }) => (
   </Card>
 );
 
+const API_URL = 'https://lloyds-delivery.onrender.com/api';
+
+// Helper function to get auth headers
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token');
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': token ? `Bearer ${token}` : '',
+  };
+};
+
 export default function VendorDashboard() {
   const [restaurant, setRestaurant] = useState(null);
   const [analytics, setAnalytics] = useState(null);
@@ -41,25 +47,26 @@ export default function VendorDashboard() {
     fetchVendorData();
   }, []);
 
-  const fetchVendorData = async () => {
-    setLoading(true);
-    try {
-      const [restaurantRes, analyticsRes, ordersRes] = await Promise.all([
-        api.get('/vendor/restaurant'),
-        api.get('/vendor/analytics'),
-        api.get('/vendor/orders'),
-      ]);
+// In VendorDashboard.jsx, update the fetchVendorData function:
+const fetchVendorData = async () => {
+  setLoading(true);
+  try {
+    const [restaurantRes, analyticsRes, ordersRes] = await Promise.all([
+      api.get('/vendor/restaurant'),
+      api.get('/vendor/analytics'),
+      api.get('/vendor/orders'),
+    ]);
 
-      setRestaurant(restaurantRes.data);
-      setAnalytics(analyticsRes.data);
-      setRecentOrders(ordersRes.data.slice(0, 5));
-    } catch (error) {
-      console.error('Error fetching vendor data:', error);
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setLoading(false);
-    }
-  };
+    setRestaurant(restaurantRes);
+    setAnalytics(analyticsRes);
+    setRecentOrders(Array.isArray(ordersRes) ? ordersRes.slice(0, 5) : []);
+  } catch (error) {
+    console.error('Error fetching vendor data:', error);
+    toast.error('Failed to load dashboard data');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const getStatusBadge = (status) => {
     const statusConfig = {

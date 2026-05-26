@@ -1,66 +1,45 @@
+// frontend/src/api/client.js
 const API_URL = 'https://lloyds-delivery.onrender.com/api';
 
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token');
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': token ? `Bearer ${token}` : '',
+  };
+};
+
 export const api = {
-  get: async (url, token) => {
-    const headers = {};
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    
+  get: async (url) => {
     const res = await fetch(`${API_URL}${url}`, {
-      headers,
+      headers: getAuthHeaders(),
     });
-    
-    const data = await res.json();
-    return data;
+    return res.json();
   },
 
-  post: async (url, body, token) => {
-    const headers = {
-      "Content-Type": "application/json",
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    
+  post: async (url, body) => {
     const res = await fetch(`${API_URL}${url}`, {
       method: "POST",
-      headers,
+      headers: getAuthHeaders(),
       body: JSON.stringify(body),
     });
-    
     return res.json();
   },
 
-  put: async (url, body, token) => {
-    const headers = {
-      "Content-Type": "application/json",
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    
+  put: async (url, body) => {
     const res = await fetch(`${API_URL}${url}`, {
       method: "PUT",
-      headers,
+      headers: getAuthHeaders(),
       body: JSON.stringify(body),
     });
-    
     return res.json();
   },
 
-  delete: async (url, token) => {
-    const headers = {};
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-    
+  delete: async (url) => {
     const res = await fetch(`${API_URL}${url}`, {
       method: "DELETE",
-      headers,
+      headers: getAuthHeaders(),
     });
-    
     return res.json();
   },
 };
-// Remove the extra 'x' at the end - there should be nothing after the closing brace

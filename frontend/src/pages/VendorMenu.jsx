@@ -116,17 +116,18 @@ export default function VendorMenu() {
     }
   };
 
-  const filteredItems = menuItems.filter(item =>
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.category?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+// Replace these lines:
+const filteredItems = (menuItems || []).filter(item =>
+  item?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  item?.category?.toLowerCase().includes(searchTerm.toLowerCase())
+);
 
-  const groupedItems = filteredItems.reduce((acc, item) => {
-    const category = item.category || 'Other';
-    if (!acc[category]) acc[category] = [];
-    acc[category].push(item);
-    return acc;
-  }, {});
+const groupedItems = filteredItems.reduce((acc, item) => {
+  const category = item?.category || 'Other';
+  if (!acc[category]) acc[category] = [];
+  acc[category].push(item);
+  return acc;
+}, {});
 
   if (loading) {
     return (

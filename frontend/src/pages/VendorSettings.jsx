@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Save, Clock, Bell, Truck, AlertCircle } from 'lucide-react';
+import { Save, Clock, Bell, AlertCircle } from 'lucide-react';
 
 export default function VendorSettings() {
   const [loading, setLoading] = useState(false);
@@ -28,20 +28,21 @@ export default function VendorSettings() {
 
   const fetchRestaurantData = async () => {
     try {
-      const [restaurantRes, settingsRes] = await Promise.all([
-        api.get('/vendor/restaurant'),
-        api.get('/vendor/settings').catch(() => ({ data: {} })),
-      ]);
+      const restaurantRes = await api.get('/vendor/restaurant');
+      const settingsRes = await api.get('/vendor/settings').catch(() => ({ data: {} }));
       
-      setRestaurant(restaurantRes.data);
+      const restaurantData = restaurantRes.data || restaurantRes;
+      const settingsData = settingsRes.data || settingsRes;
+      
+      setRestaurant(restaurantData);
       setRestaurantForm({
-        name: restaurantRes.data.name || '',
-        phone: restaurantRes.data.phone || '',
-        address: restaurantRes.data.address || '',
+        name: restaurantData?.name || '',
+        phone: restaurantData?.phone || '',
+        address: restaurantData?.address || '',
       });
       setSettings(prev => ({
         ...prev,
-        ...settingsRes.data,
+        ...settingsData,
       }));
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -50,10 +51,16 @@ export default function VendorSettings() {
   };
 
   const updateRestaurant = async () => {
+    if (!restaurant?.id) {
+      toast.error('Restaurant not found');
+      return;
+    }
+    
     setLoading(true);
     try {
-      await api.put(`/restaurants/${restaurant?.id}`, restaurantForm);
+      await api.put(`/restaurants/${restaurant.id}`, restaurantForm);
       toast.success('Restaurant information updated');
+      fetchRestaurantData();
     } catch (error) {
       console.error('Update error:', error);
       toast.error('Failed to update restaurant');
@@ -82,7 +89,6 @@ export default function VendorSettings() {
         <p className="text-sm text-gray-500">Manage your restaurant and account settings</p>
       </div>
 
-      {/* Restaurant Information */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Restaurant Information</CardTitle>
@@ -120,7 +126,6 @@ export default function VendorSettings() {
         </CardContent>
       </Card>
 
-      {/* Order Settings */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -132,7 +137,7 @@ export default function VendorSettings() {
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium">Accepting Orders</p>
-              <p className="text-xs text-gray-500">When enabled, customers can place orders from your restaurant</p>
+              <p className="text-xs text-gray-500">When enabled, customers can place orders</p>
             </div>
             <Switch
               checked={settings.is_accepting_orders}
@@ -140,21 +145,18 @@ export default function VendorSettings() {
             />
           </div>
           <div className="border-t pt-4">
-            <Label>Maximum Preparation Time (minutes)</Label>
+            <Label>Max Preparation Time (minutes)</Label>
             <Input
               type="number"
               value={settings.max_prep_time}
               onChange={(e) => setSettings({ ...settings, max_prep_time: parseInt(e.target.value) })}
               className="mt-1"
             />
-            <p className="text-xs text-gray-500 mt-1">
-              Estimated time shown to customers
-            </p>
           </div>
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium">Auto-accept Orders</p>
-              <p className="text-xs text-gray-500">Automatically accept orders without manual confirmation</p>
+              <p className="text-xs text-gray-500">Automatically accept orders</p>
             </div>
             <Switch
               checked={settings.auto_accept_orders}
@@ -168,7 +170,6 @@ export default function VendorSettings() {
         </CardContent>
       </Card>
 
-      {/* Notification Settings */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -194,14 +195,13 @@ export default function VendorSettings() {
         </CardContent>
       </Card>
 
-      {/* Info Box */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <div className="flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5" />
           <div>
             <p className="text-sm font-medium text-blue-800">Need help?</p>
             <p className="text-xs text-blue-600 mt-1">
-              Contact support at support@lloydsdelivery.co.za or call +27 00 000 0000
+              Contact support at support@lloydsdelivery.co.za
             </p>
           </div>
         </div>

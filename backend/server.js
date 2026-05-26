@@ -73,13 +73,13 @@ const driverDocumentStorage = multer.diskStorage({
 const imageFileFilter = (req, file, cb) => {
   const allowedTypes = /jpeg|jpg|png|gif|webp/;
   const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
- const mimetype =
-  file.mimetype === "image/jpeg" ||
-  file.mimetype === "image/jpg" ||
-  file.mimetype === "image/png" ||
-  file.mimetype === "image/gif" ||
-  file.mimetype === "image/webp" ||
-  file.mimetype === "application/pdf";
+  const mimetype =
+    file.mimetype === "image/jpeg" ||
+    file.mimetype === "image/jpg" ||
+    file.mimetype === "image/png" ||
+    file.mimetype === "image/gif" ||
+    file.mimetype === "image/webp" ||
+    file.mimetype === "application/pdf";
   
   if (mimetype && extname) {
     cb(null, true);
@@ -124,12 +124,11 @@ const io = new Server(httpServer, {
 
 app.set("io", io);
 
-// ✅ CORS configuration - Fixed (removed app.options('*', cors()) which was causing the error)
+// CORS configuration
 const allowedOrigins = ["http://localhost:5173", "http://localhost:3000", "https://lloyds-delivery.netlify.app"];
 
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
@@ -149,12 +148,11 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 // Serve static files
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
-// ✅ Upload endpoint for menu items and restaurants
+// Upload endpoint for menu items and restaurants
 app.post("/api/upload", uploadRestaurantImage.single("image"), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ message: "No file uploaded" });
   }
-  // Return FULL URL to avoid CORS issues
   const imageUrl = `${req.protocol}://${req.get("host")}/uploads/restaurants/${req.file.filename}`;
   res.json({ success: true, imageUrl });
 });
@@ -199,6 +197,12 @@ io.on("connection", (socket) => {
     console.log(`🚚 Driver ${driverId} connected`);
   });
 
+  // ✅ NEW: Vendor joins their restaurant room
+  socket.on("join-vendor", (vendorId) => {
+    socket.join(`vendor_${vendorId}`);
+    console.log(`🏪 Vendor ${vendorId} connected`);
+  });
+
   socket.on("driver-location", (data) => {
     const { orderId, lat, lng } = data;
     io.to(`order_${orderId}`).emit("driver-location-update", { lat, lng });
@@ -227,6 +231,7 @@ app.get("/", (req, res) => {
 app.get("/api/protected", verifyToken, authorizeRoles("admin"), (req, res) => {
   res.json({ message: "You are an admin", user: req.user });
 });
+
 // Temporary debug route to check uploaded files
 app.get("/check-files", (req, res) => {
   const driversDir = path.join(process.cwd(), "uploads", "drivers");

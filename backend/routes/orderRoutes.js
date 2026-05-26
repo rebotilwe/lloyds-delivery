@@ -108,6 +108,28 @@ router.post("/create", async (req, res) => {
       );
     }
 
+    // ✅ NEW: Notify vendor about new order
+    const io = req.app.get("io");
+    try {
+      const restaurant = await db.query(
+        "SELECT owner_id FROM restaurants WHERE id = $1",
+        [restaurant_id]
+      );
+
+      if (restaurant.rows[0]?.owner_id && io) {
+        io.to(`vendor_${restaurant.rows[0].owner_id}`).emit("new-order", {
+          orderId: orderId,
+          orderTotal: total,
+          customerName: customer_name,
+          itemsCount: items?.length || 0,
+          timestamp: new Date(),
+        });
+        console.log(`🔔 Notified vendor ${restaurant.rows[0].owner_id} about order ${orderId}`);
+      }
+    } catch (notifyErr) {
+      console.error("Failed to notify vendor:", notifyErr.message);
+    }
+
     // Send email confirmation (non-blocking)
     try {
       const customer = await db.query("SELECT email, name FROM users WHERE id = $1", [customer_id]);
@@ -359,14 +381,6 @@ router.put("/accept/:id", async (req, res) => {
   }
 });
 
-/* =========================
-   UPDATE ORDER STATUS (DRIVER)
-   URL: PUT /api/orders/status/:id
-========================= */
-/* =========================
-   UPDATE ORDER STATUS (DRIVER)
-   URL: PUT /api/orders/status/:id
-========================= */
 /* =========================
    UPDATE ORDER STATUS (DRIVER)
    URL: PUT /api/orders/status/:id

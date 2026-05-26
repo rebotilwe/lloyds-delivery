@@ -11,35 +11,39 @@ const getAuthHeaders = () => {
 
 export const api = {
   get: async (url) => {
-    const res = await fetch(`${API_URL}${url}`, {
+    const response = await fetch(`${API_URL}${url}`, {
       headers: getAuthHeaders(),
     });
-    return res.json();
+    const data = await response.json();
+    return { data, status: response.status, ok: response.ok };
   },
 
   post: async (url, body) => {
-    const res = await fetch(`${API_URL}${url}`, {
+    const response = await fetch(`${API_URL}${url}`, {
       method: "POST",
       headers: getAuthHeaders(),
       body: JSON.stringify(body),
     });
-    return res.json();
+    const data = await response.json();
+    return { data, status: response.status, ok: response.ok };
   },
 
   put: async (url, body) => {
-    const res = await fetch(`${API_URL}${url}`, {
+    const response = await fetch(`${API_URL}${url}`, {
       method: "PUT",
       headers: getAuthHeaders(),
       body: JSON.stringify(body),
     });
-    return res.json();
+    const data = await response.json();
+    return { data, status: response.status, ok: response.ok };
   },
 
   delete: async (url) => {
-    const res = await fetch(`${API_URL}${url}`, {
+    const response = await fetch(`${API_URL}${url}`, {
       method: "DELETE",
       headers: getAuthHeaders(),
     });
-    return res.json();
+    const data = await response.json();
+    return { data, status: response.status, ok: response.ok };
   },
 };

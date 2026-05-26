@@ -63,9 +63,13 @@ const getRestaurantImage = (restaurant) => {
 };
 
 export default function RestaurantCard({ restaurant }) {
-  const rating = typeof restaurant.rating === 'string' ? parseFloat(restaurant.rating) : restaurant.rating;
-  const isValidRating = !isNaN(rating) && rating > 0;
-  const deliveryFee = typeof restaurant.delivery_fee === 'string' ? parseFloat(restaurant.delivery_fee) : restaurant.delivery_fee;
+  // Safe rating parsing with fallback
+  const rating = restaurant?.rating ? parseFloat(restaurant.rating) : null;
+  const isValidRating = rating !== null && !isNaN(rating) && rating > 0;
+  
+  // Safe delivery fee parsing
+  const deliveryFee = restaurant?.delivery_fee ? parseFloat(restaurant.delivery_fee) : 0;
+  const isValidDeliveryFee = !isNaN(deliveryFee);
   
   const imageUrl = getRestaurantImage(restaurant);
 
@@ -77,6 +81,9 @@ export default function RestaurantCard({ restaurant }) {
             src={imageUrl}
             alt={restaurant.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            onError={(e) => {
+              e.target.src = DEFAULT_IMAGE;
+            }}
           />
           {restaurant.cuisine_type && (
             <span className="absolute top-2 left-2 md:top-3 md:left-3 bg-black/70 text-white text-[10px] md:text-xs px-1.5 py-0.5 md:px-2 md:py-1 rounded-full">
@@ -101,7 +108,7 @@ export default function RestaurantCard({ restaurant }) {
             )}
             <span className="flex items-center gap-0.5 md:gap-1">
               <Bike className="w-3 h-3 md:w-3.5 md:h-3.5" />
-              R{!isNaN(deliveryFee) ? deliveryFee.toFixed(0) : 15}
+              R{isValidDeliveryFee ? deliveryFee.toFixed(0) : 15}
             </span>
           </div>
         </div>

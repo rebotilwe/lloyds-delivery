@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,19 +14,11 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  Package,
   MapPin,
   Phone,
   Mail,
   Eye,
 } from 'lucide-react';
-
-const statusOptions = [
-  { value: 'confirmed', label: 'Accept Order', color: 'bg-green-500', nextStatus: 'preparing' },
-  { value: 'preparing', label: 'Start Preparing', color: 'bg-blue-500', nextStatus: 'ready_for_pickup' },
-  { value: 'ready_for_pickup', label: 'Ready for Pickup', color: 'bg-purple-500', nextStatus: null },
-  { value: 'rejected', label: 'Reject Order', color: 'bg-red-500', nextStatus: null },
-];
 
 export default function VendorOrders() {
   const [orders, setOrders] = useState([]);
@@ -45,7 +36,9 @@ export default function VendorOrders() {
     setLoading(true);
     try {
       const response = await api.get('/vendor/orders');
-      setOrders(response.data);
+      // Handle both response.data and direct array response
+      const ordersData = response.data || response;
+      setOrders(Array.isArray(ordersData) ? ordersData : []);
     } catch (error) {
       console.error('Error fetching orders:', error);
       toast.error('Failed to load orders');
@@ -102,7 +95,7 @@ export default function VendorOrders() {
       pending: { label: 'Pending', color: 'bg-yellow-100 text-yellow-800' },
       confirmed: { label: 'Confirmed', color: 'bg-blue-100 text-blue-800' },
       preparing: { label: 'Preparing', color: 'bg-purple-100 text-purple-800' },
-      ready_for_pickup: { label: 'Ready for Pickup', color: 'bg-green-100 text-green-800' },
+      ready_for_pickup: { label: 'Ready', color: 'bg-green-100 text-green-800' },
       picked_up: { label: 'Picked Up', color: 'bg-indigo-100 text-indigo-800' },
       on_the_way: { label: 'On The Way', color: 'bg-cyan-100 text-cyan-800' },
       delivered: { label: 'Delivered', color: 'bg-emerald-100 text-emerald-800' },
@@ -113,9 +106,10 @@ export default function VendorOrders() {
     return <Badge className={config.color}>{config.label}</Badge>;
   };
 
-  const pendingOrders = orders.filter(o => o.status === 'pending');
-  const activeOrders = orders.filter(o => ['confirmed', 'preparing'].includes(o.status));
-  const completedOrders = orders.filter(o => ['ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(o.status));
+  // Safe filtering with null checks
+  const pendingOrders = (orders || []).filter(o => o?.status === 'pending');
+  const activeOrders = (orders || []).filter(o => ['confirmed', 'preparing'].includes(o?.status));
+  const completedOrders = (orders || []).filter(o => ['ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(o?.status));
 
   const OrderCard = ({ order }) => (
     <Card className="mb-3">
@@ -126,7 +120,7 @@ export default function VendorOrders() {
               <p className="font-semibold">Order #{order.id}</p>
               {getStatusBadge(order.status)}
             </div>
-            <p className="text-sm text-gray-600">{order.customer_name}</p>
+            <p className="text-sm text-gray-600">{order.customer_name || 'Guest'}</p>
             <p className="text-xs text-gray-400 mt-1">
               {order.created_at ? format(new Date(order.created_at), 'dd MMM yyyy, h:mm a') : '-'}
             </p>
@@ -141,7 +135,7 @@ export default function VendorOrders() {
             </div>
           </div>
           <div className="text-right">
-            <p className="font-bold text-green text-lg">R{Number(order.total).toFixed(2)}</p>
+            <p className="font-bold text-green text-lg">R{Number(order.total || 0).toFixed(2)}</p>
             {order.status === 'pending' && (
               <div className="flex gap-2 mt-2">
                 <Button
@@ -178,7 +172,7 @@ export default function VendorOrders() {
                 onClick={() => updateOrderStatus(order.id, 'ready_for_pickup')}
                 className="bg-purple-500 text-white mt-2"
               >
-                Mark Ready for Pickup
+                Mark Ready
               </Button>
             )}
             <Button
@@ -273,10 +267,9 @@ export default function VendorOrders() {
           
           {selectedOrder && (
             <div className="space-y-4">
-              {/* Customer Info */}
               <div className="bg-gray-50 p-3 rounded-lg">
                 <h3 className="font-semibold text-sm mb-2">Customer Information</h3>
-                <p className="text-sm">{selectedOrder.customer_name}</p>
+                <p className="text-sm">{selectedOrder.customer_name || 'Guest'}</p>
                 <div className="flex items-center gap-2 mt-1">
                   <Mail className="w-3 h-3 text-gray-400" />
                   <span className="text-xs text-gray-600">{selectedOrder.customer_email}</span>
@@ -289,16 +282,14 @@ export default function VendorOrders() {
                 )}
               </div>
 
-              {/* Delivery Address */}
               <div className="bg-gray-50 p-3 rounded-lg">
                 <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
                   <MapPin className="w-3 h-3" />
                   Delivery Address
                 </h3>
-                <p className="text-sm">{selectedOrder.delivery_address}</p>
+                <p className="text-sm">{selectedOrder.delivery_address || 'No address'}</p>
               </div>
 
-              {/* Order Items */}
               <div className="bg-gray-50 p-3 rounded-lg">
                 <h3 className="font-semibold text-sm mb-2">Order Items</h3>
                 <div className="space-y-2">
@@ -315,13 +306,12 @@ export default function VendorOrders() {
                     </div>
                     <div className="flex justify-between font-bold mt-2">
                       <span>Total</span>
-                      <span className="text-green">R{Number(selectedOrder.total).toFixed(2)}</span>
+                      <span className="text-green">R{Number(selectedOrder.total || 0).toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Action Buttons based on status */}
               {selectedOrder.status === 'pending' && (
                 <div className="space-y-4">
                   <div>

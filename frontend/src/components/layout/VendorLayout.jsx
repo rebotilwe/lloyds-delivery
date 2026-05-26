@@ -11,13 +11,9 @@ import {
   X,
   ChevronDown,
   User,
-  Bell,
-  Clock,
-  TrendingUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
+import VendorNotificationBell from '@/components/vendor/NotificationBell';
 
 const vendorNavItems = [
   { path: '/vendor', label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -148,6 +144,9 @@ export default function VendorLayout() {
               </div>
 
               <div className="flex items-center gap-3">
+                {/* Notification Bell */}
+                <VendorNotificationBell />
+
                 {/* User Menu */}
                 <div className="relative">
                   <button

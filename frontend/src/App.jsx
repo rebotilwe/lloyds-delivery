@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
@@ -6,6 +6,7 @@ import { SocketProvider } from '@/context/SocketContext';
 
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { CartProvider } from '@/lib/cartStore';
+import { api } from '@/api/client';
 
 import AppLayout from '@/components/layout/AppLayout';
 import AdminLayout from '@/components/layout/AdminLayout';
@@ -31,6 +32,8 @@ import VendorDashboard from '@/pages/VendorDashboard';
 import VendorOrders from '@/pages/VendorOrders';
 import VendorMenu from '@/pages/VendorMenu';
 import VendorSettings from '@/pages/VendorSettings';
+import VendorWaiting from '@/pages/VendorWaiting';
+import VendorOnboarding from '@/pages/VendorOnboarding';
 import PageNotFound from '@/lib/PageNotFound';
 
 // ---------------------
@@ -85,33 +88,31 @@ function DriverGuard({ children }) {
 }
 
 // ---------------------
-// VENDOR GUARD
+// VENDOR GUARD - FIXED
 // ---------------------
-// Update the VendorGuard function in App.jsx
 function VendorGuard({ children }) {
   const { user, loading } = useAuth();
-  const [vendorStatus, setVendorStatus] = useState(null);
+  const [hasRestaurant, setHasRestaurant] = useState(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    const checkVendor = async () => {
+    const checkVendorSetup = async () => {
       if (user && user.role === 'vendor') {
         try {
-          // Check if vendor has completed onboarding
-          const response = await api.get('/vendor/restaurant').catch(() => ({ data: null }));
-          setVendorStatus({
-            approved: user.vendor_status === 'approved',
-            hasRestaurant: !!response.data
-          });
+          // Check if vendor has completed restaurant setup
+          const response = await api.get('/vendor/restaurant');
+          setHasRestaurant(!!response.data && !!response.data.id);
         } catch (error) {
-          setVendorStatus({ approved: false, hasRestaurant: false });
+          // If 404 or error, means no restaurant setup yet
+          console.log('No restaurant found, needs onboarding');
+          setHasRestaurant(false);
         }
       }
       setChecking(false);
     };
-    
+
     if (!loading) {
-      checkVendor();
+      checkVendorSetup();
     }
   }, [user, loading]);
 
@@ -124,11 +125,12 @@ function VendorGuard({ children }) {
     return <VendorWaiting />;
   }
   
-  // Vendor approved but no restaurant setup
-  if (!vendorStatus?.hasRestaurant) {
+  // Vendor approved but no restaurant setup - GO TO ONBOARDING
+  if (hasRestaurant === false) {
     return <VendorOnboarding />;
   }
   
+  // Vendor approved and has restaurant - show dashboard
   return children;
 }
 
@@ -216,6 +218,16 @@ function App() {
                     <Route path="settings" element={<VendorSettings />} />
                   </Route>
 
+                  {/* ---------------- VENDOR ONBOARDING (Separate route for setup) ---------------- */}
+                  <Route
+                    path="/vendor/onboarding"
+                    element={
+                      <AuthGuard>
+                        <VendorOnboarding />
+                      </AuthGuard>
+                    }
+                  />
+
                   {/* ---------------- ADMIN ROUTES ---------------- */}
                   <Route
                     path="/admin"
@@ -225,38 +237,17 @@ function App() {
                       </AdminGuard>
                     }
                   >
-                    {/* Overview / Dashboard */}
                     <Route index element={<AdminDashboard />} />
-                    
-                    {/* Orders */}
                     <Route path="orders" element={<AdminDashboard />} />
                     <Route path="orders/:id" element={<AdminOrderDetails />} />
-                    
-                    {/* Restaurants */}
                     <Route path="restaurants" element={<AdminDashboard />} />
-                    
-                    {/* Vendors - NEW */}
                     <Route path="vendors" element={<AdminDashboard />} />
-                    
-                    {/* Menu Items */}
                     <Route path="menu" element={<AdminDashboard />} />
-                    
-                    {/* Drivers */}
                     <Route path="drivers" element={<AdminDashboard />} />
-                    
-                    {/* Users */}
                     <Route path="users" element={<AdminDashboard />} />
-                    
-                    {/* Finance - NEW */}
                     <Route path="finance" element={<AdminDashboard />} />
-                    
-                    {/* Disputes - NEW */}
                     <Route path="disputes" element={<AdminDashboard />} />
-                    
-                    {/* Settings */}
                     <Route path="settings" element={<AdminDashboard />} />
-                    
-                    {/* Alerts */}
                     <Route path="alerts" element={<AdminDashboard />} />
                   </Route>
 

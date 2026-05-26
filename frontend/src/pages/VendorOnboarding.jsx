@@ -28,43 +28,43 @@ export default function VendorOnboarding() {
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  
+  if (!formData.name || !formData.address) {
+    toast.error('Please fill in restaurant name and address');
+    return;
+  }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!formData.name || !formData.address) {
-      toast.error('Please fill in restaurant name and address');
-      return;
+  setLoading(true);
+  try {
+    const response = await api.post('/vendor/setup-restaurant', {
+      name: formData.name,
+      description: formData.description,
+      cuisine_type: formData.cuisine_type,
+      address: formData.address,
+      phone: formData.phone,
+      operating_hours: {
+        open: formData.operating_hours_open,
+        close: formData.operating_hours_close
+      },
+      delivery_radius: Number(formData.delivery_radius),
+      min_order_amount: Number(formData.min_order_amount),
+      delivery_fee: Number(formData.delivery_fee),
+    });
+
+    if (response.data.success) {
+      toast.success('Restaurant created successfully!');
+      // Navigate to vendor menu page after successful setup
+      navigate('/vendor/menu');
     }
-
-    setLoading(true);
-    try {
-      const response = await api.post('/vendor/setup-restaurant', {
-        name: formData.name,
-        description: formData.description,
-        cuisine_type: formData.cuisine_type,
-        address: formData.address,
-        phone: formData.phone,
-        operating_hours: {
-          open: formData.operating_hours_open,
-          close: formData.operating_hours_close
-        },
-        delivery_radius: Number(formData.delivery_radius),
-        min_order_amount: Number(formData.min_order_amount),
-        delivery_fee: Number(formData.delivery_fee),
-      });
-
-      if (response.data.success) {
-        toast.success('Restaurant created successfully!');
-        navigate('/vendor/menu');
-      }
-    } catch (error) {
-      console.error('Setup error:', error);
-      toast.error(error.response?.data?.message || 'Failed to setup restaurant');
-    } finally {
-      setLoading(false);
-    }
-  };
+  } catch (error) {
+    console.error('Setup error:', error);
+    toast.error(error.response?.data?.message || 'Failed to setup restaurant');
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">

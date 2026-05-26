@@ -6,7 +6,7 @@ import { sendPasswordResetEmail } from "../services/emailService.js";
 
 const router = express.Router();
 
-// REGISTER
+// REGISTER - with vendor_status for vendors
 router.post("/register", async (req, res) => {
   try {
     const { full_name, email, password, role, phone } = req.body;
@@ -25,21 +25,28 @@ router.post("/register", async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // ✅ FIX: Set driver_status to NULL for new driver registrations
-    // They need to complete onboarding first before becoming "pending"
-    const driver_status = null; // Not pending until they submit documents
+    // Set status based on role
+    let driver_status = null;
+    let vendor_status = null;
+    
+    if (role === 'driver') {
+      driver_status = 'pending';  // Needs admin approval
+    } else if (role === 'vendor') {
+      vendor_status = 'pending';  // Needs admin approval
+    }
 
     const result = await db.query(
-      `INSERT INTO users (name, email, password_hash, role, driver_status, phone) 
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [full_name, email, hashedPassword, role || 'customer', driver_status, phone || null]
+      `INSERT INTO users (name, email, password_hash, role, driver_status, vendor_status, phone) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [full_name, email, hashedPassword, role || 'customer', driver_status, vendor_status, phone || null]
     );
 
-    console.log("✅ User registered:", email);
+    console.log("✅ User registered:", email, "Role:", role);
 
     res.status(201).json({ 
       message: "User registered successfully",
-      userId: result.rows[0].id 
+      userId: result.rows[0].id,
+      role: role
     });
   } catch (err) {
     console.error("❌ Registration error:", err);
@@ -58,7 +65,11 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Email and password required" });
     }
 
-    const users = await db.query("SELECT * FROM users WHERE email = $1", [email]);
+    const users = await db.query(
+      `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, earnings, password_hash 
+       FROM users WHERE email = $1`,
+      [email]
+    );
     
     if (users.rows.length === 0) {
       return res.status(401).json({ message: "Invalid email or password" });
@@ -72,6 +83,22 @@ router.post("/login", async (req, res) => {
 
     if (!isValidPassword) {
       return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    // Check if vendor is approved
+    if (user.role === 'vendor' && user.vendor_status !== 'approved') {
+      return res.status(403).json({ 
+        message: "Your vendor account is pending approval. You'll receive an email once approved.",
+        status: user.vendor_status
+      });
+    }
+
+    // Check if driver is approved
+    if (user.role === 'driver' && user.driver_status !== 'approved') {
+      return res.status(403).json({ 
+        message: "Your driver account is pending approval. Please complete onboarding.",
+        status: user.driver_status
+      });
     }
 
     const token = jwt.sign(
@@ -107,7 +134,8 @@ router.get("/me", async (req, res) => {
       }
       
       const users = await db.query(
-        "SELECT id, name, email, role, phone, driver_status, is_available, earnings FROM users WHERE id = $1",
+        `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, earnings 
+         FROM users WHERE id = $1`,
         [userId]
       );
       
@@ -120,7 +148,8 @@ router.get("/me", async (req, res) => {
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-super-secret-key-change-this");
     const users = await db.query(
-      "SELECT id, name, email, role, phone, driver_status, is_available, earnings FROM users WHERE id = $1",
+      `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, earnings 
+       FROM users WHERE id = $1`,
       [decoded.id]
     );
     
@@ -176,6 +205,7 @@ router.post("/forgot-password", async (req, res) => {
     const users = await db.query("SELECT * FROM users WHERE email = $1", [email]);
     
     if (users.rows.length === 0) {
+      // Don't reveal that email doesn't exist for security
       return res.json({ message: "If an account exists, a reset link will be sent." });
     }
 

@@ -21,6 +21,11 @@ import {
   XCircle,
   Eye,
   Home,
+  UtensilsCrossed,
+  DollarSign,
+  AlertCircle,
+  UserCheck,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -36,12 +41,17 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
+// Updated admin navigation with all routes
 const adminNavItems = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { path: '/admin/orders', label: 'Orders', icon: ShoppingBag },
   { path: '/admin/restaurants', label: 'Restaurants', icon: Store },
-  { path: '/admin/users', label: 'Users', icon: Users },
+  { path: '/admin/menu', label: 'Menu Items', icon: UtensilsCrossed },
+  { path: '/admin/vendors', label: 'Vendors', icon: UserCheck },
   { path: '/admin/drivers', label: 'Drivers', icon: Truck },
+  { path: '/admin/users', label: 'Users', icon: Users },
+  { path: '/admin/finance', label: 'Finance', icon: DollarSign },
+  { path: '/admin/disputes', label: 'Disputes', icon: AlertCircle },
   { path: '/admin/settings', label: 'Settings', icon: Settings },
 ];
 
@@ -108,7 +118,6 @@ export default function AdminLayout() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Limit to last 50 notifications
         const limited = parsed.slice(0, 50);
         setNotifications(limited);
         setUnreadCount(limited.filter(n => !n.read).length);
@@ -139,7 +148,6 @@ export default function AdminLayout() {
         setNotifications(prev => [newNotification, ...prev].slice(0, 50));
         setUnreadCount(prev => prev + 1);
         
-        // Show toast with sound effect (vibrate on mobile if supported)
         if (mobileView && 'vibrate' in navigator) {
           navigator.vibrate(200);
         }
@@ -255,7 +263,7 @@ export default function AdminLayout() {
       )}
 
       <div className="flex">
-        {/* Sidebar - Mobile friendly */}
+        {/* Sidebar */}
         <aside className={cn(
           "fixed inset-y-0 left-0 z-50 w-72 border-r border-slate-200 bg-white shadow-xl transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 lg:shadow-none",
           mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
@@ -293,7 +301,7 @@ export default function AdminLayout() {
               </div>
             </div>
 
-            {/* Navigation */}
+            {/* Navigation - Now includes all pages */}
             <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
               {adminNavItems.map((item) => (
                 <NavItem
@@ -320,7 +328,7 @@ export default function AdminLayout() {
 
         {/* Main Content */}
         <main className="min-h-screen flex-1">
-          {/* Header - Mobile friendly */}
+          {/* Header */}
           <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
             <div className="flex items-center justify-between px-4 py-3 lg:px-8 lg:py-4">
               <div className="flex items-center gap-3">
@@ -339,7 +347,7 @@ export default function AdminLayout() {
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Connection Status - Mobile friendly */}
+                {/* Connection Status */}
                 <div className="hidden sm:flex items-center gap-1 px-2 py-1 rounded-full bg-slate-100 text-xs">
                   <div className={`w-1.5 h-1.5 rounded-full ${online ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
                   <span className="text-slate-600">{online ? 'Live' : 'Offline'}</span>
@@ -477,7 +485,7 @@ export default function AdminLayout() {
               </div>
             </div>
 
-            {/* Mobile Title (visible only on small screens) */}
+            {/* Mobile Title */}
             <div className="block border-t px-4 py-2 sm:hidden">
               <div className="flex items-center justify-between">
                 <div>

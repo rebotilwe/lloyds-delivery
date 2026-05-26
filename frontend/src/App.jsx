@@ -87,11 +87,48 @@ function DriverGuard({ children }) {
 // ---------------------
 // VENDOR GUARD
 // ---------------------
+// Update the VendorGuard function in App.jsx
 function VendorGuard({ children }) {
   const { user, loading } = useAuth();
-  if (loading) return <Loader />;
+  const [vendorStatus, setVendorStatus] = useState(null);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    const checkVendor = async () => {
+      if (user && user.role === 'vendor') {
+        try {
+          // Check if vendor has completed onboarding
+          const response = await api.get('/vendor/restaurant').catch(() => ({ data: null }));
+          setVendorStatus({
+            approved: user.vendor_status === 'approved',
+            hasRestaurant: !!response.data
+          });
+        } catch (error) {
+          setVendorStatus({ approved: false, hasRestaurant: false });
+        }
+      }
+      setChecking(false);
+    };
+    
+    if (!loading) {
+      checkVendor();
+    }
+  }, [user, loading]);
+
+  if (loading || checking) return <Loader />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'vendor') return <Navigate to="/" replace />;
+  
+  // Vendor not approved yet
+  if (user.vendor_status !== 'approved') {
+    return <VendorWaiting />;
+  }
+  
+  // Vendor approved but no restaurant setup
+  if (!vendorStatus?.hasRestaurant) {
+    return <VendorOnboarding />;
+  }
+  
   return children;
 }
 

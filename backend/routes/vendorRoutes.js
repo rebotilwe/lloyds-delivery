@@ -382,5 +382,57 @@ router.put("/settings", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+/* =========================
+   SETUP RESTAURANT (After Approval)
+========================= */
+router.post("/setup-restaurant", async (req, res) => {
+  try {
+    const {
+      name,
+      description,
+      cuisine_type,
+      address,
+      phone,
+      operating_hours,
+      delivery_radius,
+      min_order_amount,
+      delivery_fee
+    } = req.body;
+
+    // Check if vendor already has a restaurant
+    const existing = await db.query(
+      "SELECT id FROM restaurants WHERE owner_id = $1",
+      [req.user.id]
+    );
+
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ message: "You already have a restaurant setup" });
+    }
+
+    const result = await db.query(
+      `INSERT INTO restaurants 
+       (name, description, cuisine_type, address, phone, operating_hours, 
+        delivery_radius, min_order_amount, delivery_fee, owner_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW()) 
+       RETURNING id`,
+      [
+        name, description, cuisine_type, address, phone, 
+        JSON.stringify(operating_hours), delivery_radius, min_order_amount, 
+        delivery_fee, req.user.id
+      ]
+    );
+
+    console.log(`✅ Restaurant created for vendor ${req.user.id}: ${name}`);
+    
+    res.json({ 
+      success: true, 
+      restaurant_id: result.rows[0].id,
+      message: "Restaurant setup successfully"
+    });
+  } catch (error) {
+    console.error("Error setting up restaurant:", error);
+    res.status(500).json({ message: "Failed to setup restaurant", error: error.message });
+  }
+});
 
 export default router;

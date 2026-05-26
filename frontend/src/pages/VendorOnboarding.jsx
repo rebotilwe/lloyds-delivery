@@ -44,10 +44,11 @@ export default function VendorOnboarding() {
         delivery_fee: Number(formData.delivery_fee),
       });
 
-      if (response.data.success) {
-        toast.success('Restaurant created successfully!');
-        navigate('/vendor/menu');
-      }
+     if (response.data.success) {
+  toast.success('Restaurant created successfully!');
+  // Navigate to vendor dashboard instead of menu
+  navigate('/vendor');
+}
     } catch (error) {
       console.error('Setup error:', error);
       toast.error(error.response?.data?.message || 'Failed to setup restaurant');

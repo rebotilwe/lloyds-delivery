@@ -72,7 +72,13 @@ const driverDocumentStorage = multer.diskStorage({
 const imageFileFilter = (req, file, cb) => {
   const allowedTypes = /jpeg|jpg|png|gif|webp/;
   const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
+ const mimetype =
+  file.mimetype === "image/jpeg" ||
+  file.mimetype === "image/jpg" ||
+  file.mimetype === "image/png" ||
+  file.mimetype === "image/gif" ||
+  file.mimetype === "image/webp" ||
+  file.mimetype === "application/pdf";
   
   if (mimetype && extname) {
     cb(null, true);
@@ -218,6 +224,21 @@ app.get("/", (req, res) => {
 
 app.get("/api/protected", verifyToken, authorizeRoles("admin"), (req, res) => {
   res.json({ message: "You are an admin", user: req.user });
+});
+// Temporary debug route to check uploaded files
+app.get("/check-files", (req, res) => {
+  const driversDir = path.join(process.cwd(), "uploads", "drivers");
+  
+  fs.readdir(driversDir, (err, files) => {
+    if (err) {
+      return res.json({ error: err.message, files: [] });
+    }
+    res.json({ 
+      directory: driversDir,
+      files: files,
+      count: files.length 
+    });
+  });
 });
 
 // Error handling

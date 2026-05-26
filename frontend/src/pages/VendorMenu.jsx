@@ -199,7 +199,7 @@ const groupedItems = filteredItems.reduce((acc, item) => {
                           {item.description && (
                             <p className="text-xs text-gray-500 mt-1">{item.description}</p>
                           )}
-                          <p className="text-green font-bold mt-2">R{item.price?.toFixed(2)}</p>
+                        <p className="text-green font-bold mt-2">R{typeof item.price === 'number' ? item.price.toFixed(2) : parseFloat(item.price)?.toFixed(2) || '0.00'}</p>
                         </div>
                         <div className="flex gap-1">
                           <Button

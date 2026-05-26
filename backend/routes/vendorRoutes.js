@@ -12,7 +12,7 @@ router.use(authorizeRoles("vendor"));
 ========================= */
 const getVendorRestaurant = async (vendorId) => {
   const result = await db.query(
-    `SELECT id, name, owner_id
+    `SELECT id, name, owner_id, address, latitude, longitude
      FROM restaurants
      WHERE owner_id = $1
      ORDER BY id ASC
@@ -42,7 +42,7 @@ router.get("/restaurant", async (req, res) => {
 });
 
 /* =========================
-   GET VENDOR ORDERS (FIXED)
+   GET VENDOR ORDERS
 ========================= */
 router.get("/orders", async (req, res) => {
   try {
@@ -65,7 +65,18 @@ router.get("/orders", async (req, res) => {
        FROM orders o
        LEFT JOIN users u ON o.customer_id = u.id
        WHERE o.restaurant_id = $1
-       ORDER BY o.created_at DESC`,
+       ORDER BY 
+         CASE o.status
+           WHEN 'pending' THEN 1
+           WHEN 'confirmed' THEN 2
+           WHEN 'preparing' THEN 3
+           WHEN 'ready_for_pickup' THEN 4
+           WHEN 'picked_up' THEN 5
+           WHEN 'on_the_way' THEN 6
+           WHEN 'delivered' THEN 7
+           ELSE 8
+         END,
+         o.created_at DESC`,
       [restaurant.id]
     );
 
@@ -75,7 +86,6 @@ router.get("/orders", async (req, res) => {
           "SELECT * FROM order_items WHERE order_id = $1",
           [order.id]
         );
-
         return { ...order, items: items.rows };
       })
     );
@@ -141,6 +151,7 @@ router.get("/analytics", async (req, res) => {
 
 /* =========================
    UPDATE ORDER STATUS (VENDOR)
+   This is the CRITICAL route - when vendor marks ready_for_pickup, notify drivers
 ========================= */
 router.put("/orders/:id/status", async (req, res) => {
   try {
@@ -154,8 +165,11 @@ router.put("/orders/:id/status", async (req, res) => {
     }
 
     const orderCheck = await db.query(
-      `SELECT * FROM orders
-       WHERE id = $1 AND restaurant_id = $2`,
+      `SELECT o.*, r.name as restaurant_name, r.address as restaurant_address,
+              r.latitude as restaurant_lat, r.longitude as restaurant_lng
+       FROM orders o
+       LEFT JOIN restaurants r ON o.restaurant_id = r.id
+       WHERE o.id = $1 AND o.restaurant_id = $2`,
       [orderId, restaurant.id]
     );
 
@@ -175,6 +189,7 @@ router.put("/orders/:id/status", async (req, res) => {
       [status, estimated_prep_time, rejection_reason, orderId]
     );
 
+    // Notify customer via socket
     if (io) {
       io.to(`order_${orderId}`).emit("order-status-update", {
         orderId: parseInt(orderId),
@@ -184,9 +199,186 @@ router.put("/orders/:id/status", async (req, res) => {
       });
     }
 
+    // CRITICAL: When vendor marks order as ready_for_pickup, notify ALL drivers
+    if (status === 'ready_for_pickup' && io) {
+      const notificationData = {
+        orderId: parseInt(orderId),
+        restaurantName: order.restaurant_name || restaurant.name,
+        restaurantAddress: order.restaurant_address || restaurant.address,
+        orderTotal: order.total,
+        itemsCount: order.item_count || 0,
+        customerName: order.customer_name,
+        deliveryAddress: order.delivery_address,
+        deliveryFee: order.delivery_fee,
+        restaurantLat: order.restaurant_lat || restaurant.latitude,
+        restaurantLng: order.restaurant_lng || restaurant.longitude,
+        timestamp: new Date(),
+      };
+      
+      // Emit to all connected drivers (broadcast)
+      io.emit("order-ready-for-driver", notificationData);
+      console.log(`📢 Broadcast to drivers: Order #${orderId} is ready for pickup`);
+    }
+
     res.json({ message: "Order updated", status });
   } catch (error) {
-    console.error(error);
+    console.error("Error updating order status:", error);
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+});
+
+/* =========================
+   GET VENDOR MENU
+========================= */
+router.get("/menu", async (req, res) => {
+  try {
+    const restaurant = await getVendorRestaurant(req.user.id);
+    if (!restaurant) {
+      return res.json([]);
+    }
+
+    const menuItems = await db.query(
+      `SELECT * FROM menu_items 
+       WHERE restaurant_id = $1 
+       ORDER BY category, name`,
+      [restaurant.id]
+    );
+
+    res.json(menuItems.rows);
+  } catch (error) {
+    console.error("Error fetching menu:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =========================
+   ADD MENU ITEM
+========================= */
+router.post("/menu", async (req, res) => {
+  try {
+    const { name, description, price, category, image_url } = req.body;
+    
+    const restaurant = await getVendorRestaurant(req.user.id);
+    if (!restaurant) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    const result = await db.query(
+      `INSERT INTO menu_items 
+       (restaurant_id, name, description, price, category, image_url) 
+       VALUES ($1, $2, $3, $4, $5, $6) 
+       RETURNING id`,
+      [restaurant.id, name, description, price, category, image_url]
+    );
+
+    res.status(201).json({ 
+      id: result.rows[0].id,
+      message: "Menu item added successfully"
+    });
+  } catch (error) {
+    console.error("Error adding menu item:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =========================
+   UPDATE MENU ITEM
+========================= */
+router.put("/menu/:id", async (req, res) => {
+  try {
+    const { name, description, price, category, image_url } = req.body;
+    const menuItemId = req.params.id;
+    
+    const restaurant = await getVendorRestaurant(req.user.id);
+    if (!restaurant) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    await db.query(
+      `UPDATE menu_items 
+       SET name = $1, description = $2, price = $3, category = $4, image_url = $5
+       WHERE id = $6 AND restaurant_id = $7`,
+      [name, description, price, category, image_url, menuItemId, restaurant.id]
+    );
+
+    res.json({ message: "Menu item updated successfully" });
+  } catch (error) {
+    console.error("Error updating menu item:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =========================
+   DELETE MENU ITEM
+========================= */
+router.delete("/menu/:id", async (req, res) => {
+  try {
+    const menuItemId = req.params.id;
+    
+    const restaurant = await getVendorRestaurant(req.user.id);
+    if (!restaurant) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    await db.query(
+      "DELETE FROM menu_items WHERE id = $1 AND restaurant_id = $2",
+      [menuItemId, restaurant.id]
+    );
+
+    res.json({ message: "Menu item deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting menu item:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =========================
+   GET VENDOR SETTINGS
+========================= */
+router.get("/settings", async (req, res) => {
+  try {
+    const result = await db.query(
+      "SELECT * FROM vendor_settings WHERE vendor_id = $1",
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({
+        is_accepting_orders: true,
+        max_prep_time: 30,
+        auto_accept_orders: false,
+      });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error fetching settings:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =========================
+   UPDATE VENDOR SETTINGS
+========================= */
+router.put("/settings", async (req, res) => {
+  try {
+    const { is_accepting_orders, max_prep_time, auto_accept_orders } = req.body;
+
+    await db.query(
+      `INSERT INTO vendor_settings (vendor_id, is_accepting_orders, max_prep_time, auto_accept_orders, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (vendor_id) 
+       DO UPDATE SET 
+         is_accepting_orders = EXCLUDED.is_accepting_orders,
+         max_prep_time = EXCLUDED.max_prep_time,
+         auto_accept_orders = EXCLUDED.auto_accept_orders,
+         updated_at = NOW()`,
+      [req.user.id, is_accepting_orders, max_prep_time, auto_accept_orders]
+    );
+
+    res.json({ message: "Settings updated successfully" });
+  } catch (error) {
+    console.error("Error updating settings:", error);
     res.status(500).json({ message: "Server error" });
   }
 });

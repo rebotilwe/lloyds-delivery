@@ -5,6 +5,8 @@ import { Eye, CheckCircle, XCircle, Download, FileText, User, Mail, Phone, Calen
 import { toast } from 'sonner';
 import { api } from '@/api/client';
 
+const BACKEND_URL = 'https://lloyds-delivery.onrender.com';
+
 export default function DriverDocuments({ driver, onClose, onApprove, onReject }) {
   const [viewingDoc, setViewingDoc] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -27,8 +29,27 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
     { key: 'car_license', label: 'Vehicle License', required: false, icon: <Car className="w-4 h-4" /> },
   ];
 
+  // ✅ FIX: Return full URL for documents with better handling
   const getDocumentUrl = (docKey) => {
-    return driver[docKey] || null;
+    const docPath = driver[docKey];
+    if (!docPath) return null;
+    
+    // If it's already a full URL, return it
+    if (docPath.startsWith('http://') || docPath.startsWith('https://')) {
+      return docPath;
+    }
+    
+    // If it's a relative path starting with /uploads
+    if (docPath.startsWith('/uploads')) {
+      return `${BACKEND_URL}${docPath}`;
+    }
+    
+    // If it's just a filename, construct the full path
+    if (!docPath.includes('/')) {
+      return `${BACKEND_URL}/uploads/drivers/${docPath}`;
+    }
+    
+    return null;
   };
 
   const isImage = (url) => {
@@ -200,7 +221,10 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => setViewingDoc(docUrl)}
+                          onClick={() => {
+                            console.log("Opening document:", docUrl);
+                            setViewingDoc(docUrl);
+                          }}
                           className="w-full sm:w-auto"
                         >
                           <Eye className="w-4 h-4 mr-2" />
@@ -289,6 +313,7 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
                     alt="Document" 
                     className="w-full rounded-lg object-contain max-h-[50vh]"
                     onError={(e) => {
+                      console.error("Image failed to load:", viewingDoc);
                       e.target.src = 'https://placehold.co/600x400/e2e8f0/64748b?text=Image+Not+Found';
                     }}
                   />
@@ -310,7 +335,9 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
                 <div className="flex flex-col sm:flex-row justify-end gap-2">
                   <Button 
                     variant="outline" 
-                    onClick={() => window.open(viewingDoc, '_blank')}
+                    onClick={() => {
+                      if (viewingDoc) window.open(viewingDoc, '_blank');
+                    }}
                     className="w-full sm:w-auto"
                   >
                     <Download className="w-4 h-4 mr-2" />

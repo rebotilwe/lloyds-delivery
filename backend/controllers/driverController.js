@@ -22,12 +22,10 @@ export const submitDriverApplication = async (req, res) => {
       car = {};
     }
 
-    // Get uploaded file paths - convert to relative URLs for PostgreSQL
+    // Get uploaded file paths
     const getRelativePath = (file) => {
       if (!file) return null;
-      // Extract just the filename from the full path
       const filename = path.basename(file.path);
-      // Return in the format expected by the backend
       return `/uploads/drivers/${filename}`;
     };
 
@@ -42,7 +40,7 @@ export const submitDriverApplication = async (req, res) => {
       return res.status(400).json({ message: "Missing required files: ID copy, PDP, and profile photo are required" });
     }
 
-    // ✅ FIX: Use PostgreSQL placeholders ($1, $2, etc.) instead of (?)
+    // ✅ REMOVED car_info from the UPDATE (since you have individual columns)
     const sql = `
       UPDATE users 
       SET 
@@ -55,9 +53,8 @@ export const submitDriverApplication = async (req, res) => {
         car_model = $6,
         car_year = $7,
         car_color = $8,
-        license_plate = $9,
-        car_info = $10
-      WHERE id = $11
+        license_plate = $9
+      WHERE id = $10
       RETURNING id
     `;
 
@@ -71,7 +68,6 @@ export const submitDriverApplication = async (req, res) => {
       car?.year || null,
       car?.color || null,
       car?.license_plate || null,
-      JSON.stringify(car),
       userId,
     ];
 

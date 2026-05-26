@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Eye, CheckCircle, XCircle, Download, FileText, User, Mail, Phone, Calendar, Car, AlertCircle } from 'lucide-react';
+import { Eye, CheckCircle, XCircle, Download, FileText, User, Mail, Phone, Calendar, Car, AlertCircle, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
 
@@ -10,7 +10,14 @@ const BACKEND_URL = 'https://lloyds-delivery.onrender.com';
 export default function DriverDocuments({ driver, onClose, onApprove, onReject }) {
   const [viewingDoc, setViewingDoc] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [mobileView, setMobileView] = useState(false);
+  const [currentDriver, setCurrentDriver] = useState(driver);
+
+  // Update currentDriver when driver prop changes
+  useEffect(() => {
+    setCurrentDriver(driver);
+  }, [driver]);
 
   // Check if mobile view
   useEffect(() => {
@@ -29,9 +36,9 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
     { key: 'car_license', label: 'Vehicle License', required: false, icon: <Car className="w-4 h-4" /> },
   ];
 
-  // ✅ FIX: Return full URL for documents with better handling
+  // Get document URL - handles both Supabase URLs and local paths
   const getDocumentUrl = (docKey) => {
-    const docPath = driver[docKey];
+    const docPath = currentDriver[docKey];
     if (!docPath) return null;
     
     // If it's already a full URL, return it
@@ -52,6 +59,23 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
     return null;
   };
 
+  // Refresh driver data from server
+  const refreshDriverData = async () => {
+    setRefreshing(true);
+    try {
+      const response = await api.get(`/users/${currentDriver.id}`);
+      if (response.data) {
+        setCurrentDriver(response.data);
+        toast.success("Driver data refreshed");
+      }
+    } catch (error) {
+      console.error("Refresh error:", error);
+      toast.error("Failed to refresh driver data");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const isImage = (url) => {
     if (!url) return false;
     return url.match(/\.(jpeg|jpg|gif|png|webp)$/i) !== null;
@@ -65,11 +89,11 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
   const handleApprove = async () => {
     setLoading(true);
     try {
-      await api.put(`/users/${driver.id}`, {
+      await api.put(`/users/${currentDriver.id}`, {
         driver_status: 'approved',
         is_available: 1
       });
-      toast.success(`${driver.full_name || driver.name} approved as driver`);
+      toast.success(`${currentDriver.full_name || currentDriver.name} approved as driver`);
       if (onApprove) onApprove();
       onClose();
     } catch (error) {
@@ -83,11 +107,11 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
   const handleReject = async () => {
     setLoading(true);
     try {
-      await api.put(`/users/${driver.id}`, {
+      await api.put(`/users/${currentDriver.id}`, {
         driver_status: 'rejected',
         is_available: 0
       });
-      toast.success(`${driver.full_name || driver.name} rejected`);
+      toast.success(`${currentDriver.full_name || currentDriver.name} rejected`);
       if (onReject) onReject();
       onClose();
     } catch (error) {
@@ -133,9 +157,20 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader className="mb-4">
-          <DialogTitle className="text-lg sm:text-xl">Driver Documents Review</DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="text-lg sm:text-xl">Driver Documents Review</DialogTitle>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={refreshDriverData} 
+              disabled={refreshing}
+              className="h-8 px-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
           <p className="text-xs sm:text-sm text-gray-500">
-            Review documents for {driver.full_name || driver.name} ({driver.email})
+            Review documents for {currentDriver.full_name || currentDriver.name} ({currentDriver.email})
           </p>
         </DialogHeader>
 
@@ -153,21 +188,21 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
                 <User className="w-3.5 h-3.5 text-gray-400 mt-0.5 shrink-0" />
                 <div>
                   <p className="text-[10px] text-gray-500">Full Name</p>
-                  <p className="font-medium text-sm">{driver.full_name || driver.name || '-'}</p>
+                  <p className="font-medium text-sm">{currentDriver.full_name || currentDriver.name || '-'}</p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
                 <Mail className="w-3.5 h-3.5 text-gray-400 mt-0.5 shrink-0" />
                 <div>
                   <p className="text-[10px] text-gray-500">Email</p>
-                  <p className="font-medium text-sm break-all">{driver.email}</p>
+                  <p className="font-medium text-sm break-all">{currentDriver.email}</p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
                 <Phone className="w-3.5 h-3.5 text-gray-400 mt-0.5 shrink-0" />
                 <div>
                   <p className="text-[10px] text-gray-500">Phone</p>
-                  <p className="font-medium text-sm">{driver.phone || 'Not provided'}</p>
+                  <p className="font-medium text-sm">{currentDriver.phone || 'Not provided'}</p>
                 </div>
               </div>
               <div className="flex items-start gap-2">
@@ -175,7 +210,7 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
                 <div>
                   <p className="text-[10px] text-gray-500">Applied On</p>
                   <p className="font-medium text-sm">
-                    {driver.created_at ? new Date(driver.created_at).toLocaleDateString() : '-'}
+                    {currentDriver.created_at ? new Date(currentDriver.created_at).toLocaleDateString() : '-'}
                   </p>
                 </div>
               </div>
@@ -239,23 +274,23 @@ export default function DriverDocuments({ driver, onClose, onApprove, onReject }
           </div>
 
           {/* Vehicle Information */}
-          {(driver.car_info || driver.car_make || driver.license_plate) && (
+          {(currentDriver.car_info || currentDriver.car_make || currentDriver.license_plate) && (
             <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
               <h3 className="font-semibold text-sm sm:text-base mb-3 flex items-center gap-2">
                 <Car className="w-4 h-4" />
                 Vehicle Information
               </h3>
               <div className="space-y-1 text-sm">
-                {driver.car_info && <p className="text-gray-600">{driver.car_info}</p>}
-                {driver.car_make && (
+                {currentDriver.car_info && <p className="text-gray-600">{currentDriver.car_info}</p>}
+                {currentDriver.car_make && (
                   <p className="text-gray-600">
-                    {driver.car_make} {driver.car_model || ''} {driver.car_year || ''}
+                    {currentDriver.car_make} {currentDriver.car_model || ''} {currentDriver.car_year || ''}
                   </p>
                 )}
-                {driver.license_plate && (
-                  <p className="text-gray-600">License Plate: {driver.license_plate}</p>
+                {currentDriver.license_plate && (
+                  <p className="text-gray-600">License Plate: {currentDriver.license_plate}</p>
                 )}
-                {driver.car_color && <p className="text-gray-600">Color: {driver.car_color}</p>}
+                {currentDriver.car_color && <p className="text-gray-600">Color: {currentDriver.car_color}</p>}
               </div>
             </div>
           )}

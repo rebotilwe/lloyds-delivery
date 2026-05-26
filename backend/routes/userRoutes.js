@@ -4,11 +4,11 @@ import bcrypt from "bcryptjs";
 
 const router = express.Router();
 
-// GET all users - include document fields
+// GET all users - include vendor_status
 router.get("/", async (req, res) => {
   try {
     const results = await db.query(
-      `SELECT id, name, email, role, phone, driver_status, is_available, 
+      `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, 
               total_deliveries, earnings, created_at,
               id_copy, pdp, profile_photo, car_license,
               car_make, car_model, car_year, car_color, license_plate
@@ -21,11 +21,11 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET user by ID - include document fields
+// GET user by ID - include vendor_status
 router.get("/:id", async (req, res) => {
   try {
     const results = await db.query(
-      `SELECT id, name, email, role, phone, driver_status, is_available, 
+      `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, 
               total_deliveries, earnings, created_at,
               id_copy, pdp, profile_photo, car_license,
               car_make, car_model, car_year, car_color, license_plate
@@ -42,10 +42,10 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// UPDATE user
+// UPDATE user - ADD vendor_status support
 router.put("/:id", async (req, res) => {
   try {
-    const { name, email, phone, role, driver_status, is_available } = req.body;
+    const { name, email, phone, role, driver_status, vendor_status, is_available } = req.body;
     
     const updateFields = [];
     const updateValues = [];
@@ -70,6 +70,10 @@ router.put("/:id", async (req, res) => {
     if (driver_status !== undefined) {
       updateFields.push(`driver_status = $${paramIndex++}`);
       updateValues.push(driver_status);
+    }
+    if (vendor_status !== undefined) {
+      updateFields.push(`vendor_status = $${paramIndex++}`);
+      updateValues.push(vendor_status);
     }
     if (is_available !== undefined) {
       updateFields.push(`is_available = $${paramIndex++}`);
@@ -97,7 +101,6 @@ router.put("/:id", async (req, res) => {
 // DELETE user
 router.delete("/:id", async (req, res) => {
   try {
-    // Check if user exists
     const users = await db.query("SELECT * FROM users WHERE id = $1", [req.params.id]);
     if (users.rows.length === 0) {
       return res.status(404).json({ message: "User not found" });
@@ -105,7 +108,6 @@ router.delete("/:id", async (req, res) => {
     
     const user = users.rows[0];
     
-    // Don't allow deleting the last admin
     if (user.role === 'admin') {
       const admins = await db.query("SELECT COUNT(*) as count FROM users WHERE role = 'admin'");
       if (parseInt(admins.rows[0].count) <= 1) {
@@ -113,12 +115,9 @@ router.delete("/:id", async (req, res) => {
       }
     }
     
-    // Delete associated order items first
     await db.query("DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1)", [req.params.id]);
     await db.query("DELETE FROM orders WHERE customer_id = $1", [req.params.id]);
     await db.query("DELETE FROM orders WHERE driver_id = $1", [req.params.id]);
-    
-    // Finally delete the user
     await db.query("DELETE FROM users WHERE id = $1", [req.params.id]);
     
     res.json({ message: "User deleted successfully" });
@@ -165,6 +164,24 @@ router.put("/:id/driver-status", async (req, res) => {
     );
     
     res.json({ message: `Driver ${driver_status} successfully` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Update vendor status (approve/reject/suspend)
+router.put("/:id/vendor-status", async (req, res) => {
+  try {
+    const { vendor_status } = req.body;
+    const userId = req.params.id;
+    
+    await db.query(
+      "UPDATE users SET vendor_status = $1 WHERE id = $2",
+      [vendor_status, userId]
+    );
+    
+    res.json({ message: `Vendor ${vendor_status} successfully` });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: err.message });

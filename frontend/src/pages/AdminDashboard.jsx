@@ -22,6 +22,17 @@ import {
   AlertCircle,
   CheckCircle,
   XCircle,
+  FileText,
+  Search,
+  Filter,
+  ChevronLeft,
+  ChevronRight,
+  UserCheck,
+  UserX,
+  Ban,
+  Star,
+  Zap,
+  BarChart3,
 } from 'lucide-react';
 
 import AdminStats from '@/components/admin/AdminStats';
@@ -30,25 +41,32 @@ import AdminRestaurants from '@/components/admin/AdminRestaurants';
 import AdminMenuItems from '@/components/admin/AdminMenuItems';
 import AdminUsers from '@/components/admin/AdminUsers';
 import RevenueChart from '@/components/admin/RevenueChart';
+import VendorManagement from '@/components/admin/VendorManagement';
+import DisputeManagement from '@/components/admin/DisputeManagement';
+import CommissionSettings from '@/components/admin/CommissionSettings';
+import WithdrawalRequests from '@/components/admin/WithdrawalRequests';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 
-// Simplified tabs for mobile with paths
+// Tabs configuration
 const tabs = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, color: 'bg-emerald-500', path: '/admin' },
   { id: 'orders', label: 'Orders', icon: ShoppingBag, color: 'bg-blue-500', path: '/admin/orders' },
   { id: 'restaurants', label: 'Restaurants', icon: Store, color: 'bg-purple-500', path: '/admin/restaurants' },
+  { id: 'vendors', label: 'Vendors', icon: UserCheck, color: 'bg-teal-500', path: '/admin/vendors' },
   { id: 'menu', label: 'Menu Items', icon: UtensilsCrossed, color: 'bg-orange-500', path: '/admin/menu' },
   { id: 'drivers', label: 'Drivers', icon: Truck, color: 'bg-amber-500', path: '/admin/drivers' },
   { id: 'users', label: 'Users', icon: Users, color: 'bg-cyan-500', path: '/admin/users' },
   { id: 'finance', label: 'Finance', icon: DollarSign, color: 'bg-green-500', path: '/admin/finance' },
+  { id: 'disputes', label: 'Disputes', icon: AlertCircle, color: 'bg-red-500', path: '/admin/disputes' },
   { id: 'settings', label: 'Settings', icon: Settings, color: 'bg-gray-500', path: '/admin/settings' },
 ];
 
-// Simplified Stat Card
+// Stat Card Component
 const StatCard = ({ title, value, icon: Icon, color, trend }) => (
   <div className="bg-white rounded-xl border p-3 sm:p-4 hover:shadow-md transition group">
     <div className="flex items-center justify-between">
@@ -116,14 +134,13 @@ const DesktopTabButton = ({ tab, active, onClick, badge }) => {
   );
 };
 
-// ✅ FIXED: Driver Documents Review Component with proper URL handling
+// Driver Documents Modal (keep this one, it's used)
 const DriverDocumentsModal = ({ driver, onClose, onApprove, onReject }) => {
   const [viewingDoc, setViewingDoc] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [currentDriver, setCurrentDriver] = useState(driver);
 
-  // Update currentDriver when driver prop changes
   useEffect(() => {
     setCurrentDriver(driver);
   }, [driver]);
@@ -135,27 +152,14 @@ const DriverDocumentsModal = ({ driver, onClose, onApprove, onReject }) => {
     { key: 'car_license', label: 'Vehicle License', required: false },
   ];
 
-  // ✅ Get document URL - handles both Supabase URLs and local paths
   const getDocumentUrl = (docKey) => {
     const docPath = currentDriver[docKey];
     if (!docPath) return null;
-    
-    console.log(`Getting URL for ${docKey}:`, docPath);
-    
-    // If it's already a full URL (Supabase), return it
-    if (docPath.startsWith('http://') || docPath.startsWith('https://')) {
-      return docPath;
-    }
-    
-    // If it's a relative path starting with /uploads
-    if (docPath.startsWith('/uploads')) {
-      return `https://lloyds-delivery.onrender.com${docPath}`;
-    }
-    
+    if (docPath.startsWith('http://') || docPath.startsWith('https://')) return docPath;
+    if (docPath.startsWith('/uploads')) return `${import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com'}${docPath}`;
     return null;
   };
 
-  // ✅ Refresh driver data from server
   const refreshDriverData = async () => {
     setRefreshing(true);
     try {
@@ -175,15 +179,11 @@ const DriverDocumentsModal = ({ driver, onClose, onApprove, onReject }) => {
   const handleApproveClick = async () => {
     setLoading(true);
     try {
-      await api.put(`/users/${currentDriver.id}`, {
-        driver_status: 'approved',
-        is_available: 1
-      });
+      await api.put(`/users/${currentDriver.id}`, { driver_status: 'approved', is_available: 1 });
       toast.success(`${currentDriver.name} approved as driver`);
       onApprove(currentDriver);
       onClose();
     } catch (error) {
-      console.error('Approve error:', error);
       toast.error('Failed to approve driver');
     } finally {
       setLoading(false);
@@ -193,30 +193,19 @@ const DriverDocumentsModal = ({ driver, onClose, onApprove, onReject }) => {
   const handleRejectClick = async () => {
     setLoading(true);
     try {
-      await api.put(`/users/${currentDriver.id}`, {
-        driver_status: 'rejected',
-        is_available: 0
-      });
+      await api.put(`/users/${currentDriver.id}`, { driver_status: 'rejected', is_available: 0 });
       toast.success(`${currentDriver.name} rejected`);
       onReject(currentDriver);
       onClose();
     } catch (error) {
-      console.error('Reject error:', error);
       toast.error('Failed to reject driver');
     } finally {
       setLoading(false);
     }
   };
 
-  const isImage = (url) => {
-    if (!url) return false;
-    return url.match(/\.(jpeg|jpg|gif|png|webp)$/i) !== null;
-  };
-
-  const isPDF = (url) => {
-    if (!url) return false;
-    return url.match(/\.(pdf)$/i) !== null;
-  };
+  const isImage = (url) => url?.match(/\.(jpeg|jpg|gif|png|webp)$/i) !== null;
+  const isPDF = (url) => url?.match(/\.(pdf)$/i) !== null;
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
@@ -224,13 +213,7 @@ const DriverDocumentsModal = ({ driver, onClose, onApprove, onReject }) => {
         <DialogHeader>
           <div className="flex items-center justify-between">
             <DialogTitle className="text-lg sm:text-xl">Review Driver Documents</DialogTitle>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={refreshDriverData} 
-              disabled={refreshing}
-              className="h-8 px-2"
-            >
+            <Button variant="ghost" size="sm" onClick={refreshDriverData} disabled={refreshing} className="h-8 px-2">
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
             </Button>
           </div>
@@ -278,7 +261,6 @@ const DriverDocumentsModal = ({ driver, onClose, onApprove, onReject }) => {
           </div>
         </div>
 
-        {/* Document Preview Dialog */}
         {viewingDoc && (
           <Dialog open={!!viewingDoc} onOpenChange={() => setViewingDoc(null)}>
             <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -287,38 +269,14 @@ const DriverDocumentsModal = ({ driver, onClose, onApprove, onReject }) => {
               </DialogHeader>
               <div className="space-y-4">
                 {isImage(viewingDoc) && (
-                  <img 
-                    src={viewingDoc} 
-                    alt="Document" 
-                    className="w-full rounded-lg object-contain max-h-[50vh]"
-                    onError={(e) => {
-                      console.error("Image failed to load:", viewingDoc);
-                      e.target.src = 'https://placehold.co/600x400/e2e8f0/64748b?text=Image+Not+Found';
-                    }}
-                  />
+                  <img src={viewingDoc} alt="Document" className="w-full rounded-lg object-contain max-h-[50vh]" />
                 )}
                 {isPDF(viewingDoc) && (
-                  <iframe 
-                    src={viewingDoc} 
-                    className="w-full h-96 rounded-lg"
-                    title="PDF Preview"
-                  />
+                  <iframe src={viewingDoc} className="w-full h-96 rounded-lg" title="PDF Preview" />
                 )}
-                {!isImage(viewingDoc) && !isPDF(viewingDoc) && (
-                  <div className="text-center py-8">
-                    <FileText className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500">Unable to preview document</p>
-                    <p className="text-xs text-gray-400 mt-1">Click download to view the file</p>
-                  </div>
-                )}
-                <div className="flex flex-col sm:flex-row justify-end gap-2">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => window.open(viewingDoc, '_blank')}
-                    className="w-full sm:w-auto"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Download
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => window.open(viewingDoc, '_blank')}>
+                    <Download className="w-4 h-4 mr-2" /> Download
                   </Button>
                   <Button onClick={() => setViewingDoc(null)}>Close</Button>
                 </div>
@@ -331,14 +289,24 @@ const DriverDocumentsModal = ({ driver, onClose, onApprove, onReject }) => {
   );
 };
 
-// Settings Component (Mobile Optimized)
+// AdminSettings Component (keep this one)
 const AdminSettings = () => {
   const { user, setUser } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({ full_name: '', phone: '', current_password: '', new_password: '', confirm_password: '' });
+  const [formData, setFormData] = useState({ 
+    full_name: '', 
+    phone: '', 
+    current_password: '', 
+    new_password: '', 
+    confirm_password: '' 
+  });
 
-  React.useEffect(() => {
-    if (user) setFormData(prev => ({ ...prev, full_name: user.full_name || user.name || '', phone: user.phone || '' }));
+  useEffect(() => {
+    if (user) setFormData(prev => ({ 
+      ...prev, 
+      full_name: user.full_name || user.name || '', 
+      phone: user.phone || '' 
+    }));
   }, [user]);
 
   const updateProfile = async () => {
@@ -358,7 +326,11 @@ const AdminSettings = () => {
     if (formData.new_password.length < 6) return toast.error('Password must be 6+ characters');
     setLoading(true);
     try {
-      await api.post('/auth/change-password', { user_id: user.id, current_password: formData.current_password, new_password: formData.new_password });
+      await api.post('/auth/change-password', { 
+        user_id: user.id, 
+        current_password: formData.current_password, 
+        new_password: formData.new_password 
+      });
       toast.success('Password changed');
       setFormData(prev => ({ ...prev, current_password: '', new_password: '', confirm_password: '' }));
     } catch { toast.error('Failed'); }
@@ -367,29 +339,57 @@ const AdminSettings = () => {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border p-4 sm:p-5">
-        <h2 className="font-bold text-base sm:text-lg mb-4">Profile Settings</h2>
+      <div className="bg-white rounded-xl border p-5">
+        <h2 className="font-bold text-lg mb-4">Profile Settings</h2>
         <div className="space-y-3">
-          <Input placeholder="Full Name" value={formData.full_name} onChange={e => setFormData({ ...formData, full_name: e.target.value })} />
+          <Input 
+            placeholder="Full Name" 
+            value={formData.full_name} 
+            onChange={e => setFormData({ ...formData, full_name: e.target.value })} 
+          />
           <Input value={user?.email} disabled className="bg-gray-50" />
-          <Input placeholder="Phone" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
-          <Button onClick={updateProfile} disabled={loading} className="w-full bg-navy text-white">Save Changes</Button>
+          <Input 
+            placeholder="Phone" 
+            value={formData.phone} 
+            onChange={e => setFormData({ ...formData, phone: e.target.value })} 
+          />
+          <Button onClick={updateProfile} disabled={loading} className="w-full bg-navy text-white">
+            Save Changes
+          </Button>
         </div>
       </div>
-      <div className="bg-white rounded-xl border p-4 sm:p-5">
-        <h2 className="font-bold text-base sm:text-lg mb-4">Change Password</h2>
+
+      <div className="bg-white rounded-xl border p-5">
+        <h2 className="font-bold text-lg mb-4">Change Password</h2>
         <div className="space-y-3">
-          <Input type="password" placeholder="Current Password" value={formData.current_password} onChange={e => setFormData({ ...formData, current_password: e.target.value })} />
-          <Input type="password" placeholder="New Password" value={formData.new_password} onChange={e => setFormData({ ...formData, new_password: e.target.value })} />
-          <Input type="password" placeholder="Confirm Password" value={formData.confirm_password} onChange={e => setFormData({ ...formData, confirm_password: e.target.value })} />
-          <Button onClick={changePassword} disabled={loading} variant="outline" className="w-full">Update Password</Button>
+          <Input 
+            type="password" 
+            placeholder="Current Password" 
+            value={formData.current_password} 
+            onChange={e => setFormData({ ...formData, current_password: e.target.value })} 
+          />
+          <Input 
+            type="password" 
+            placeholder="New Password" 
+            value={formData.new_password} 
+            onChange={e => setFormData({ ...formData, new_password: e.target.value })} 
+          />
+          <Input 
+            type="password" 
+            placeholder="Confirm Password" 
+            value={formData.confirm_password} 
+            onChange={e => setFormData({ ...formData, confirm_password: e.target.value })} 
+          />
+          <Button onClick={changePassword} disabled={loading} variant="outline" className="w-full">
+            Update Password
+          </Button>
         </div>
       </div>
     </div>
   );
 };
 
-/* ---------------------- MAIN ---------------------- */
+// ==================== MAIN ADMIN DASHBOARD ====================
 export default function AdminDashboard() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -397,27 +397,18 @@ export default function AdminDashboard() {
   const { user } = useAuth();
   const [selectedDriver, setSelectedDriver] = useState(null);
   const [showDocuments, setShowDocuments] = useState(false);
-  const [mobileView, setMobileView] = useState(false);
-
-  // Check if mobile view
-  useEffect(() => {
-    const checkMobile = () => {
-      setMobileView(window.innerWidth < 768);
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
 
   const getActiveTabFromPath = () => {
     const path = location.pathname;
     if (path === '/admin' || path === '/admin/') return 'overview';
     if (path.includes('/orders')) return 'orders';
     if (path.includes('/restaurants')) return 'restaurants';
+    if (path.includes('/vendors')) return 'vendors';
     if (path.includes('/menu')) return 'menu';
     if (path.includes('/users')) return 'users';
     if (path.includes('/drivers')) return 'drivers';
     if (path.includes('/finance')) return 'finance';
+    if (path.includes('/disputes')) return 'disputes';
     if (path.includes('/settings')) return 'settings';
     return 'overview';
   };
@@ -428,13 +419,12 @@ export default function AdminDashboard() {
     setActiveTab(getActiveTabFromPath());
   }, [location.pathname]);
 
-  // Handle tab click - navigate to the correct path
   const handleTabClick = (tab) => {
     navigate(tab.path);
   };
 
   // Data fetching
-  const { data: orders = [], isLoading: ordersLoading } = useQuery({
+  const { data: orders = [], isLoading: ordersLoading, refetch: refetchOrders } = useQuery({
     queryKey: ['orders'],
     queryFn: async () => {
       try {
@@ -445,7 +435,7 @@ export default function AdminDashboard() {
     refetchInterval: 15000,
   });
 
-  const { data: restaurants = [], isLoading: restaurantsLoading } = useQuery({
+  const { data: restaurants = [], isLoading: restaurantsLoading, refetch: refetchRestaurants } = useQuery({
     queryKey: ['restaurants'],
     queryFn: async () => {
       try {
@@ -455,7 +445,7 @@ export default function AdminDashboard() {
     },
   });
 
-  const { data: users = [], isLoading: usersLoading } = useQuery({
+  const { data: users = [], isLoading: usersLoading, refetch: refetchUsers } = useQuery({
     queryKey: ['users'],
     queryFn: async () => {
       try {
@@ -467,9 +457,11 @@ export default function AdminDashboard() {
 
   const isLoading = ordersLoading || restaurantsLoading || usersLoading;
 
+  const vendors = useMemo(() => users.filter(u => u.role === 'vendor'), [users]);
   const drivers = useMemo(() => users.filter(u => u.role === 'driver'), [users]);
   const pendingDrivers = useMemo(() => drivers.filter(d => d.driver_status === 'pending'), [drivers]);
   const activeDrivers = useMemo(() => drivers.filter(d => d.driver_status === 'approved'), [drivers]);
+  const pendingVendors = useMemo(() => vendors.filter(v => v.vendor_status === 'pending' || !v.vendor_status), [vendors]);
   const pendingOrders = orders.filter(o => o.status === 'pending');
   const completedOrders = orders.filter(o => o.status === 'delivered');
   const totalRevenue = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
@@ -484,21 +476,21 @@ export default function AdminDashboard() {
 
   const refreshAll = async () => {
     toast.loading('Refreshing...');
-    await queryClient.invalidateQueries();
+    await Promise.all([refetchOrders(), refetchRestaurants(), refetchUsers()]);
     toast.dismiss();
-    toast.success('Refreshed');
+    toast.success('Dashboard refreshed');
   };
 
   const approveDriver = async (driver) => {
     await api.put(`/users/${driver.id}`, { driver_status: 'approved', is_available: 1 });
-    await queryClient.invalidateQueries({ queryKey: ['users'] });
+    await refetchUsers();
     toast.success(`${driver.name} approved`);
     setShowDocuments(false);
   };
 
   const rejectDriver = async (driver) => {
     await api.put(`/users/${driver.id}`, { driver_status: 'rejected', is_available: 0 });
-    await queryClient.invalidateQueries({ queryKey: ['users'] });
+    await refetchUsers();
     toast.success(`${driver.name} rejected`);
     setShowDocuments(false);
   };
@@ -543,7 +535,7 @@ export default function AdminDashboard() {
     toast.success(`Exported ${orders.length} orders to CSV`);
   };
 
-  // Export Revenue Summary to CSV
+  // Export Revenue Summary
   const exportRevenueSummary = () => {
     const summaryData = [
       { Metric: 'Total Revenue', Value: `R${totalRevenue.toFixed(2)}` },
@@ -599,7 +591,7 @@ export default function AdminDashboard() {
         </Button>
       </div>
 
-      {/* Stats Cards - Responsive Grid */}
+      {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-5">
         <StatCard title="Revenue" value={`R${totalRevenue.toFixed(2)}`} icon={DollarSign} color="bg-green" />
         <StatCard title="Orders" value={orders.length} icon={ShoppingBag} color="bg-blue-500" />
@@ -607,14 +599,40 @@ export default function AdminDashboard() {
         <StatCard title="Pending Orders" value={pendingOrders.length} icon={Clock} color="bg-orange-500" />
       </div>
 
-      {/* Revenue Chart - Only show on overview tab or finance tab */}
+      {/* Pending Alerts Banner */}
+      {(pendingDrivers.length > 0 || pendingVendors.length > 0) && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-5 flex flex-wrap justify-between items-center gap-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-yellow-600" />
+            <span className="text-sm text-yellow-700">
+              {pendingDrivers.length > 0 && `${pendingDrivers.length} driver${pendingDrivers.length > 1 ? 's' : ''} pending approval`}
+              {pendingDrivers.length > 0 && pendingVendors.length > 0 && ' • '}
+              {pendingVendors.length > 0 && `${pendingVendors.length} vendor${pendingVendors.length > 1 ? 's' : ''} pending approval`}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            {pendingDrivers.length > 0 && (
+              <Button size="sm" variant="outline" onClick={() => navigate('/admin/drivers')}>
+                Review Drivers
+              </Button>
+            )}
+            {pendingVendors.length > 0 && (
+              <Button size="sm" variant="outline" onClick={() => navigate('/admin/vendors')}>
+                Review Vendors
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Revenue Chart */}
       {(activeTab === 'overview' || activeTab === 'finance') && (
         <div className="mb-6">
           <RevenueChart orders={orders} />
         </div>
       )}
 
-      {/* Mobile Tabs - Horizontal Scroll */}
+      {/* Mobile Tabs */}
       <div className="sm:hidden overflow-x-auto pb-2 mb-4">
         <div className="flex gap-1 min-w-max">
           {tabs.map(tab => (
@@ -623,7 +641,7 @@ export default function AdminDashboard() {
               tab={tab}
               active={activeTab === tab.id}
               onClick={() => handleTabClick(tab)}
-              badge={tab.id === 'drivers' ? pendingDrivers.length : tab.id === 'orders' ? pendingOrders.length : 0}
+              badge={tab.id === 'drivers' ? pendingDrivers.length : tab.id === 'vendors' ? pendingVendors.length : tab.id === 'orders' ? pendingOrders.length : 0}
             />
           ))}
         </div>
@@ -637,7 +655,7 @@ export default function AdminDashboard() {
             tab={tab}
             active={activeTab === tab.id}
             onClick={() => handleTabClick(tab)}
-            badge={tab.id === 'drivers' ? pendingDrivers.length : tab.id === 'orders' ? pendingOrders.length : 0}
+            badge={tab.id === 'drivers' ? pendingDrivers.length : tab.id === 'vendors' ? pendingVendors.length : tab.id === 'orders' ? pendingOrders.length : 0}
           />
         ))}
       </div>
@@ -647,24 +665,83 @@ export default function AdminDashboard() {
         {activeTab === 'overview' && <AdminStats orders={orders} users={users} />}
         {activeTab === 'orders' && <AdminOrders orders={orders} drivers={drivers} onRefresh={refreshAll} />}
         {activeTab === 'restaurants' && <AdminRestaurants restaurants={restaurants} onRefresh={refreshAll} />}
+        {activeTab === 'vendors' && <VendorManagement vendors={vendors} onRefresh={refreshAll} />}
         {activeTab === 'menu' && <AdminMenuItems restaurants={restaurants} />}
         {activeTab === 'users' && <AdminUsers users={users} />}
+        {activeTab === 'drivers' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="text-center p-3 bg-gray-50 rounded-lg">
+                <p className="text-xl font-bold">{drivers.length}</p>
+                <p className="text-xs text-gray-500">Total Drivers</p>
+              </div>
+              <div className="text-center p-3 bg-green-50 rounded-lg">
+                <p className="text-xl font-bold text-green">{activeDrivers.length}</p>
+                <p className="text-xs text-gray-500">Active</p>
+              </div>
+              <div className="text-center p-3 bg-yellow-50 rounded-lg">
+                <p className="text-xl font-bold text-yellow-600">{pendingDrivers.length}</p>
+                <p className="text-xs text-gray-500">Pending</p>
+              </div>
+            </div>
+
+            {pendingDrivers.length > 0 && (
+              <div>
+                <h3 className="font-semibold text-sm mb-2">Pending Approval ({pendingDrivers.length})</h3>
+                <div className="space-y-2">
+                  {pendingDrivers.map(driver => (
+                    <div key={driver.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-3 border rounded-lg bg-yellow-50/30">
+                      <div>
+                        <p className="font-medium text-sm">{driver.name}</p>
+                        <p className="text-xs text-gray-500">{driver.email}</p>
+                      </div>
+                      <div className="flex gap-2 w-full sm:w-auto">
+                        <button onClick={() => { setSelectedDriver(driver); setShowDocuments(true); }} className="flex-1 sm:flex-none p-1.5 bg-blue-500 text-white rounded text-xs">
+                          Review
+                        </button>
+                        <button onClick={() => approveDriver(driver)} className="flex-1 sm:flex-none p-1.5 bg-green text-white rounded text-xs">
+                          Approve
+                        </button>
+                        <button onClick={() => rejectDriver(driver)} className="flex-1 sm:flex-none p-1.5 bg-red-500 text-white rounded text-xs">
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {activeDrivers.length > 0 && (
+              <div>
+                <h3 className="font-semibold text-sm mb-2">Active Drivers</h3>
+                <div className="space-y-2">
+                  {activeDrivers.map(driver => (
+                    <div key={driver.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <div>
+                        <p className="font-medium text-sm">{driver.name}</p>
+                        <p className="text-xs text-gray-500">{driver.email}</p>
+                      </div>
+                      <Badge className="bg-green-100 text-green-800">Active</Badge>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         
         {activeTab === 'finance' && (
           <div className="space-y-4">
-            {/* Export Buttons */}
             <div className="flex flex-wrap gap-3 pb-3 border-b">
               <Button onClick={exportOrdersToCSV} className="bg-green text-white text-sm">
-                <Download className="w-4 h-4 mr-2" />
-                Export Orders
+                <Download className="w-4 h-4 mr-2" /> Export Orders
               </Button>
               <Button onClick={exportRevenueSummary} variant="outline" className="text-sm">
-                <Download className="w-4 h-4 mr-2" />
-                Export Revenue
+                <Download className="w-4 h-4 mr-2" /> Export Revenue
               </Button>
             </div>
 
-            {/* Revenue Overview */}
             <div className="bg-white rounded-xl border p-4 sm:p-5">
               <h2 className="text-base sm:text-lg font-bold mb-4">Revenue Overview</h2>
               <div className="space-y-3">
@@ -687,7 +764,6 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Order Statistics */}
             <div className="bg-white rounded-xl border p-4 sm:p-5">
               <h2 className="text-base sm:text-lg font-bold mb-4">Order Statistics</h2>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -711,70 +787,14 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </div>
+
+            <CommissionSettings onRefresh={refreshAll} />
+            <WithdrawalRequests drivers={drivers} onRefresh={refreshAll} />
           </div>
         )}
         
+        {activeTab === 'disputes' && <DisputeManagement orders={orders} users={users} onRefresh={refreshAll} />}
         {activeTab === 'settings' && <AdminSettings />}
-        
-        {activeTab === 'drivers' && (
-          <div className="space-y-4">
-            {/* Quick Stats */}
-            <div className="grid grid-cols-3 gap-2 sm:gap-3">
-              <div className="text-center p-2 bg-gray-50 rounded-lg">
-                <p className="text-lg sm:text-xl font-bold">{drivers.length}</p>
-                <p className="text-[10px] sm:text-xs text-gray-500">Total</p>
-              </div>
-              <div className="text-center p-2 bg-gray-50 rounded-lg">
-                <p className="text-lg sm:text-xl font-bold text-green">{activeDrivers.length}</p>
-                <p className="text-[10px] sm:text-xs text-gray-500">Active</p>
-              </div>
-              <div className="text-center p-2 bg-gray-50 rounded-lg">
-                <p className="text-lg sm:text-xl font-bold text-yellow-600">{pendingDrivers.length}</p>
-                <p className="text-[10px] sm:text-xs text-gray-500">Pending</p>
-              </div>
-            </div>
-
-            {/* Pending Drivers */}
-            {pendingDrivers.length > 0 && (
-              <div>
-                <h3 className="font-semibold text-sm sm:text-base mb-2">Pending Approval ({pendingDrivers.length})</h3>
-                <div className="space-y-2">
-                  {pendingDrivers.map(driver => (
-                    <div key={driver.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-3 border rounded-lg">
-                      <div>
-                        <p className="font-medium text-sm">{driver.name}</p>
-                        <p className="text-xs text-gray-500">{driver.email}</p>
-                      </div>
-                      <div className="flex gap-2 w-full sm:w-auto">
-                        <button onClick={() => { setSelectedDriver(driver); setShowDocuments(true); }} className="flex-1 sm:flex-none p-1.5 bg-blue-500 text-white rounded text-xs">Review</button>
-                        <button onClick={() => approveDriver(driver)} className="flex-1 sm:flex-none p-1.5 bg-green text-white rounded text-xs">Approve</button>
-                        <button onClick={() => rejectDriver(driver)} className="flex-1 sm:flex-none p-1.5 bg-red-500 text-white rounded text-xs">Reject</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Active Drivers */}
-            {activeDrivers.length > 0 && (
-              <div>
-                <h3 className="font-semibold text-sm sm:text-base mb-2">Active Drivers</h3>
-                <div className="space-y-2">
-                  {activeDrivers.map(driver => (
-                    <div key={driver.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-sm">{driver.name}</p>
-                        <p className="text-xs text-gray-500">{driver.email}</p>
-                      </div>
-                      <span className="text-xs text-green">● Active</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Driver Documents Modal */}

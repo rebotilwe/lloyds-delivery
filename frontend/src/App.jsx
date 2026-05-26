@@ -179,7 +179,7 @@ function App() {
                     <Route path="settings" element={<VendorSettings />} />
                   </Route>
 
-                  {/* ---------------- ADMIN ---------------- */}
+                  {/* ---------------- ADMIN ROUTES ---------------- */}
                   <Route
                     path="/admin"
                     element={
@@ -188,15 +188,38 @@ function App() {
                       </AdminGuard>
                     }
                   >
+                    {/* Overview / Dashboard */}
                     <Route index element={<AdminDashboard />} />
+                    
+                    {/* Orders */}
                     <Route path="orders" element={<AdminDashboard />} />
                     <Route path="orders/:id" element={<AdminOrderDetails />} />
+                    
+                    {/* Restaurants */}
                     <Route path="restaurants" element={<AdminDashboard />} />
+                    
+                    {/* Vendors - NEW */}
+                    <Route path="vendors" element={<AdminDashboard />} />
+                    
+                    {/* Menu Items */}
                     <Route path="menu" element={<AdminDashboard />} />
-                    <Route path="users" element={<AdminDashboard />} />
+                    
+                    {/* Drivers */}
                     <Route path="drivers" element={<AdminDashboard />} />
+                    
+                    {/* Users */}
+                    <Route path="users" element={<AdminDashboard />} />
+                    
+                    {/* Finance - NEW */}
                     <Route path="finance" element={<AdminDashboard />} />
+                    
+                    {/* Disputes - NEW */}
+                    <Route path="disputes" element={<AdminDashboard />} />
+                    
+                    {/* Settings */}
                     <Route path="settings" element={<AdminDashboard />} />
+                    
+                    {/* Alerts */}
                     <Route path="alerts" element={<AdminDashboard />} />
                   </Route>
 

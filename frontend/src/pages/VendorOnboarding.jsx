@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
-import { Store, MapPin, Phone, Clock, DollarSign, Ruler, Loader2 } from 'lucide-react';
+import { Store, MapPin, Phone, DollarSign, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function VendorOnboarding() {
@@ -18,53 +18,43 @@ export default function VendorOnboarding() {
     cuisine_type: '',
     address: '',
     phone: '',
-    operating_hours_open: '09:00',
-    operating_hours_close: '21:00',
-    delivery_radius: 10,
-    min_order_amount: 50,
     delivery_fee: 20,
   });
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
-const handleSubmit = async (e) => {
-  e.preventDefault();
-  
-  if (!formData.name || !formData.address) {
-    toast.error('Please fill in restaurant name and address');
-    return;
-  }
 
-  setLoading(true);
-  try {
-    const response = await api.post('/vendor/setup-restaurant', {
-      name: formData.name,
-      description: formData.description,
-      cuisine_type: formData.cuisine_type,
-      address: formData.address,
-      phone: formData.phone,
-      operating_hours: {
-        open: formData.operating_hours_open,
-        close: formData.operating_hours_close
-      },
-      delivery_radius: Number(formData.delivery_radius),
-      min_order_amount: Number(formData.min_order_amount),
-      delivery_fee: Number(formData.delivery_fee),
-    });
-
-    if (response.data.success) {
-      toast.success('Restaurant created successfully!');
-      // Navigate to vendor menu page after successful setup
-      navigate('/vendor/menu');
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!formData.name || !formData.address) {
+      toast.error('Please fill in restaurant name and address');
+      return;
     }
-  } catch (error) {
-    console.error('Setup error:', error);
-    toast.error(error.response?.data?.message || 'Failed to setup restaurant');
-  } finally {
-    setLoading(false);
-  }
-};
+
+    setLoading(true);
+    try {
+      const response = await api.post('/vendor/setup-restaurant', {
+        name: formData.name,
+        description: formData.description,
+        cuisine_type: formData.cuisine_type,
+        address: formData.address,
+        phone: formData.phone,
+        delivery_fee: Number(formData.delivery_fee),
+      });
+
+      if (response.data.success) {
+        toast.success('Restaurant created successfully!');
+        navigate('/vendor/menu');
+      }
+    } catch (error) {
+      console.error('Setup error:', error);
+      toast.error(error.response?.data?.message || 'Failed to setup restaurant');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
@@ -145,66 +135,6 @@ const handleSubmit = async (e) => {
                   value={formData.phone}
                   onChange={handleChange}
                 />
-              </div>
-
-              {/* Operating Hours */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="flex items-center gap-2 mb-1">
-                    <Clock className="w-4 h-4" />
-                    Opening Time
-                  </Label>
-                  <Input
-                    type="time"
-                    name="operating_hours_open"
-                    value={formData.operating_hours_open}
-                    onChange={handleChange}
-                  />
-                </div>
-                <div>
-                  <Label className="flex items-center gap-2 mb-1">
-                    <Clock className="w-4 h-4" />
-                    Closing Time
-                  </Label>
-                  <Input
-                    type="time"
-                    name="operating_hours_close"
-                    value={formData.operating_hours_close}
-                    onChange={handleChange}
-                  />
-                </div>
-              </div>
-
-              {/* Delivery Settings */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="flex items-center gap-2 mb-1">
-                    <Ruler className="w-4 h-4" />
-                    Delivery Radius (km)
-                  </Label>
-                  <Input
-                    type="number"
-                    name="delivery_radius"
-                    value={formData.delivery_radius}
-                    onChange={handleChange}
-                    min="1"
-                    max="50"
-                  />
-                </div>
-                <div>
-                  <Label className="flex items-center gap-2 mb-1">
-                    <DollarSign className="w-4 h-4" />
-                    Min Order Amount (R)
-                  </Label>
-                  <Input
-                    type="number"
-                    name="min_order_amount"
-                    value={formData.min_order_amount}
-                    onChange={handleChange}
-                    min="0"
-                    step="10"
-                  />
-                </div>
               </div>
 
               {/* Delivery Fee */}

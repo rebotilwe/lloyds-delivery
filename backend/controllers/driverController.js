@@ -1,5 +1,6 @@
 import db from "../config/db.js";
-import path from "path";
+
+const BACKEND_URL = 'https://lloyds-delivery.onrender.com';
 
 export const submitDriverApplication = async (req, res) => {
   try {
@@ -22,25 +23,24 @@ export const submitDriverApplication = async (req, res) => {
       car = {};
     }
 
-    // Get uploaded file paths
-    const getRelativePath = (file) => {
+    // Get uploaded file paths - return FULL URLs
+    const getFileUrl = (file) => {
       if (!file) return null;
-      const filename = path.basename(file.path);
-      return `/uploads/drivers/${filename}`;
+      // Return full URL to the file
+      return `${BACKEND_URL}/uploads/drivers/${file.filename}`;
     };
 
-    const id_copy = getRelativePath(req.files?.id_copy?.[0]);
-    const pdp = getRelativePath(req.files?.pdp?.[0]);
-    const profile_photo = getRelativePath(req.files?.profile_photo?.[0]);
-    const car_license = getRelativePath(req.files?.car_license?.[0]);
+    const id_copy = getFileUrl(req.files?.id_copy?.[0]);
+    const pdp = getFileUrl(req.files?.pdp?.[0]);
+    const profile_photo = getFileUrl(req.files?.profile_photo?.[0]);
+    const car_license = getFileUrl(req.files?.car_license?.[0]);
 
-    console.log("📄 Document paths:", { id_copy, pdp, profile_photo, car_license });
+    console.log("📄 Document URLs:", { id_copy, pdp, profile_photo, car_license });
 
     if (!id_copy || !pdp || !profile_photo) {
       return res.status(400).json({ message: "Missing required files: ID copy, PDP, and profile photo are required" });
     }
 
-    // ✅ REMOVED car_info from the UPDATE (since you have individual columns)
     const sql = `
       UPDATE users 
       SET 

@@ -4,13 +4,19 @@ import fs from "fs";
 
 // Ensure uploads directory exists
 const uploadDir = path.join(process.cwd(), "uploads");
+const driversDir = path.join(process.cwd(), "uploads", "drivers");
+
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
+if (!fs.existsSync(driversDir)) {
+  fs.mkdirSync(driversDir, { recursive: true });
+}
 
-const storage = multer.diskStorage({
+// Storage for driver documents - save to drivers folder
+const driverStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadDir);
+    cb(null, driversDir);
   },
   filename: (req, file, cb) => {
     const unique = Date.now() + "-" + file.originalname.replace(/\s/g, "_");
@@ -32,7 +38,7 @@ const fileFilter = (req, file, cb) => {
 };
 
 export const upload = multer({ 
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  storage: driverStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit for driver documents
   fileFilter,
 });

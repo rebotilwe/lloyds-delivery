@@ -9,6 +9,7 @@ import { CartProvider } from '@/lib/cartStore';
 
 import AppLayout from '@/components/layout/AppLayout';
 import AdminLayout from '@/components/layout/AdminLayout';
+import VendorLayout from '@/components/layout/VendorLayout';
 
 import Home from '@/pages/Home';
 import RestaurantDetail from '@/pages/RestaurantDetail';
@@ -26,6 +27,10 @@ import DriverOnboarding from '@/pages/DriverOnboarding';
 import Contact from '@/pages/Contact';
 import FAQ from '@/pages/FAQ';
 import Privacy from '@/pages/Privacy';
+import VendorDashboard from '@/pages/VendorDashboard';
+import VendorOrders from '@/pages/VendorOrders';
+import VendorMenu from '@/pages/VendorMenu';
+import VendorSettings from '@/pages/VendorSettings';
 import PageNotFound from '@/lib/PageNotFound';
 
 // ---------------------
@@ -76,6 +81,17 @@ function DriverGuard({ children }) {
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'driver') return <Navigate to="/" replace />;
   if (user.driver_status !== 'approved') return <DriverOnboarding />;
+  return children;
+}
+
+// ---------------------
+// VENDOR GUARD
+// ---------------------
+function VendorGuard({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <Loader />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'vendor') return <Navigate to="/" replace />;
   return children;
 }
 
@@ -147,6 +163,21 @@ function App() {
                       </DriverGuard>
                     }
                   />
+
+                  {/* ---------------- VENDOR ---------------- */}
+                  <Route
+                    path="/vendor"
+                    element={
+                      <VendorGuard>
+                        <VendorLayout />
+                      </VendorGuard>
+                    }
+                  >
+                    <Route index element={<VendorDashboard />} />
+                    <Route path="orders" element={<VendorOrders />} />
+                    <Route path="menu" element={<VendorMenu />} />
+                    <Route path="settings" element={<VendorSettings />} />
+                  </Route>
 
                   {/* ---------------- ADMIN ---------------- */}
                   <Route

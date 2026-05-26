@@ -14,6 +14,7 @@ import { verifyToken, authorizeRoles } from "./middleware/authMiddleware.js";
 import userRoutes from "./routes/userRoutes.js";
 import restaurantRoutes from "./routes/restaurantRoutes.js";
 import menuItemRoutes from "./routes/menuItemRoutes.js";
+import vendorRoutes from "./routes/vendorRoutes.js";
 
 import fs from "fs";
 import path from "path";
@@ -182,6 +183,7 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/restaurants", restaurantRoutes);
 app.use("/api/menu-items", menuItemRoutes);
+app.use("/api/vendor", vendorRoutes);
 
 // Socket.io connection handling
 io.on("connection", (socket) => {

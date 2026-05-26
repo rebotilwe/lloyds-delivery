@@ -35,18 +35,25 @@ export default function VendorMenu() {
     fetchMenuItems();
   }, []);
 
-  const fetchMenuItems = async () => {
-    setLoading(true);
-    try {
-      const response = await api.get('/vendor/menu');
-      setMenuItems(response.data);
-    } catch (error) {
-      console.error('Error fetching menu:', error);
-      toast.error('Failed to load menu items');
-    } finally {
-      setLoading(false);
+const fetchMenuItems = async () => {
+  setLoading(true);
+  try {
+    const response = await api.get('/vendor/menu');
+
+    // FIX: handle unexpected HTML response
+    if (!Array.isArray(response.data)) {
+      throw new Error("Invalid menu response from server");
     }
-  };
+
+    setMenuItems(response.data);
+  } catch (error) {
+    console.error('Error fetching menu:', error);
+    toast.error('Failed to load menu items');
+    setMenuItems([]);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleOpenModal = (item = null) => {
     if (item) {

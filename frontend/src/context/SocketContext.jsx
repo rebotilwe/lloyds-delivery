@@ -16,8 +16,10 @@ export const SocketProvider = ({ children }) => {
   const [online, setOnline] = useState(false);
 
   useEffect(() => {
-    // Connect to Socket.io server
-    const newSocket = io('http://localhost:5000', {
+    // Use the production URL instead of localhost
+    const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'https://lloyds-delivery.onrender.com';
+    
+    const newSocket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
     });
 

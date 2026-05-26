@@ -11,15 +11,19 @@ router.use(authorizeRoles("vendor"));
 // Get vendor's restaurant
 router.get("/restaurant", async (req, res) => {
   try {
+    console.log("🔍 Fetching restaurant for vendor:", req.user.id);
+    
     const result = await db.query(
       "SELECT * FROM restaurants WHERE owner_id = $1",
       [req.user.id]
     );
     
     if (result.rows.length === 0) {
+      console.log("⚠️ No restaurant found for vendor:", req.user.id);
       return res.status(404).json({ message: "No restaurant found" });
     }
     
+    console.log("✅ Found restaurant:", result.rows[0].id);
     res.json(result.rows[0]);
   } catch (error) {
     console.error("Error fetching restaurant:", error);
@@ -27,22 +31,28 @@ router.get("/restaurant", async (req, res) => {
   }
 });
 
-// Get orders for vendor's restaurant
+// Get orders for vendor's restaurant - FIXED
 router.get("/orders", async (req, res) => {
   try {
+    console.log("🔍 Fetching orders for vendor:", req.user.id);
+    
     // First get vendor's restaurant
     const restaurant = await db.query(
       "SELECT id FROM restaurants WHERE owner_id = $1",
       [req.user.id]
     );
     
+    console.log("📊 Restaurant query result:", restaurant.rows);
+    
     if (restaurant.rows.length === 0) {
+      console.log("⚠️ No restaurant found for vendor");
       return res.json([]);
     }
     
     const restaurantId = restaurant.rows[0].id;
+    console.log(`🏪 Fetching orders for restaurant ID: ${restaurantId}`);
     
-    // Get orders with items
+    // Get orders for this restaurant
     const orders = await db.query(
       `SELECT o.*, 
               u.name as customer_name,
@@ -64,6 +74,8 @@ router.get("/orders", async (req, res) => {
       [restaurantId]
     );
     
+    console.log(`📊 Found ${orders.rows.length} orders for restaurant ${restaurantId}`);
+    
     // Get items for each order
     const ordersWithItems = await Promise.all(
       orders.rows.map(async (order) => {
@@ -75,10 +87,11 @@ router.get("/orders", async (req, res) => {
       })
     );
     
+    console.log(`✅ Returning ${ordersWithItems.length} orders with items`);
     res.json(ordersWithItems);
   } catch (error) {
     console.error("Error fetching orders:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: error.message });
   }
 });
 
@@ -144,6 +157,8 @@ router.put("/orders/:id/status", async (req, res) => {
     const orderId = req.params.id;
     const io = req.app.get("io");
     
+    console.log(`📝 Updating order ${orderId} to status: ${status}`);
+    
     // Check if this order belongs to vendor's restaurant
     const restaurant = await db.query(
       "SELECT id FROM restaurants WHERE owner_id = $1",
@@ -175,6 +190,8 @@ router.put("/orders/:id/status", async (req, res) => {
        WHERE id = $4`,
       [status, estimated_prep_time, rejection_reason, orderId]
     );
+    
+    console.log(`✅ Order ${orderId} updated from ${previousStatus} to ${status}`);
     
     // Notify via socket
     if (io) {

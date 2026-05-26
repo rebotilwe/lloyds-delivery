@@ -20,6 +20,8 @@ import {
   TrendingUp,
   Calendar,
   AlertCircle,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react';
 
 import AdminStats from '@/components/admin/AdminStats';
@@ -33,7 +35,6 @@ import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 // Simplified tabs for mobile with paths
 const tabs = [
@@ -115,52 +116,134 @@ const DesktopTabButton = ({ tab, active, onClick, badge }) => {
   );
 };
 
-// Driver Documents Review Component (Mobile Optimized)
-const DriverDocuments = ({ driver, onClose, onApprove, onReject }) => {
+// ✅ FIXED: Driver Documents Review Component with proper URL handling
+const DriverDocumentsModal = ({ driver, onClose, onApprove, onReject }) => {
   const [viewingDoc, setViewingDoc] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [currentDriver, setCurrentDriver] = useState(driver);
+
+  // Update currentDriver when driver prop changes
+  useEffect(() => {
+    setCurrentDriver(driver);
+  }, [driver]);
 
   const documents = [
-    { key: 'id_copy', label: 'ID Copy', required: true },
+    { key: 'id_copy', label: 'ID Copy / Passport', required: true },
     { key: 'pdp', label: 'PDP License', required: true },
     { key: 'profile_photo', label: 'Profile Photo', required: true },
     { key: 'car_license', label: 'Vehicle License', required: false },
   ];
 
+  // ✅ Get document URL - handles both Supabase URLs and local paths
   const getDocumentUrl = (docKey) => {
-    const docPath = driver[docKey];
+    const docPath = currentDriver[docKey];
     if (!docPath) return null;
-    if (docPath.startsWith('http')) return docPath;
-    return `https://lloyds-delivery.onrender.com${docPath}`;
+    
+    console.log(`Getting URL for ${docKey}:`, docPath);
+    
+    // If it's already a full URL (Supabase), return it
+    if (docPath.startsWith('http://') || docPath.startsWith('https://')) {
+      return docPath;
+    }
+    
+    // If it's a relative path starting with /uploads
+    if (docPath.startsWith('/uploads')) {
+      return `https://lloyds-delivery.onrender.com${docPath}`;
+    }
+    
+    return null;
+  };
+
+  // ✅ Refresh driver data from server
+  const refreshDriverData = async () => {
+    setRefreshing(true);
+    try {
+      const response = await api.get(`/users/${currentDriver.id}`);
+      if (response.data) {
+        setCurrentDriver(response.data);
+        toast.success("Driver data refreshed");
+      }
+    } catch (error) {
+      console.error("Refresh error:", error);
+      toast.error("Failed to refresh driver data");
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const handleApproveClick = async () => {
     setLoading(true);
-    await onApprove();
-    setLoading(false);
+    try {
+      await api.put(`/users/${currentDriver.id}`, {
+        driver_status: 'approved',
+        is_available: 1
+      });
+      toast.success(`${currentDriver.name} approved as driver`);
+      onApprove(currentDriver);
+      onClose();
+    } catch (error) {
+      console.error('Approve error:', error);
+      toast.error('Failed to approve driver');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRejectClick = async () => {
     setLoading(true);
-    await onReject();
-    setLoading(false);
+    try {
+      await api.put(`/users/${currentDriver.id}`, {
+        driver_status: 'rejected',
+        is_available: 0
+      });
+      toast.success(`${currentDriver.name} rejected`);
+      onReject(currentDriver);
+      onClose();
+    } catch (error) {
+      console.error('Reject error:', error);
+      toast.error('Failed to reject driver');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isImage = (url) => {
+    if (!url) return false;
+    return url.match(/\.(jpeg|jpg|gif|png|webp)$/i) !== null;
+  };
+
+  const isPDF = (url) => {
+    if (!url) return false;
+    return url.match(/\.(pdf)$/i) !== null;
   };
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
-          <DialogTitle className="text-lg sm:text-xl">Review Driver Documents</DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="text-lg sm:text-xl">Review Driver Documents</DialogTitle>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={refreshDriverData} 
+              disabled={refreshing}
+              className="h-8 px-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
           <p className="text-xs sm:text-sm text-gray-500">
-            {driver.full_name || driver.name} ({driver.email})
+            {currentDriver.full_name || currentDriver.name} ({currentDriver.email})
           </p>
         </DialogHeader>
 
         <div className="space-y-4">
-          {(driver.car_make || driver.license_plate) && (
+          {(currentDriver.car_make || currentDriver.license_plate) && (
             <div className="bg-gray-50 p-3 rounded-lg">
-              <p className="text-sm font-medium">Vehicle: {driver.car_make} {driver.car_model}</p>
-              <p className="text-xs text-gray-500">Plate: {driver.license_plate}</p>
+              <p className="text-sm font-medium">Vehicle: {currentDriver.car_make} {currentDriver.car_model}</p>
+              <p className="text-xs text-gray-500">Plate: {currentDriver.license_plate}</p>
             </div>
           )}
 
@@ -194,6 +277,55 @@ const DriverDocuments = ({ driver, onClose, onApprove, onReject }) => {
             </Button>
           </div>
         </div>
+
+        {/* Document Preview Dialog */}
+        {viewingDoc && (
+          <Dialog open={!!viewingDoc} onOpenChange={() => setViewingDoc(null)}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="text-base sm:text-lg">Document Preview</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                {isImage(viewingDoc) && (
+                  <img 
+                    src={viewingDoc} 
+                    alt="Document" 
+                    className="w-full rounded-lg object-contain max-h-[50vh]"
+                    onError={(e) => {
+                      console.error("Image failed to load:", viewingDoc);
+                      e.target.src = 'https://placehold.co/600x400/e2e8f0/64748b?text=Image+Not+Found';
+                    }}
+                  />
+                )}
+                {isPDF(viewingDoc) && (
+                  <iframe 
+                    src={viewingDoc} 
+                    className="w-full h-96 rounded-lg"
+                    title="PDF Preview"
+                  />
+                )}
+                {!isImage(viewingDoc) && !isPDF(viewingDoc) && (
+                  <div className="text-center py-8">
+                    <FileText className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500">Unable to preview document</p>
+                    <p className="text-xs text-gray-400 mt-1">Click download to view the file</p>
+                  </div>
+                )}
+                <div className="flex flex-col sm:flex-row justify-end gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => window.open(viewingDoc, '_blank')}
+                    className="w-full sm:w-auto"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download
+                  </Button>
+                  <Button onClick={() => setViewingDoc(null)}>Close</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -256,9 +388,6 @@ const AdminSettings = () => {
     </div>
   );
 };
-
-// Import missing icons
-import { CheckCircle, XCircle } from 'lucide-react';
 
 /* ---------------------- MAIN ---------------------- */
 export default function AdminDashboard() {
@@ -650,11 +779,11 @@ export default function AdminDashboard() {
 
       {/* Driver Documents Modal */}
       {showDocuments && selectedDriver && (
-        <DriverDocuments
+        <DriverDocumentsModal
           driver={selectedDriver}
           onClose={() => { setShowDocuments(false); setSelectedDriver(null); }}
-          onApprove={() => approveDriver(selectedDriver)}
-          onReject={() => rejectDriver(selectedDriver)}
+          onApprove={approveDriver}
+          onReject={rejectDriver}
         />
       )}
     </div>

@@ -19,6 +19,7 @@ import {
   Mail,
   Eye,
 } from 'lucide-react';
+import { useSocket } from '@/context/SocketContext';
 
 export default function VendorOrders() {
   const [orders, setOrders] = useState([]);
@@ -27,21 +28,53 @@ export default function VendorOrders() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [estimatedPrepTime, setEstimatedPrepTime] = useState('');
   const [loading, setLoading] = useState(true);
+  const { socket, online } = useSocket();
 
   useEffect(() => {
     fetchOrders();
   }, []);
 
+  // Listen for new orders via socket
+  useEffect(() => {
+    if (socket && online) {
+      socket.on('new-order', () => {
+        // Refresh orders when a new order arrives
+        fetchOrders();
+        toast.info('New order received!', {
+          duration: 5000,
+          action: {
+            label: 'View',
+            onClick: () => {
+              // Scroll to top or highlight orders
+            },
+          },
+        });
+      });
+      
+      return () => {
+        socket.off('new-order');
+      };
+    }
+  }, [socket, online]);
+
   const fetchOrders = async () => {
     setLoading(true);
     try {
       const response = await api.get('/vendor/orders');
-      // Handle both response.data and direct array response
-      const ordersData = response.data || response;
+      // Handle different response formats safely
+      let ordersData = [];
+      if (response && response.data) {
+        ordersData = response.data;
+      } else if (response && Array.isArray(response)) {
+        ordersData = response;
+      } else if (response && response.data && Array.isArray(response.data)) {
+        ordersData = response.data;
+      }
       setOrders(Array.isArray(ordersData) ? ordersData : []);
     } catch (error) {
       console.error('Error fetching orders:', error);
       toast.error('Failed to load orders');
+      setOrders([]);
     } finally {
       setLoading(false);
     }

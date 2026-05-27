@@ -701,5 +701,55 @@ router.put("/:id/payment", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+// POST /api/orders/checkout
+/* =========================
+   YOCO CHECKOUT - Create Payment Session
+========================= */
+router.post("/checkout", async (req, res) => {
+  try {
+    const { amount, orderId } = req.body;
 
+    if (!amount || !orderId) {
+      return res.status(400).json({ message: "Amount and orderId are required" });
+    }
+
+    console.log(`💰 Creating Yoco checkout for order #${orderId}, amount: R${amount}`);
+
+    const response = await fetch("https://payments.yoco.com/api/checkouts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.YOCO_SECRET_KEY}`,
+      },
+      body: JSON.stringify({
+        amount: Math.round(amount * 100), // Convert to cents
+        currency: "ZAR",
+        successUrl: `${process.env.FRONTEND_URL || 'https://lloyds-delivery.netlify.app'}/order-confirmation?orderId=${orderId}`,
+        cancelUrl: `${process.env.FRONTEND_URL || 'https://lloyds-delivery.netlify.app'}/cart`,
+        metadata: { 
+          orderId: String(orderId) 
+        },
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("Yoco checkout error:", data);
+      return res.status(400).json({ 
+        message: data.displayMessage || "Checkout failed. Please try again." 
+      });
+    }
+
+    console.log(`✅ Yoco checkout created: ${data.id}`);
+    res.json({ 
+      redirectUrl: data.redirectUrl, 
+      checkoutId: data.id 
+    });
+
+  } catch (error) {
+    console.error("Yoco checkout error:", error);
+    res.status(500).json({ message: "Payment service error. Please try again." });
+  }
+});
 export default router;

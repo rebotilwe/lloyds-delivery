@@ -17,27 +17,42 @@ export default function OrderConfirmation() {
   const [count, setCount] = useState(5);
 
   // -----------------------------
-  // FETCH ORDER
-  // -----------------------------
-  useEffect(() => {
-    if (!orderId) return;
+// -----------------------------
+// FETCH ORDER & UPDATE PAYMENT
+// -----------------------------
+useEffect(() => {
+  if (!orderId) return;
 
-    const fetchOrder = async () => {
-      try {
-        const res = await fetch(
-          `https://lloyds-delivery.onrender.com/api/orders/${orderId}`
-        );
-
-        const data = await res.json();
-        setOrder(data);
-      } catch (err) {
-        console.log(err);
+  const fetchOrder = async () => {
+    try {
+      // If coming from Yoco redirect (has ?orderId in URL), update payment status
+      const urlParams = new URLSearchParams(window.location.search);
+      const isYocoRedirect = urlParams.has('orderId') && !location.state?.orderId;
+      
+      if (isYocoRedirect) {
+        // Update payment status to 'paid'
+        await fetch(`https://lloyds-delivery.onrender.com/api/orders/${orderId}/payment`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            payment_status: 'paid',
+            payment_transaction_id: `yoco_${Date.now()}`
+          })
+        });
       }
-    };
 
-    fetchOrder();
-  }, [orderId]);
+      const res = await fetch(
+        `https://lloyds-delivery.onrender.com/api/orders/${orderId}`
+      );
+      const data = await res.json();
+      setOrder(data);
+    } catch (err) {
+      console.log(err);
+    }
+  };
 
+  fetchOrder();
+}, [orderId, location.state?.orderId]);
   // -----------------------------
   // AUTO REDIRECT
   // -----------------------------

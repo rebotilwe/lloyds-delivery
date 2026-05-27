@@ -10,8 +10,33 @@ import { useCart } from '@/lib/cartStore';
 import { toast } from 'sonner';
 import PromoCode from '@/components/PromoCode';
 
+// Yoco Test Keys
+const YOCO_PUBLIC_KEY = 'pk_test_3842a5a0Y92XqNq99764';
+
 // Standard delivery fee for Verulam
 const DELIVERY_FEE = 20;
+
+// Load Yoco SDK dynamically
+const loadYocoSDK = () => {
+  return new Promise((resolve, reject) => {
+    if (window.YocoSDK) {
+      resolve(window.YocoSDK);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://js.yoco.com/sdk/v1/yoco-sdk.js';
+    script.async = true;
+    script.onload = () => {
+      if (window.YocoSDK) {
+        resolve(window.YocoSDK);
+      } else {
+        reject(new Error('Yoco SDK failed to load'));
+      }
+    };
+    script.onerror = () => reject(new Error('Failed to load Yoco SDK'));
+    document.head.appendChild(script);
+  });
+};
 
 const formatPrice = (price) => {
   const numPrice = typeof price === 'string' ? parseFloat(price) : price;
@@ -21,11 +46,6 @@ const formatPrice = (price) => {
 const getNumericPrice = (price) => {
   const numPrice = typeof price === 'string' ? parseFloat(price) : price;
   return !isNaN(numPrice) ? numPrice : 0;
-};
-
-const processMockPayment = async (amount) => {
-  await new Promise(resolve => setTimeout(resolve, 1500));
-  return { success: true, transactionId: `TXN_${Date.now()}`, amount };
 };
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com/api';
@@ -48,6 +68,21 @@ export default function Cart() {
   const [promoDiscount, setPromoDiscount] = useState(0);
   const [promoMessage, setPromoMessage] = useState('');
   const [appliedPromoCode, setAppliedPromoCode] = useState(null);
+  const [yoco, setYoco] = useState(null);
+  const [sdkLoaded, setSdkLoaded] = useState(false);
+
+  // Load Yoco SDK on component mount
+  useEffect(() => {
+    loadYocoSDK()
+      .then(() => {
+        setSdkLoaded(true);
+        console.log('✅ Yoco SDK loaded successfully');
+      })
+      .catch((err) => {
+        console.error('❌ Failed to load Yoco SDK:', err);
+        toast.error('Payment system loading. Please refresh the page.');
+      });
+  }, []);
 
   useEffect(() => {
     if (!loading && !isAuthenticated && itemCount > 0) {
@@ -74,6 +109,42 @@ export default function Cart() {
   const totalWithDelivery = subtotalAmount + deliveryFee;
   const discountedTotal = totalWithDelivery - promoDiscount;
 
+  // Process Yoco payment
+  const processYocoPayment = async (amount, orderId) => {
+    return new Promise((resolve, reject) => {
+      if (!window.YocoSDK) {
+        reject(new Error('Yoco SDK not loaded'));
+        return;
+      }
+
+      const yocoInstance = new window.YocoSDK({
+        publicKey: YOCO_PUBLIC_KEY,
+      });
+
+      const amountInCents = Math.round(amount * 100);
+
+      yocoInstance.showPopup({
+        amountInCents: amountInCents,
+        currency: 'ZAR',
+        name: 'Lloyd\'s Delivery',
+        description: `Order #${orderId}`,
+        callback: (result) => {
+          if (result.error) {
+            console.error('Yoco payment error:', result.error);
+            reject(new Error(result.error.message || 'Payment failed'));
+          } else {
+            console.log('Yoco payment success:', result);
+            resolve({
+              success: true,
+              transactionId: result.id,
+              paymentMethod: 'card'
+            });
+          }
+        }
+      });
+    });
+  };
+
   const handlePlaceOrder = async () => {
     if (!isAuthenticated) {
       toast.error('Please login to place an order');
@@ -84,18 +155,22 @@ export default function Cart() {
       toast.error('Please enter delivery address');
       return;
     }
+    if (!sdkLoaded) {
+      toast.error('Payment system is loading. Please wait...');
+      return;
+    }
 
+    // First create order in pending payment status
     setPlacing(true);
+    let orderId = null;
+
     try {
       const orderTotal = discountedTotal;
-      toast.loading('Processing payment...');
-      const paymentResult = await processMockPayment(orderTotal);
-      toast.dismiss();
       
-      if (!paymentResult.success) throw new Error('Payment failed');
-      toast.success(`Payment successful!`);
-
-      const res = await fetch(`${API_URL}/orders/create`, {
+      // Step 1: Create order with pending payment
+      toast.loading('Creating order...');
+      
+      const createOrderRes = await fetch(`${API_URL}/orders/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -109,8 +184,8 @@ export default function Cart() {
           delivery_address: address,
           delivery_fee: deliveryFee,
           notes: notes,
-          payment_status: 'paid',
-          payment_transaction_id: paymentResult.transactionId,
+          payment_status: 'pending',
+          payment_transaction_id: null,
           promo_code: appliedPromoCode,
           discount_applied: promoDiscount,
           items: cart.items.map(item => ({
@@ -121,16 +196,67 @@ export default function Cart() {
           }))
         })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Failed to create order');
+
+      const orderData = await createOrderRes.json();
+      if (!createOrderRes.ok) throw new Error(orderData.message || 'Failed to create order');
       
+      orderId = orderData.orderId;
+      toast.dismiss();
+      toast.loading('Processing payment...');
+
+      // Step 2: Process Yoco payment
+      const paymentResult = await processYocoPayment(orderTotal, orderId);
+      
+      toast.dismiss();
+
+      if (!paymentResult.success) throw new Error('Payment failed');
+
+      // Step 3: Update order with payment confirmation
+      const updatePaymentRes = await fetch(`${API_URL}/orders/${orderId}/payment`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payment_status: 'paid',
+          payment_transaction_id: paymentResult.transactionId
+        })
+      });
+
+      if (!updatePaymentRes.ok) {
+        // Payment succeeded but update failed - manual intervention needed
+        console.error('Payment succeeded but order update failed');
+        toast.warning('Payment successful! Your order is being processed.');
+      } else {
+        toast.success('Payment successful! Order placed.');
+      }
+
       localStorage.setItem('hasOrderedBefore', 'true');
-      
       clearCart();
-      toast.success('Order placed successfully!');
-      navigate('/order-confirmation', { state: { orderId: data.orderId, restaurant: cart.restaurantName } });
+      
+      navigate('/order-confirmation', { 
+        state: { 
+          orderId: orderId, 
+          restaurant: cart.restaurantName,
+          paymentId: paymentResult.transactionId
+        } 
+      });
+      
     } catch (err) {
       console.error('Order error:', err);
+      toast.dismiss();
+      
+      // If payment failed, cancel the order
+      if (orderId) {
+        try {
+          await fetch(`${API_URL}/orders/${orderId}/cancel`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'Payment failed' })
+          });
+        } catch (cancelErr) {
+          console.error('Failed to cancel order:', cancelErr);
+        }
+      }
+      
       toast.error(err.message || 'Failed to place order');
     } finally {
       setPlacing(false);
@@ -249,21 +375,33 @@ export default function Cart() {
           </div>
         </div>
 
+        {/* Yoco Payment Notice */}
+        <div className="px-3 md:px-4">
+          <div className="bg-blue-50 rounded-lg p-2 mb-2 flex items-center gap-2 justify-center">
+            <Lock className="w-3 h-3 text-blue-600" />
+            <p className="text-xs text-blue-600">Secure payment powered by Yoco</p>
+          </div>
+        </div>
+
         <div className="p-3 md:p-4 pt-0">
           <Button 
             onClick={handlePlaceOrder} 
-            disabled={placing || !address.trim()} 
+            disabled={placing || !address.trim() || !sdkLoaded} 
             className="w-full bg-green hover:bg-green/90 text-white h-10 md:h-12 text-sm md:text-base"
           >
             {placing ? (
               <>
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" /> 
-                Placing Order...
+                Processing...
               </>
             ) : (
-              `Place Order • R${formatPrice(discountedTotal)}`
+              `Pay with Card • R${formatPrice(discountedTotal)}`
             )}
           </Button>
+          <p className="text-xs text-gray-400 text-center mt-2">
+            <CreditCard className="w-3 h-3 inline mr-1" />
+            Visa, Mastercard, Amex accepted
+          </p>
         </div>
       </div>
     </div>

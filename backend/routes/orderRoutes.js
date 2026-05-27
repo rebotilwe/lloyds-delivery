@@ -674,5 +674,32 @@ router.get("/:id", async (req, res) => {
     res.status(500).json({ message: "Error fetching order", error: err.message });
   }
 });
+/* =========================
+   UPDATE ORDER PAYMENT STATUS
+========================= */
+router.put("/:id/payment", async (req, res) => {
+  try {
+    const { payment_status, payment_transaction_id } = req.body;
+    const orderId = req.params.id;
+
+    const result = await db.query(
+      `UPDATE orders 
+       SET payment_status = $1, 
+           payment_transaction_id = COALESCE($2, payment_transaction_id)
+       WHERE id = $3 
+       RETURNING id`,
+      [payment_status, payment_transaction_id, orderId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    res.json({ message: "Payment status updated", orderId });
+  } catch (error) {
+    console.error("Error updating payment:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 export default router;

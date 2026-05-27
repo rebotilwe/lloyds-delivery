@@ -80,7 +80,7 @@ useEffect(() => {
         <div className="text-center">
           <p className="text-gray-500">Order not found</p>
           <Link to="/">
-            <Button className="mt-4">Back To Home</Button>
+            <Button className="mt-4">Back to Home</Button>
           </Link>
         </div>
       </div>

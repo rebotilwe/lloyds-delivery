@@ -38,15 +38,12 @@ export default function VendorOrders() {
   useEffect(() => {
     if (socket && online) {
       socket.on('new-order', () => {
-        // Refresh orders when a new order arrives
         fetchOrders();
         toast.info('New order received!', {
           duration: 5000,
           action: {
             label: 'View',
-            onClick: () => {
-              // Scroll to top or highlight orders
-            },
+            onClick: () => {},
           },
         });
       });
@@ -61,14 +58,11 @@ export default function VendorOrders() {
     setLoading(true);
     try {
       const response = await api.get('/vendor/orders');
-      // Handle different response formats safely
       let ordersData = [];
       if (response && response.data) {
         ordersData = response.data;
       } else if (response && Array.isArray(response)) {
         ordersData = response;
-      } else if (response && response.data && Array.isArray(response.data)) {
-        ordersData = response.data;
       }
       setOrders(Array.isArray(ordersData) ? ordersData : []);
     } catch (error) {
@@ -89,6 +83,8 @@ export default function VendorOrders() {
       toast.success(`Order ${status === 'rejected' ? 'rejected' : 'updated'} successfully`);
       fetchOrders();
       setShowDetails(false);
+      setRejectionReason(''); // Clear rejection reason after submit
+      setEstimatedPrepTime('');
     } catch (error) {
       console.error('Error updating order:', error);
       toast.error('Failed to update order');
@@ -98,6 +94,7 @@ export default function VendorOrders() {
   const handleAcceptOrder = (order) => {
     setSelectedOrder(order);
     setEstimatedPrepTime('');
+    setRejectionReason('');
     setShowDetails(true);
   };
 
@@ -112,11 +109,12 @@ export default function VendorOrders() {
   const handleRejectOrder = (order) => {
     setSelectedOrder(order);
     setRejectionReason('');
+    setEstimatedPrepTime('');
     setShowDetails(true);
   };
 
   const confirmReject = () => {
-    if (!rejectionReason) {
+    if (!rejectionReason.trim()) {
       toast.error('Please provide a reason for rejection');
       return;
     }
@@ -139,7 +137,6 @@ export default function VendorOrders() {
     return <Badge className={config.color}>{config.label}</Badge>;
   };
 
-  // Safe filtering with null checks
   const pendingOrders = (orders || []).filter(o => o?.status === 'pending');
   const activeOrders = (orders || []).filter(o => ['confirmed', 'preparing'].includes(o?.status));
   const completedOrders = (orders || []).filter(o => ['ready_for_pickup', 'picked_up', 'on_the_way', 'delivered'].includes(o?.status));
@@ -291,7 +288,7 @@ export default function VendorOrders() {
         </TabsContent>
       </Tabs>
 
-      {/* Order Details Modal */}
+      {/* Order Details Modal - FIXED with Rejection Reason Input */}
       <Dialog open={showDetails} onOpenChange={setShowDetails}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -345,8 +342,10 @@ export default function VendorOrders() {
                 </div>
               </div>
 
+              {/* Pending Order Actions - Accept or Reject */}
               {selectedOrder.status === 'pending' && (
                 <div className="space-y-4">
+                  {/* For Accept: Estimated Prep Time */}
                   <div>
                     <Label>Estimated Preparation Time (minutes)</Label>
                     <Input
@@ -357,21 +356,41 @@ export default function VendorOrders() {
                       className="mt-1"
                     />
                   </div>
+
+                  {/* For Reject: Rejection Reason */}
+                  <div>
+                    <Label className="text-red-600">Rejection Reason (required if rejecting)</Label>
+                    <Textarea
+                      placeholder="Why are you rejecting this order? (e.g., Out of stock, too busy, etc.)"
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      rows={3}
+                      className="mt-1 border-red-300 focus:border-red-500"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">
+                      This reason will be shared with the customer
+                    </p>
+                  </div>
+
                   <div className="flex gap-3">
                     <Button onClick={confirmAccept} className="flex-1 bg-green text-white">
+                      <CheckCircle className="w-4 h-4 mr-2" />
                       Accept Order
                     </Button>
                     <Button onClick={confirmReject} variant="destructive" className="flex-1">
+                      <XCircle className="w-4 h-4 mr-2" />
                       Reject Order
                     </Button>
                   </div>
                 </div>
               )}
 
+              {/* Show Rejection Reason if order was rejected */}
               {selectedOrder.status === 'rejected' && (
                 <div className="bg-red-50 p-3 rounded-lg">
+                  <h3 className="font-semibold text-sm text-red-800 mb-2">Rejection Reason</h3>
                   <p className="text-sm text-red-700">
-                    Rejection reason: {selectedOrder.rejection_reason || 'Not specified'}
+                    {selectedOrder.rejection_reason || 'No reason provided'}
                   </p>
                 </div>
               )}

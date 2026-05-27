@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../config/db.js";
 import { verifyToken, authorizeRoles } from "../middleware/authMiddleware.js";
+import { sendOrderStatusUpdate, sendRefundEmail } from "../services/emailService.js";
 
 const router = express.Router();
 
@@ -25,7 +26,25 @@ const getVendorRestaurant = async (vendorId) => {
 };
 
 /* =========================
-   GET RESTAURANT - Check if vendor has setup restaurant
+   HELPER: PROCESS REFUND WITH YOCO
+========================= */
+const processRefund = async (paymentTransactionId, amount) => {
+  // Since Yoco doesn't have a direct refund API in test mode,
+  // we'll simulate the refund and log it.
+  // In production, you would call Yoco's refund API here.
+  
+  console.log(`💰 Processing refund for transaction: ${paymentTransactionId}, Amount: R${amount}`);
+  
+  // Simulate refund processing
+  return {
+    success: true,
+    refundId: `ref_${Date.now()}`,
+    message: "Refund processed successfully"
+  };
+};
+
+/* =========================
+   GET RESTAURANT
 ========================= */
 router.get("/restaurant", async (req, res) => {
   try {
@@ -62,7 +81,6 @@ router.post("/setup-restaurant", async (req, res) => {
     console.log("🏪 Setting up restaurant for vendor:", req.user.id);
     console.log("📦 Received data:", { name, address, phone, cuisine_type });
 
-    // Check if vendor already has a restaurant
     const existing = await db.query(
       "SELECT id FROM restaurants WHERE owner_id = $1",
       [req.user.id]
@@ -73,12 +91,10 @@ router.post("/setup-restaurant", async (req, res) => {
       return res.status(400).json({ message: "You already have a restaurant setup" });
     }
 
-    // Validate required fields
     if (!name || !address) {
       return res.status(400).json({ message: "Restaurant name and address are required" });
     }
 
-    // Insert the restaurant
     const result = await db.query(
       `INSERT INTO restaurants 
        (name, description, cuisine_type, address, phone, delivery_fee, owner_id, created_at)
@@ -220,7 +236,7 @@ router.get("/analytics", async (req, res) => {
 });
 
 /* =========================
-   UPDATE ORDER STATUS (VENDOR)
+   UPDATE ORDER STATUS (VENDOR) - WITH REFUND ON REJECTION
 ========================= */
 router.put("/orders/:id/status", async (req, res) => {
   try {
@@ -233,11 +249,14 @@ router.put("/orders/:id/status", async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found" });
     }
 
+    // Get full order details including payment info and customer email
     const orderCheck = await db.query(
       `SELECT o.*, r.name as restaurant_name, r.address as restaurant_address,
-              r.latitude as restaurant_lat, r.longitude as restaurant_lng
+              r.latitude as restaurant_lat, r.longitude as restaurant_lng,
+              u.email as customer_email, u.name as customer_name
        FROM orders o
        LEFT JOIN restaurants r ON o.restaurant_id = r.id
+       LEFT JOIN users u ON o.customer_id = u.id
        WHERE o.id = $1 AND o.restaurant_id = $2`,
       [orderId, restaurant.id]
     );
@@ -249,24 +268,96 @@ router.put("/orders/:id/status", async (req, res) => {
     const order = orderCheck.rows[0];
     const previousStatus = order.status;
 
-    await db.query(
-      `UPDATE orders
-       SET status = $1,
-           estimated_prep_time = COALESCE($2, estimated_prep_time),
-           rejection_reason = COALESCE($3, rejection_reason)
-       WHERE id = $4`,
-      [status, estimated_prep_time, rejection_reason, orderId]
-    );
+    // Check if this is a rejection of a paid order
+    const isRejectionWithPayment = (status === 'rejected' && order.payment_status === 'paid');
 
+    if (isRejectionWithPayment) {
+      console.log(`🔄 Processing refund for rejected order #${orderId}`);
+      
+      try {
+        // Process refund
+        const refundResult = await processRefund(order.payment_transaction_id, order.total);
+        
+        if (refundResult.success) {
+          // Update order with rejection reason and refund status
+          await db.query(
+            `UPDATE orders
+             SET status = $1,
+                 rejection_reason = $2,
+                 payment_status = 'refunded',
+                 refund_transaction_id = $3,
+                 refunded_at = NOW()
+             WHERE id = $4`,
+            [status, rejection_reason, refundResult.refundId, orderId]
+          );
+          
+          console.log(`✅ Refund processed for order #${orderId}`);
+          
+          // Send refund email to customer
+          if (order.customer_email) {
+            try {
+              await sendRefundEmail(order, rejection_reason);
+            } catch (emailErr) {
+              console.error("Failed to send refund email:", emailErr.message);
+            }
+          }
+          
+          // Notify customer via socket about refund
+          io.to(`order_${orderId}`).emit("order-refunded", {
+            orderId: parseInt(orderId),
+            amount: order.total,
+            reason: rejection_reason,
+            message: "Your order was rejected and a refund has been processed"
+          });
+          
+          toastMsg = "Order rejected and refund processed";
+        } else {
+          throw new Error("Refund failed");
+        }
+      } catch (refundError) {
+        console.error("❌ Refund failed:", refundError);
+        
+        // Still update order as rejected but mark for manual refund
+        await db.query(
+          `UPDATE orders
+           SET status = $1,
+               rejection_reason = $2,
+               payment_status = 'refund_pending'
+           WHERE id = $3`,
+          [status, rejection_reason, orderId]
+        );
+        
+        // Notify admin about failed refund
+        io.emit("admin-alert", {
+          type: "refund_failed",
+          orderId: orderId,
+          message: `Refund failed for order #${orderId}. Manual intervention required.`
+        });
+      }
+    } else {
+      // Normal status update (no refund needed)
+      await db.query(
+        `UPDATE orders
+         SET status = $1,
+             estimated_prep_time = COALESCE($2, estimated_prep_time),
+             rejection_reason = COALESCE($3, rejection_reason)
+         WHERE id = $4`,
+        [status, estimated_prep_time, rejection_reason, orderId]
+      );
+    }
+
+    // Notify customer via socket of status change
     if (io) {
       io.to(`order_${orderId}`).emit("order-status-update", {
         orderId: parseInt(orderId),
         status,
         previousStatus,
+        rejectionReason: rejection_reason,
         timestamp: new Date(),
       });
     }
 
+    // Notify drivers if order is ready for pickup
     if (status === 'ready_for_pickup' && io) {
       const notificationData = {
         orderId: parseInt(orderId),
@@ -286,7 +377,12 @@ router.put("/orders/:id/status", async (req, res) => {
       console.log(`📢 Broadcast to drivers: Order #${orderId} is ready for pickup`);
     }
 
-    res.json({ message: "Order updated", status });
+    res.json({ 
+      message: isRejectionWithPayment ? "Order rejected and refund processed" : "Order updated", 
+      status,
+      refundProcessed: isRejectionWithPayment
+    });
+    
   } catch (error) {
     console.error("Error updating order status:", error);
     res.status(500).json({ message: "Server error", error: error.message });

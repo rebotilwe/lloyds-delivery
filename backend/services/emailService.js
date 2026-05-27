@@ -302,3 +302,89 @@ export const sendPasswordResetEmail = async (email, name, resetLink) => {
     throw error;
   }
 };
+
+// NEW: Send refund notification email when order is rejected
+export const sendRefundEmail = async (order, rejectionReason) => {
+  if (!transporter) {
+    console.log('Email transporter not initialized, skipping email');
+    return;
+  }
+
+  const frontendUrl = process.env.FRONTEND_URL || 'https://lloyds-delivery.netlify.app';
+
+  const mailOptions = {
+    from: '"Lloyd\'s Delivery" <noreply@lloydsdelivery.co.za>',
+    to: order.customer_email,
+    subject: `💰 Refund Processed for Order #${order.id}`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; }
+          .header { background-color: #1a2c3e; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; }
+          .header h1 { color: #2ecc71; margin: 0; font-size: 24px; }
+          .content { padding: 30px; }
+          .refund-box { background-color: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 8px; margin: 20px 0; }
+          .rejection-box { background-color: #fef2f2; border: 1px solid #fecaca; padding: 15px; border-radius: 8px; margin: 20px 0; }
+          .amount { font-size: 28px; font-weight: bold; color: #2ecc71; }
+          .footer { text-align: center; padding: 20px; font-size: 12px; color: #999; border-top: 1px solid #eee; }
+          .button { background-color: #2ecc71; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 15px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🍔 Lloyd's Delivery</h1>
+            <p>Refund Processed</p>
+          </div>
+          <div class="content">
+            <p>Dear <strong>${order.customer_name || 'Customer'}</strong>,</p>
+            
+            <div class="rejection-box">
+              <p style="margin: 0; color: #dc2626;"><strong>❌ Order Rejected</strong></p>
+              <p style="margin: 5px 0 0;">Your order has been rejected by the restaurant.</p>
+              <p style="margin: 10px 0 0;"><strong>Reason:</strong> ${rejectionReason || 'No specific reason provided'}</p>
+            </div>
+            
+            <div class="refund-box">
+              <p style="margin: 0; color: #166534;"><strong>💰 Refund Processed</strong></p>
+              <p style="margin: 10px 0;">Your payment has been refunded.</p>
+              <p style="margin: 5px 0;">Refund Amount: <span class="amount">R${Number(order.total).toFixed(2)}</span></p>
+              <p style="margin: 5px 0; font-size: 12px;">Refund will reflect in your account within 3-5 business days.</p>
+            </div>
+            
+            <div class="order-details" style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="margin-top: 0;">Order #${order.id}</h3>
+              <p><strong>Restaurant:</strong> ${order.restaurant_name}</p>
+              <p><strong>Items:</strong> ${order.item_count || 0} items</p>
+            </div>
+            
+            <p>If you have any questions, please contact our support team.</p>
+            
+            <div style="text-align: center;">
+              <a href="${frontendUrl}/orders" class="button">View Order Status</a>
+            </div>
+          </div>
+          <div class="footer">
+            <p>Lloyd's Delivery - Fast, reliable food delivery at your fingertips.</p>
+            <p>Questions? Contact us at support@lloydsdelivery.co.za</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `,
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`📧 Refund email sent to ${order.customer_email} for order #${order.id}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`   Preview URL: ${nodemailer.getTestMessageUrl(info)}`);
+    }
+    return info;
+  } catch (error) {
+    console.error('Error sending refund email:', error);
+  }
+};

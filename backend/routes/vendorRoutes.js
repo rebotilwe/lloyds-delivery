@@ -29,10 +29,6 @@ const getVendorRestaurant = async (vendorId) => {
    HELPER: PROCESS REFUND WITH YOCO
 ========================= */
 const processRefund = async (paymentTransactionId, amount) => {
-  // Since Yoco doesn't have a direct refund API in test mode,
-  // we'll simulate the refund and log it.
-  // In production, you would call Yoco's refund API here.
-  
   console.log(`💰 Processing refund for transaction: ${paymentTransactionId}, Amount: R${amount}`);
   
   // Simulate refund processing
@@ -310,7 +306,8 @@ router.put("/orders/:id/status", async (req, res) => {
             message: "Your order was rejected and a refund has been processed"
           });
           
-          toastMsg = "Order rejected and refund processed";
+          // REMOVED: toastMsg is not defined - using console.log instead
+          console.log(`✅ Order #${orderId} rejected and refund processed`);
         } else {
           throw new Error("Refund failed");
         }

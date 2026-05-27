@@ -25,14 +25,17 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
-// Initialize email transporter
+// Initialize email transporter - non-blocking
 let emailInitialized = false;
-initEmailTransporter().then(() => {
-  emailInitialized = true;
-  console.log("📧 Email service initialized");
-}).catch(err => {
-  console.error("❌ Failed to initialize email service:", err);
-});
+initEmailTransporter()
+  .then(() => {
+    emailInitialized = true;
+    console.log("📧 Email service initialized");
+  })
+  .catch(err => {
+    console.error("❌ Failed to initialize email service:", err.message);
+    console.log("📧 Email notifications will be logged to console only");
+  });
 
 // Ensure upload folders exist
 const uploadDirs = [

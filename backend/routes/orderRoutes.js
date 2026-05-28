@@ -199,6 +199,8 @@ router.get("/available", async (req, res) => {
               u.phone as customer_phone,
               r.name as restaurant_name,
               r.address as restaurant_address,
+              r.latitude as restaurant_lat,
+              r.longitude as restaurant_lng,
               (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
        FROM orders o
        LEFT JOIN users u ON o.customer_id = u.id
@@ -246,8 +248,7 @@ router.get("/driver/:id", async (req, res) => {
 });
 
 /* =========================
-   DRIVER ACCEPTS ORDER
-   Changes status from ready_for_pickup to picked_up
+   DRIVER ACCEPTS ORDER - UPDATED with driver_name and vendor notification
 ========================= */
 router.put("/accept/:id", async (req, res) => {
   try {
@@ -278,7 +279,7 @@ router.put("/accept/:id", async (req, res) => {
 
     // Check if driver exists and is approved
     const driverCheck = await db.query(
-      "SELECT * FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
+      "SELECT id, name, email FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
       [driver_id]
     );
     
@@ -286,10 +287,12 @@ router.put("/accept/:id", async (req, res) => {
       return res.status(404).json({ message: "Driver not found or not approved" });
     }
 
-    // Update order with driver and change status to picked_up
+    const driver = driverCheck.rows[0];
+
+    // Update order with driver name and status
     await db.query(
-      "UPDATE orders SET driver_id = $1, status = 'picked_up' WHERE id = $2",
-      [driver_id, orderId]
+      "UPDATE orders SET driver_id = $1, driver_name = $2, status = 'picked_up' WHERE id = $3",
+      [driver_id, driver.name, orderId]
     );
 
     // Notify customer via socket
@@ -297,16 +300,20 @@ router.put("/accept/:id", async (req, res) => {
       orderId: parseInt(orderId),
       status: "picked_up",
       driverId: driver_id,
+      driverName: driver.name,
       message: "Driver is on the way to pickup your order",
     });
 
-    // Notify vendor that driver accepted
+    // Notify vendor that driver accepted the order
     if (order.owner_id) {
       io.to(`vendor_${order.owner_id}`).emit("order-accepted-by-driver", {
         orderId: parseInt(orderId),
         driverId: driver_id,
+        driverName: driver.name,
         status: "picked_up",
+        timestamp: new Date(),
       });
+      console.log(`📢 Notified vendor ${order.owner_id}: Driver ${driver.name} accepted order #${orderId}`);
     }
 
     res.json({ 
@@ -346,7 +353,7 @@ router.put("/assign/:id", async (req, res) => {
     const order = orderCheck.rows[0];
 
     const driverCheck = await db.query(
-      "SELECT * FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
+      "SELECT id, name FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
       [driver_id]
     );
     
@@ -354,9 +361,11 @@ router.put("/assign/:id", async (req, res) => {
       return res.status(404).json({ message: "Driver not found or not approved" });
     }
 
+    const driver = driverCheck.rows[0];
+
     await db.query(
-      "UPDATE orders SET driver_id = $1, status = 'picked_up' WHERE id = $2",
-      [driver_id, orderId]
+      "UPDATE orders SET driver_id = $1, driver_name = $2, status = 'picked_up' WHERE id = $3",
+      [driver_id, driver.name, orderId]
     );
 
     io.to(`driver_${driver_id}`).emit("order-offered", {
@@ -379,7 +388,7 @@ router.put("/assign/:id", async (req, res) => {
 });
 
 /* =========================
-   UPDATE ORDER STATUS (DRIVER)
+   UPDATE ORDER STATUS (DRIVER) - UPDATED with delivery notification to vendor
 ========================= */
 router.put("/status/:id", async (req, res) => {
   try {
@@ -387,21 +396,40 @@ router.put("/status/:id", async (req, res) => {
     const orderId = req.params.id;
     const io = req.app.get("io");
 
-    const prevOrder = await db.query("SELECT status, driver_id FROM orders WHERE id = $1", [orderId]);
+    // Get order details including vendor owner_id
+    const prevOrder = await db.query(
+      `SELECT o.*, r.owner_id 
+       FROM orders o
+       LEFT JOIN restaurants r ON o.restaurant_id = r.id
+       WHERE o.id = $1`,
+      [orderId]
+    );
+    
     if (prevOrder.rows.length === 0) {
       return res.status(404).json({ message: "Order not found" });
     }
     
     const previousStatus = prevOrder.rows[0]?.status;
     const driverId = prevOrder.rows[0]?.driver_id;
+    const vendorId = prevOrder.rows[0]?.owner_id;
 
     await db.query("UPDATE orders SET status = $1 WHERE id = $2", [status, orderId]);
 
+    // Notify customer via socket
     io.to(`order_${orderId}`).emit("order-status-update", {
       orderId: parseInt(orderId),
       status: status,
       timestamp: new Date(),
     });
+
+    // Notify vendor when order is delivered
+    if (status === "delivered" && vendorId && io) {
+      io.to(`vendor_${vendorId}`).emit("order-delivered", {
+        orderId: parseInt(orderId),
+        timestamp: new Date(),
+      });
+      console.log(`📢 Notified vendor ${vendorId}: Order #${orderId} has been delivered`);
+    }
 
     // Send email for status changes
     if (status !== previousStatus && status !== 'pending') {
@@ -653,6 +681,7 @@ router.get("/:id", async (req, res) => {
       delivery_fee: order.delivery_fee,
       created_at: order.created_at,
       driver_id: order.driver_id,
+      driver_name: order.driver_name,
       driver_earning: order.driver_earning,
       notes: order.notes,
       payment_status: order.payment_status,
@@ -674,6 +703,7 @@ router.get("/:id", async (req, res) => {
     res.status(500).json({ message: "Error fetching order", error: err.message });
   }
 });
+
 /* =========================
    UPDATE ORDER PAYMENT STATUS
 ========================= */
@@ -701,7 +731,7 @@ router.put("/:id/payment", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
-// POST /api/orders/checkout
+
 /* =========================
    YOCO CHECKOUT - Create Payment Session
 ========================= */
@@ -722,7 +752,7 @@ router.post("/checkout", async (req, res) => {
         "Authorization": `Bearer ${process.env.YOCO_SECRET_KEY}`,
       },
       body: JSON.stringify({
-        amount: Math.round(amount * 100), // Convert to cents
+        amount: Math.round(amount * 100),
         currency: "ZAR",
         successUrl: `${process.env.FRONTEND_URL || 'https://lloyds-delivery.netlify.app'}/order-confirmation?orderId=${orderId}`,
         cancelUrl: `${process.env.FRONTEND_URL || 'https://lloyds-delivery.netlify.app'}/cart`,
@@ -752,4 +782,5 @@ router.post("/checkout", async (req, res) => {
     res.status(500).json({ message: "Payment service error. Please try again." });
   }
 });
+
 export default router;

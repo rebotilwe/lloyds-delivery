@@ -10,8 +10,40 @@ import { useCart } from '@/lib/cartStore';
 import { toast } from 'sonner';
 import PromoCode from '@/components/PromoCode';
 
+// Yoco Keys from client's Payment Gateway
+const YOCO_PUBLIC_KEY = 'pk_test_3842a5a0Y92XqNq99764';
 const DELIVERY_FEE = 20;
 const API_URL = import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com/api';
+
+// Load Yoco Popup SDK
+const loadYocoSDK = () => {
+  return new Promise((resolve, reject) => {
+    if (window.YocoSDK) {
+      resolve(window.YocoSDK);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://js.yoco.com/sdk/v1/yoco-sdk.js';
+    script.async = true;
+
+    script.onload = () => {
+      if (window.YocoSDK) {
+        console.log('✅ Yoco SDK loaded');
+        resolve(window.YocoSDK);
+      } else {
+        reject(new Error('Yoco SDK not available'));
+      }
+    };
+
+    script.onerror = () => {
+      console.error('Failed to load Yoco SDK');
+      reject(new Error('Payment system unavailable'));
+    };
+
+    document.head.appendChild(script);
+  });
+};
 
 const formatPrice = (price) => {
   const num = typeof price === 'string' ? parseFloat(price) : price;
@@ -44,6 +76,20 @@ export default function Cart() {
   const [promoMessage, setPromoMessage] = useState('');
   const [appliedPromoCode, setAppliedPromoCode] = useState(null);
   const [showPaymentOptions, setShowPaymentOptions] = useState(false);
+  const [yocoLoaded, setYocoLoaded] = useState(false);
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        await loadYocoSDK();
+        setYocoLoaded(true);
+      } catch (err) {
+        console.error('Yoco init error:', err);
+        setYocoLoaded(false);
+      }
+    };
+    init();
+  }, []);
 
   useEffect(() => {
     if (!loading && !isAuthenticated && itemCount > 0) {
@@ -68,6 +114,41 @@ export default function Cart() {
   const deliveryFee = DELIVERY_FEE;
   const discountedTotal = subtotalAmount + deliveryFee - promoDiscount;
 
+  // Process Yoco Popup Payment
+  const processYocoPayment = (amount, orderId) => {
+    return new Promise((resolve, reject) => {
+      if (!window.YocoSDK) {
+        reject(new Error('Yoco not loaded'));
+        return;
+      }
+
+      const yoco = new window.YocoSDK({
+        publicKey: YOCO_PUBLIC_KEY,
+      });
+
+      const amountInCents = Math.round(amount * 100);
+
+      yoco.showPopup({
+        amountInCents: amountInCents,
+        currency: 'ZAR',
+        name: "Lloyd's Delivery",
+        description: `Order #${orderId}`,
+        callback: (result) => {
+          if (result.error) {
+            console.error('Payment failed:', result.error);
+            reject(new Error(result.error.message || 'Payment failed'));
+          } else {
+            console.log('Payment successful:', result);
+            resolve({
+              success: true,
+              transactionId: result.id,
+            });
+          }
+        },
+      });
+    });
+  };
+
   const handlePlaceOrder = async (method = 'mock') => {
     if (!address.trim()) {
       toast.error('Enter delivery address');
@@ -80,7 +161,6 @@ export default function Cart() {
     try {
       toast.loading('Creating order...');
 
-      // Create order
       const res = await fetch(`${API_URL}/orders/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -115,38 +195,30 @@ export default function Cart() {
       toast.dismiss();
 
       if (method === 'yoco') {
-        // Create Yoco checkout session
-        toast.loading('Redirecting to secure payment...');
-        
-        const checkoutRes = await fetch(`${API_URL}/orders/checkout`, {
-          method: 'POST',
+        if (!yocoLoaded) {
+          throw new Error('Payment system not ready');
+        }
+
+        toast.loading('Opening payment window...');
+        const payment = await processYocoPayment(discountedTotal, orderId);
+        toast.dismiss();
+
+        await fetch(`${API_URL}/orders/${orderId}/payment`, {
+          method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            amount: discountedTotal, 
-            orderId: orderId 
+          body: JSON.stringify({
+            payment_status: 'paid',
+            payment_transaction_id: payment.transactionId,
           }),
         });
 
-        const checkoutData = await checkoutRes.json();
-        
-        if (!checkoutRes.ok) {
-          throw new Error(checkoutData.message || 'Checkout failed');
-        }
-
-        // Save order ID for confirmation page
-        localStorage.setItem('lastOrderId', orderId);
-        localStorage.setItem('hasOrderedBefore', 'true');
-        
-        // Clear cart and redirect to Yoco's hosted payment page
-        clearCart();
-        
-        // Redirect to Yoco's secure payment page
-        window.location.href = checkoutData.redirectUrl;
-        return;
+        toast.success('Payment successful! Order placed.');
       }
 
-      // Mock payment - no real charge
-      toast.success('Order placed successfully!');
+      if (method === 'mock') {
+        toast.success('Order placed successfully!');
+      }
+
       localStorage.setItem('lastOrderId', orderId);
       localStorage.setItem('hasOrderedBefore', 'true');
       clearCart();
@@ -156,6 +228,7 @@ export default function Cart() {
       console.error('Order error:', err);
       toast.dismiss();
       toast.error(err.message || 'Order failed');
+    } finally {
       setPlacing(false);
     }
   };
@@ -311,16 +384,16 @@ export default function Cart() {
         )}
 
         <div className="p-4 pt-0 space-y-2">
-          {/* Yoco Checkout Button */}
-          <Button
-            onClick={() => handlePlaceOrder('yoco')}
-            disabled={placing || !address.trim()}
-            className="w-full bg-green text-white h-11"
-          >
-            {placing ? 'Processing...' : `Pay with Card • R${formatPrice(discountedTotal)}`}
-          </Button>
+          {yocoLoaded && (
+            <Button
+              onClick={() => handlePlaceOrder('yoco')}
+              disabled={placing || !address.trim()}
+              className="w-full bg-green text-white h-11"
+            >
+              {placing ? 'Processing...' : `Pay with Card • R${formatPrice(discountedTotal)}`}
+            </Button>
+          )}
 
-          {/* Test Mode Button */}
           <Button
             onClick={() => handlePlaceOrder('mock')}
             disabled={placing || !address.trim()}

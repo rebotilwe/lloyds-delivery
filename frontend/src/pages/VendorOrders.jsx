@@ -18,6 +18,7 @@ import {
   Phone,
   Mail,
   Eye,
+  Truck,
 } from 'lucide-react';
 import { useSocket } from '@/context/SocketContext';
 
@@ -41,15 +42,25 @@ export default function VendorOrders() {
         fetchOrders();
         toast.info('New order received!', {
           duration: 5000,
-          action: {
-            label: 'View',
-            onClick: () => {},
-          },
         });
       });
-      
+
+      // Listen for driver acceptance
+      socket.on('order-accepted-by-driver', (data) => {
+        toast.info(`🚚 Driver has accepted order #${data.orderId} and is on the way!`);
+        fetchOrders();
+      });
+
+      // Listen for delivery completion
+      socket.on('order-delivered', (data) => {
+        toast.success(`✅ Order #${data.orderId} has been delivered to the customer!`);
+        fetchOrders();
+      });
+
       return () => {
         socket.off('new-order');
+        socket.off('order-accepted-by-driver');
+        socket.off('order-delivered');
       };
     }
   }, [socket, online]);
@@ -83,7 +94,7 @@ export default function VendorOrders() {
       toast.success(`Order ${status === 'rejected' ? 'rejected' : 'updated'} successfully`);
       fetchOrders();
       setShowDetails(false);
-      setRejectionReason(''); // Clear rejection reason after submit
+      setRejectionReason('');
       setEstimatedPrepTime('');
     } catch (error) {
       console.error('Error updating order:', error);
@@ -151,6 +162,17 @@ export default function VendorOrders() {
               {getStatusBadge(order.status)}
             </div>
             <p className="text-sm text-gray-600">{order.customer_name || 'Guest'}</p>
+            
+            {/* Driver Info - Show if assigned */}
+            {order.driver_id && (
+              <div className="flex items-center gap-1 mt-1">
+                <Truck className="w-3 h-3 text-gray-400" />
+                <p className="text-xs text-gray-500">
+                  Driver: {order.driver_name || `Driver #${order.driver_id}`}
+                </p>
+              </div>
+            )}
+            
             <p className="text-xs text-gray-400 mt-1">
               {order.created_at ? format(new Date(order.created_at), 'dd MMM yyyy, h:mm a') : '-'}
             </p>
@@ -288,7 +310,7 @@ export default function VendorOrders() {
         </TabsContent>
       </Tabs>
 
-      {/* Order Details Modal - FIXED with Rejection Reason Input */}
+      {/* Order Details Modal */}
       <Dialog open={showDetails} onOpenChange={setShowDetails}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -311,6 +333,20 @@ export default function VendorOrders() {
                   </div>
                 )}
               </div>
+
+              {/* Driver Information */}
+              {selectedOrder.driver_id && (
+                <div className="bg-blue-50 p-3 rounded-lg">
+                  <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                    <Truck className="w-3 h-3" />
+                    Driver Information
+                  </h3>
+                  <p className="text-sm">Driver ID: #{selectedOrder.driver_id}</p>
+                  {selectedOrder.driver_name && (
+                    <p className="text-sm">Name: {selectedOrder.driver_name}</p>
+                  )}
+                </div>
+              )}
 
               <div className="bg-gray-50 p-3 rounded-lg">
                 <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
@@ -342,10 +378,8 @@ export default function VendorOrders() {
                 </div>
               </div>
 
-              {/* Pending Order Actions - Accept or Reject */}
               {selectedOrder.status === 'pending' && (
                 <div className="space-y-4">
-                  {/* For Accept: Estimated Prep Time */}
                   <div>
                     <Label>Estimated Preparation Time (minutes)</Label>
                     <Input
@@ -357,7 +391,6 @@ export default function VendorOrders() {
                     />
                   </div>
 
-                  {/* For Reject: Rejection Reason */}
                   <div>
                     <Label className="text-red-600">Rejection Reason (required if rejecting)</Label>
                     <Textarea
@@ -385,7 +418,6 @@ export default function VendorOrders() {
                 </div>
               )}
 
-              {/* Show Rejection Reason if order was rejected */}
               {selectedOrder.status === 'rejected' && (
                 <div className="bg-red-50 p-3 rounded-lg">
                   <h3 className="font-semibold text-sm text-red-800 mb-2">Rejection Reason</h3>

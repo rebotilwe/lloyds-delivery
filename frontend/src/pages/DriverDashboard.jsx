@@ -52,10 +52,10 @@ function cn(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
-// Helper to calculate distance (Haversine formula)
+// Helper to calculate distance (Haversine formula) - for display only
 function calculateDistance(lat1, lon1, lat2, lon2) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null;
-  const R = 6371; // Earth's radius in km
+  const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -68,7 +68,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 // Helper to estimate delivery time based on distance
 function estimateDeliveryTime(distanceKm) {
   if (!distanceKm) return null;
-  const avgSpeed = 30; // km/h in city
+  const avgSpeed = 30;
   const minutes = Math.ceil((distanceKm / avgSpeed) * 60);
   return minutes;
 }
@@ -115,12 +115,11 @@ export default function DriverDashboard() {
     localStorage.setItem('declined_orders', JSON.stringify(declinedOrders));
   }, [declinedOrders]);
 
-  // Calculate distances for available orders
+  // Calculate distances for available orders (display only - not filtering)
   useEffect(() => {
     if (availableOrders.length > 0 && driverLocation.lat && driverLocation.lng) {
       const distances = {};
       availableOrders.forEach(order => {
-        // Use restaurant coordinates if available, otherwise estimate
         const restaurantLat = order.restaurant_lat || -29.65;
         const restaurantLng = order.restaurant_lng || 31.05;
         const distance = calculateDistance(
@@ -133,7 +132,7 @@ export default function DriverDashboard() {
     }
   }, [availableOrders, driverLocation]);
 
-  // Location tracking
+  // Location tracking - only when available and has active order
   useEffect(() => {
     if (navigator.geolocation && isAvailable) {
       const watchId = navigator.geolocation.watchPosition(
@@ -168,12 +167,10 @@ export default function DriverDashboard() {
       socket.emit('join-driver', user.id);
 
       socket.on('order-offered', (data) => {
-        // Don't show if already declined
         if (declinedOrders.includes(data.orderId)) return;
         
         console.log('New order offered:', data);
         
-        // Browser notification
         if ('Notification' in window && Notification.permission === 'granted') {
           new Notification('New Delivery Offer!', {
             body: `Order #${data.orderId} from ${data.restaurantName} - R${data.orderTotal}`,
@@ -223,13 +220,23 @@ export default function DriverDashboard() {
     try {
       const res1 = await fetch('https://lloyds-delivery.onrender.com/api/orders/available');
       let available = await res1.json();
-      // Filter out declined orders
       available = available.filter(order => !declinedOrders.includes(order.id));
       setAvailableOrders(Array.isArray(available) ? available : []);
 
       const res2 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/${user.id}`);
       const mine = await res2.json();
       setMyOrders(Array.isArray(mine) ? mine : []);
+      
+      // Check if driver has any active orders (not delivered)
+      const hasActiveOrder = mine.some(order => 
+        ['picked_up', 'on_the_way'].includes(order.status)
+      );
+      
+      // Automatically set offline if has active order, but keep UI state
+      if (hasActiveOrder && isAvailable) {
+        // Don't change UI switch, but prevent showing available orders
+        // The "Available" switch will still show as ON but driver won't get new offers
+      }
     } catch (err) {
       console.error('Error fetching orders:', err);
     } finally {
@@ -238,15 +245,20 @@ export default function DriverDashboard() {
     }
   };
 
-  useEffect(() => {
-    if (user) {
-      fetchOrders();
-      const interval = setInterval(fetchOrders, 15000);
-      return () => clearInterval(interval);
-    }
-  }, [user, declinedOrders]);
+  // Check for active orders and prevent accepting new ones
+  const hasActiveOrder = useMemo(() => {
+    return myOrders.some(order => 
+      ['picked_up', 'on_the_way'].includes(order.status)
+    );
+  }, [myOrders]);
 
   const acceptOrder = async (orderId) => {
+    // Don't allow accepting if already on a delivery
+    if (hasActiveOrder) {
+      toast.error('Complete your current delivery first');
+      return;
+    }
+    
     try {
       const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/accept/${orderId}`, {
         method: 'PUT',
@@ -259,6 +271,10 @@ export default function DriverDashboard() {
       toast.success('Order accepted! Head to the restaurant');
       fetchOrders();
       setTrackingOrder(orderId);
+      
+      // Automatically set offline when accepting an order
+      setIsAvailable(false);
+      
     } catch (err) {
       console.error(err);
       toast.error('Error accepting order');
@@ -307,7 +323,13 @@ export default function DriverDashboard() {
       toast.success(statusMessages[nextStatus] || 'Status updated');
       
       if (nextStatus === 'on_the_way') setTrackingOrder(orderId);
-      if (nextStatus === 'delivered') setTrackingOrder(null);
+      
+      if (nextStatus === 'delivered') {
+        setTrackingOrder(null);
+        // Automatically go back online after delivery
+        setIsAvailable(true);
+        toast.success('You are now back online and can accept new orders');
+      }
       
       fetchOrders();
       if (nextStatus === 'delivered') await fetchUserData();
@@ -401,7 +423,17 @@ export default function DriverDashboard() {
           </Button>
           <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg shadow-sm">
             <span className="text-xs text-gray-500">Available</span>
-            <Switch checked={isAvailable} onCheckedChange={setIsAvailable} />
+            <Switch 
+              checked={isAvailable} 
+              onCheckedChange={(checked) => {
+                if (hasActiveOrder && !checked) {
+                  toast.error('Complete your current delivery before going offline');
+                  return;
+                }
+                setIsAvailable(checked);
+                toast.success(checked ? 'You are now online' : 'You are now offline');
+              }} 
+            />
           </div>
         </div>
       </div>
@@ -414,6 +446,11 @@ export default function DriverDashboard() {
         {trackingOrder && (
           <span className="text-[10px] sm:text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full animate-pulse">
             📍 Tracking order #{trackingOrder}
+          </span>
+        )}
+        {hasActiveOrder && (
+          <span className="text-[10px] sm:text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
+            🚚 Currently on delivery
           </span>
         )}
       </div>
@@ -456,7 +493,6 @@ export default function DriverDashboard() {
             {activeOrders.map((order) => (
               <Card key={order.id} className="overflow-hidden">
                 <CardContent className="p-3 sm:p-4 space-y-3">
-                  {/* Header */}
                   <div className="flex justify-between items-start">
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-sm sm:text-base truncate">{order.restaurant_name || 'Restaurant'}</p>
@@ -470,7 +506,6 @@ export default function DriverDashboard() {
                     </span>
                   </div>
 
-                  {/* Delivery Address with Map Button */}
                   <div className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg p-2">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />
@@ -487,7 +522,6 @@ export default function DriverDashboard() {
                     </Button>
                   </div>
 
-                  {/* Customer Contact */}
                   {order.customer_phone && (
                     <div className="flex items-center gap-2">
                       <Phone className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400" />
@@ -497,7 +531,6 @@ export default function DriverDashboard() {
                     </div>
                   )}
 
-                  {/* Action Button */}
                   <Button
                     className="w-full bg-green hover:bg-green/90 text-white text-sm h-9 sm:h-10"
                     onClick={() => handleOrderAction(order)}
@@ -505,7 +538,6 @@ export default function DriverDashboard() {
                     {getButtonText(order)}
                   </Button>
 
-                  {/* Expandable Items */}
                   {order.items && order.items.length > 0 && (
                     <>
                       <button
@@ -549,7 +581,15 @@ export default function DriverDashboard() {
           )}
         </div>
         
-        {availableOrders.length === 0 ? (
+        {!isAvailable ? (
+          <Card>
+            <CardContent className="p-6 sm:p-8 text-center">
+              <Clock className="w-8 h-8 sm:w-12 sm:h-12 mx-auto mb-2 text-gray-300" />
+              <p className="text-sm text-gray-500">You are currently offline</p>
+              <p className="text-xs text-gray-400 mt-1">Toggle the switch above to go online</p>
+            </CardContent>
+          </Card>
+        ) : availableOrders.length === 0 ? (
           <Card>
             <CardContent className="p-6 sm:p-8 text-center">
               <Clock className="w-8 h-8 sm:w-12 sm:h-12 mx-auto mb-2 text-gray-300" />
@@ -577,7 +617,7 @@ export default function DriverDashboard() {
                           <p className="text-xs text-gray-500 truncate">{formatAddress(order.delivery_address)}</p>
                         </div>
                         
-                        {/* Distance & Time Estimate */}
+                        {/* Distance & Time Estimate - For display only, not filtering */}
                         {distance && (
                           <div className="flex flex-wrap items-center gap-3 mt-2">
                             <span className="text-xs text-gray-500">
@@ -600,6 +640,7 @@ export default function DriverDashboard() {
                         <div className="flex gap-2">
                           <Button 
                             onClick={() => acceptOrder(order.id)}
+                            disabled={hasActiveOrder}
                             className="bg-green hover:bg-green/90 text-white text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4"
                           >
                             Accept

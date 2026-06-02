@@ -53,6 +53,7 @@ const adminNavItems = [
   { path: '/admin/finance', label: 'Finance', icon: DollarSign },
   { path: '/admin/disputes', label: 'Disputes', icon: AlertCircle },
   { path: '/admin/settings', label: 'Settings', icon: Settings },
+  { path: '/admin/payouts', label: 'Driver Payouts', icon: DollarSign },
 ];
 
 // Notification types

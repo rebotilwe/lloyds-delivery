@@ -36,7 +36,6 @@ import VendorWaiting from '@/pages/VendorWaiting';
 import VendorOnboarding from '@/pages/VendorOnboarding';
 import PageNotFound from '@/lib/PageNotFound';
 
-// ---------------------
 // LOADING COMPONENT
 // ---------------------
 const Loader = () => (
@@ -246,6 +245,7 @@ function App() {
                     <Route path="drivers" element={<AdminDashboard />} />
                     <Route path="users" element={<AdminDashboard />} />
                     <Route path="finance" element={<AdminDashboard />} />
+                    <Route path="payouts" element={<AdminDashboard />} />
                     <Route path="disputes" element={<AdminDashboard />} />
                     <Route path="settings" element={<AdminDashboard />} />
                     <Route path="alerts" element={<AdminDashboard />} />

@@ -45,6 +45,7 @@ import VendorManagement from '@/components/admin/VendorManagement';
 import DisputeManagement from '@/components/admin/DisputeManagement';
 import CommissionSettings from '@/components/admin/CommissionSettings';
 import WithdrawalRequests from '@/components/admin/WithdrawalRequests';
+import DriverPayouts from '@/components/admin/DriverPayouts';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -62,6 +63,7 @@ const tabs = [
   { id: 'drivers', label: 'Drivers', icon: Truck, color: 'bg-amber-500', path: '/admin/drivers' },
   { id: 'users', label: 'Users', icon: Users, color: 'bg-cyan-500', path: '/admin/users' },
   { id: 'finance', label: 'Finance', icon: DollarSign, color: 'bg-green-500', path: '/admin/finance' },
+  { id: 'payouts', label: 'Payouts', icon: DollarSign, color: 'bg-green-500', path: '/admin/payouts' },
   { id: 'disputes', label: 'Disputes', icon: AlertCircle, color: 'bg-red-500', path: '/admin/disputes' },
   { id: 'settings', label: 'Settings', icon: Settings, color: 'bg-gray-500', path: '/admin/settings' },
 ];
@@ -408,6 +410,7 @@ export default function AdminDashboard() {
     if (path.includes('/users')) return 'users';
     if (path.includes('/drivers')) return 'drivers';
     if (path.includes('/finance')) return 'finance';
+    if (path.includes('/payouts')) return 'payouts';
     if (path.includes('/disputes')) return 'disputes';
     if (path.includes('/settings')) return 'settings';
     return 'overview';
@@ -792,7 +795,7 @@ export default function AdminDashboard() {
             <WithdrawalRequests drivers={drivers} onRefresh={refreshAll} />
           </div>
         )}
-        
+        {activeTab === 'payouts' && <DriverPayouts />}
         {activeTab === 'disputes' && <DisputeManagement orders={orders} users={users} onRefresh={refreshAll} />}
         {activeTab === 'settings' && <AdminSettings />}
       </div>

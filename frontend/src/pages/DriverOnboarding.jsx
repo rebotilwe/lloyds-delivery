@@ -9,14 +9,13 @@ import {
   FileCheck,
   AlertCircle,
   CheckCircle,
-  Car,
+  Bike,
   Loader2,
   X,
   FileText,
   User,
   Mail,
   Phone,
-  Calendar,
   Info,
 } from 'lucide-react';
 
@@ -30,22 +29,23 @@ export default function DriverOnboarding() {
     id_copy: null,
     pdp: null,
     profile_photo: null,
-    car_license: null,
+    bike_license: null,  // Changed from car_license
   });
 
   const [previews, setPreviews] = useState({
     id_copy: null,
     pdp: null,
     profile_photo: null,
-    car_license: null,
+    bike_license: null,
   });
 
-  const [carInfo, setCarInfo] = useState({
+  const [bikeInfo, setBikeInfo] = useState({
     make: '',
     model: '',
     year: '',
     color: '',
     license_plate: '',
+    engine_cc: '', // Added for motorbikes
   });
 
   useEffect(() => {
@@ -98,8 +98,8 @@ export default function DriverOnboarding() {
     toast.info('File removed');
   };
 
-  const handleCarInfoChange = (e) => {
-    setCarInfo(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleBikeInfoChange = (e) => {
+    setBikeInfo(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
   const submitDocs = async () => {
@@ -113,8 +113,8 @@ export default function DriverOnboarding() {
       return;
     }
 
-    if (!carInfo.make || !carInfo.model || !carInfo.license_plate) {
-      toast.error("Please complete car information (Make, Model, License Plate)");
+    if (!bikeInfo.make || !bikeInfo.model || !bikeInfo.license_plate) {
+      toast.error("Please complete bike information (Make, Model, License Plate)");
       return;
     }
 
@@ -124,13 +124,13 @@ export default function DriverOnboarding() {
       const formData = new FormData();
 
       formData.append("userId", user.id);
-      formData.append("car_info", JSON.stringify(carInfo));
+      formData.append("car_info", JSON.stringify(bikeInfo));
 
       formData.append("id_copy", documents.id_copy);
       formData.append("pdp", documents.pdp);
       formData.append("profile_photo", documents.profile_photo);
-      if (documents.car_license) {
-        formData.append("car_license", documents.car_license);
+      if (documents.bike_license) {
+        formData.append("car_license", documents.bike_license); // Backend expects car_license field
       }
 
       const res = await fetch("https://lloyds-delivery.onrender.com/api/driver/onboarding", {
@@ -238,7 +238,7 @@ export default function DriverOnboarding() {
     );
   }
 
-  // ✅ FIX: After submission, show Under Review
+  // After submission, show Under Review
   if (submitted) {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
@@ -258,7 +258,7 @@ export default function DriverOnboarding() {
     );
   }
 
-  // ✅ Approved state
+  // Approved state
   if (user.driver_status === 'approved') {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
@@ -281,7 +281,7 @@ export default function DriverOnboarding() {
     );
   }
 
-  // ✅ Rejected state
+  // Rejected state
   if (user.driver_status === 'rejected') {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
@@ -298,33 +298,36 @@ export default function DriverOnboarding() {
     );
   }
 
-  // ✅ Show onboarding form (driver_status is null or not pending/approved/rejected)
+  // Show onboarding form
   return (
     <div className="max-w-2xl mx-auto py-6 sm:py-10 px-3 sm:px-4">
       <Card className="overflow-hidden">
         <CardContent className="p-4 sm:p-6 space-y-5 sm:space-y-6">
           <div className="text-center">
-            <h2 className="text-xl sm:text-2xl font-bold">Driver Onboarding</h2>
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+              <Bike className="w-8 h-8 text-green" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold">Become a Delivery Rider</h2>
             <p className="text-xs sm:text-sm text-gray-500 mt-1">
-              Complete the form below to become a delivery driver
+              Complete the form below to start delivering with your motorbike
             </p>
           </div>
 
           <DriverInfoCard />
 
-          {/* Vehicle Information */}
+          {/* Bike Information */}
           <div className="space-y-3">
             <h3 className="font-semibold text-sm sm:text-base flex items-center gap-2">
-              <Car className="w-4 h-4 sm:w-5 sm:h-5 text-green" />
-              Vehicle Information
+              <Bike className="w-4 h-4 sm:w-5 sm:h-5 text-green" />
+              Motorbike Information
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs sm:text-sm">Make *</Label>
                 <Input 
                   name="make" 
-                  placeholder="e.g., Toyota" 
-                  onChange={handleCarInfoChange}
+                  placeholder="e.g., Honda, Yamaha, Suzuki" 
+                  onChange={handleBikeInfoChange}
                   className="mt-1 text-sm"
                 />
               </div>
@@ -332,8 +335,8 @@ export default function DriverOnboarding() {
                 <Label className="text-xs sm:text-sm">Model *</Label>
                 <Input 
                   name="model" 
-                  placeholder="e.g., Corolla" 
-                  onChange={handleCarInfoChange}
+                  placeholder="e.g., CBR 150, MT-15" 
+                  onChange={handleBikeInfoChange}
                   className="mt-1 text-sm"
                 />
               </div>
@@ -342,7 +345,16 @@ export default function DriverOnboarding() {
                 <Input 
                   name="year" 
                   placeholder="e.g., 2020" 
-                  onChange={handleCarInfoChange}
+                  onChange={handleBikeInfoChange}
+                  className="mt-1 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs sm:text-sm">Engine CC</Label>
+                <Input 
+                  name="engine_cc" 
+                  placeholder="e.g., 150cc" 
+                  onChange={handleBikeInfoChange}
                   className="mt-1 text-sm"
                 />
               </div>
@@ -350,8 +362,8 @@ export default function DriverOnboarding() {
                 <Label className="text-xs sm:text-sm">Color</Label>
                 <Input 
                   name="color" 
-                  placeholder="e.g., White" 
-                  onChange={handleCarInfoChange}
+                  placeholder="e.g., Red, Black" 
+                  onChange={handleBikeInfoChange}
                   className="mt-1 text-sm"
                 />
               </div>
@@ -360,7 +372,7 @@ export default function DriverOnboarding() {
                 <Input 
                   name="license_plate" 
                   placeholder="e.g., ABC 123 GP" 
-                  onChange={handleCarInfoChange}
+                  onChange={handleBikeInfoChange}
                   className="mt-1 text-sm"
                 />
               </div>
@@ -387,7 +399,7 @@ export default function DriverOnboarding() {
               label="PDP License" 
               required 
               preview={previews.pdp}
-              description="Professional Driving Permit"
+              description="Professional Driving Permit (must have motorbike code)"
             />
             
             <FileUploadArea 
@@ -399,21 +411,24 @@ export default function DriverOnboarding() {
             />
             
             <FileUploadArea 
-              field="car_license" 
-              label="Vehicle License (Optional)" 
+              field="bike_license" 
+              label="Bike License / Registration (Optional)" 
               required={false} 
-              preview={previews.car_license}
-              description="Vehicle registration document"
+              preview={previews.bike_license}
+              description="Motorbike registration document"
             />
           </div>
 
           <div className="bg-blue-50 rounded-lg p-3 flex gap-2">
             <Info className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500 shrink-0 mt-0.5" />
             <div>
-              <p className="text-xs sm:text-sm text-blue-700 font-medium">Important Information</p>
+              <p className="text-xs sm:text-sm text-blue-700 font-medium">Requirements for Riders</p>
               <p className="text-[11px] sm:text-xs text-blue-600 mt-0.5">
-                All documents will be verified. Ensure they are clear and legible. 
-                Processing takes 24-48 hours.
+                • Valid driver's license with motorbike code<br />
+                • Valid Professional Driving Permit (PDP)<br />
+                • Reliable motorbike in good condition<br />
+                • Smartphone with GPS<br />
+                • Processing takes 24-48 hours
               </p>
             </div>
           </div>
@@ -426,10 +441,10 @@ export default function DriverOnboarding() {
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                Submitting...
+                Submitting Application...
               </>
             ) : (
-              'Submit Application'
+              'Submit Rider Application'
             )}
           </Button>
 

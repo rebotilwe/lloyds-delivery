@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import { createClient } from '@supabase/supabase-js';
 import db from "../config/db.js";
+import { verifyToken, authorizeRoles } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -31,6 +32,7 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
+// ==================== DRIVER ONBOARDING ====================
 router.post(
   "/onboarding",
   upload.fields([
@@ -149,9 +151,37 @@ router.post(
     }
   }
 );
-/* =========================
-   DRIVER EARNINGS SUMMARY
-========================= */
+
+// ==================== DRIVER PROFILE ====================
+router.get("/profile", verifyToken, authorizeRoles("driver"), async (req, res) => {
+  try {
+    const user = await db.query(
+      "SELECT id, name, email, phone, driver_status, is_available, earnings, total_deliveries FROM users WHERE id = $1",
+      [req.user.id]
+    );
+    res.json(user.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ==================== UPDATE AVAILABILITY ====================
+router.put("/availability", verifyToken, authorizeRoles("driver"), async (req, res) => {
+  try {
+    const { is_available } = req.body;
+    await db.query(
+      "UPDATE users SET is_available = $1 WHERE id = $2",
+      [is_available, req.user.id]
+    );
+    res.json({ message: "Availability updated" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ==================== DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
@@ -208,9 +238,44 @@ router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (re
   }
 });
 
-/* =========================
-   DRIVER BANK DETAILS
-========================= */
+// ==================== DRIVER EARNINGS SUMMARY FOR ADMIN ====================
+router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    
+    const earnings = await db.query(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending,
+         COALESCE(SUM(CASE WHEN status = 'cleared' THEN amount ELSE 0 END), 0) as cleared,
+         COALESCE(SUM(amount), 0) as total
+       FROM driver_earnings
+       WHERE driver_id = $1`,
+      [driverId]
+    );
+    
+    const paidOut = await db.query(
+      `SELECT COALESCE(SUM(amount), 0) as total
+       FROM driver_payouts
+       WHERE driver_id = $1 AND status = 'paid'`,
+      [driverId]
+    );
+    
+    res.json({
+      summary: {
+        pending_balance: parseFloat(earnings.rows[0].pending),
+        available_balance: parseFloat(earnings.rows[0].cleared),
+        total_earned: parseFloat(earnings.rows[0].total),
+        total_paid: parseFloat(paidOut.rows[0].total),
+        pending_payout: parseFloat(earnings.rows[0].cleared) - parseFloat(paidOut.rows[0].total)
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ==================== DRIVER BANK DETAILS ====================
 router.get("/bank-details", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
@@ -249,9 +314,7 @@ router.post("/bank-details", verifyToken, authorizeRoles("driver"), async (req, 
   }
 });
 
-/* =========================
-   ADMIN: GET ALL PAYOUTS
-========================= */
+// ==================== ADMIN: GET ALL PAYOUTS ====================
 router.get("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const results = await db.query(
@@ -269,13 +332,34 @@ router.get("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, r
   }
 });
 
-/* =========================
-   ADMIN: CREATE PAYOUT
-========================= */
+// ==================== ADMIN: CREATE PAYOUT ====================
 router.post("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { driver_id, amount, period_start, period_end, notes } = req.body;
     const adminId = req.user.id;
+    
+    // Check if driver has enough cleared earnings
+    const earnings = await db.query(
+      `SELECT COALESCE(SUM(amount), 0) as total
+       FROM driver_earnings
+       WHERE driver_id = $1 AND status = 'cleared'`,
+      [driver_id]
+    );
+    
+    const paidOut = await db.query(
+      `SELECT COALESCE(SUM(amount), 0) as total
+       FROM driver_payouts
+       WHERE driver_id = $1 AND status = 'paid'`,
+      [driver_id]
+    );
+    
+    const available = parseFloat(earnings.rows[0].total) - parseFloat(paidOut.rows[0].total);
+    
+    if (amount > available) {
+      return res.status(400).json({ 
+        message: `Amount exceeds available balance. Available: R${available.toFixed(2)}` 
+      });
+    }
     
     const result = await db.query(
       `INSERT INTO driver_payouts 
@@ -292,9 +376,7 @@ router.post("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, 
   }
 });
 
-/* =========================
-   ADMIN: MARK PAYOUT AS PAID
-========================= */
+// ==================== ADMIN: MARK PAYOUT AS PAID ====================
 router.put("/admin/payouts/:id/mark-paid", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { id } = req.params;
@@ -313,6 +395,27 @@ router.put("/admin/payouts/:id/mark-paid", verifyToken, authorizeRoles("admin"),
     );
     
     res.json({ message: "Payout marked as paid" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ==================== GET DRIVER'S ACTIVE ORDERS ====================
+router.get("/active-orders", verifyToken, authorizeRoles("driver"), async (req, res) => {
+  try {
+    const driverId = req.user.id;
+    const orders = await db.query(
+      `SELECT o.*, r.name as restaurant_name, r.address as restaurant_address,
+              u.name as customer_name, u.phone as customer_phone
+       FROM orders o
+       LEFT JOIN restaurants r ON o.restaurant_id = r.id
+       LEFT JOIN users u ON o.customer_id = u.id
+       WHERE o.driver_id = $1 AND o.status IN ('picked_up', 'on_the_way')
+       ORDER BY o.created_at ASC`,
+      [driverId]
+    );
+    res.json(orders.rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Server error" });

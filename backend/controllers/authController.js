@@ -1,8 +1,6 @@
 import db from "../config/db.js";
 import bcrypt from "bcryptjs";
 
-import jwt from "jsonwebtoken";
-
 // REGISTER USER (FIXED with async/await + bcrypt)
 export const register = async (req, res) => {
   try {
@@ -44,43 +42,42 @@ export const register = async (req, res) => {
   }
 };
 
-
-
-
+// LOGIN USER (add this if not in authRoutes)
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const [users] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email and password required" });
+    }
 
+    // Get user by email
+    const [users] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
+    
     if (users.length === 0) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const user = users[0];
 
+    // Compare password with hashed password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
-
+    
     if (!isValidPassword) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    const token = jwt.sign(
-      { id: user.id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
+    // Remove password from response
+    const { password_hash, ...userWithoutPassword } = user;
 
-    const { password_hash, ...safeUser } = user;
-
-    return res.json({
-      token,
-      user: safeUser
+    return res.json({ 
+      message: "Login successful", 
+      user: userWithoutPassword 
     });
 
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: "Server error" });
+    console.error("Login error:", err);
+    return res.status(500).json({ message: "Server error during login" });
   }
 };
 

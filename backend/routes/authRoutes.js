@@ -30,7 +30,7 @@ router.post("/register", async (req, res) => {
     let vendor_status = null;
     
     if (role === 'driver') {
-      driver_status = null;  // FIXED: null means they need to complete onboarding first
+      driver_status = 'pending';  // Needs admin approval
     } else if (role === 'vendor') {
       vendor_status = 'pending';  // Needs admin approval
     }
@@ -54,7 +54,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// LOGIN - UPDATED to allow drivers with null status to log in
+// LOGIN
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -93,34 +93,12 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // FIXED: Driver status check - ALLOW login for null status (needs onboarding)
-    if (user.role === 'driver') {
-      // Allow login if driver_status is null (needs onboarding) - frontend will redirect
-      if (user.driver_status === null) {
-        console.log("✅ Driver needs onboarding - allowing login, frontend will redirect");
-        // Continue to login - don't block
-      }
-      // Block login if pending admin approval (submitted documents but not approved)
-      else if (user.driver_status === 'pending') {
-        return res.status(403).json({ 
-          message: "Your driver application is pending admin approval.",
-          status: user.driver_status
-        });
-      }
-      // Block login if rejected
-      else if (user.driver_status === 'rejected') {
-        return res.status(403).json({ 
-          message: "Your driver application was rejected. Please contact support.",
-          status: user.driver_status
-        });
-      }
-      // Block login if not approved (any other status)
-      else if (user.driver_status !== 'approved') {
-        return res.status(403).json({ 
-          message: "Your driver account is not active.",
-          status: user.driver_status
-        });
-      }
+    // Check if driver is approved
+    if (user.role === 'driver' && user.driver_status !== 'approved') {
+      return res.status(403).json({ 
+        message: "Your driver account is pending approval. Please complete onboarding.",
+        status: user.driver_status
+      });
     }
 
     const token = jwt.sign(
@@ -131,7 +109,7 @@ router.post("/login", async (req, res) => {
 
     const { password_hash, ...userWithoutPassword } = user;
 
-    console.log("✅ Login successful:", { email, role: user.role, driver_status: user.driver_status });
+    console.log("✅ Login successful:", { email, role: user.role });
 
     return res.json({
       message: "Login successful",
@@ -143,6 +121,7 @@ router.post("/login", async (req, res) => {
     return res.status(500).json({ message: "Server error during login" });
   }
 });
+
 // GET CURRENT USER
 router.get("/me", async (req, res) => {
   try {
@@ -226,6 +205,7 @@ router.post("/forgot-password", async (req, res) => {
     const users = await db.query("SELECT * FROM users WHERE email = $1", [email]);
     
     if (users.rows.length === 0) {
+      // Don't reveal that email doesn't exist for security
       return res.json({ message: "If an account exists, a reset link will be sent." });
     }
 

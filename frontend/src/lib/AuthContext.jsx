@@ -10,94 +10,105 @@ export const useAuth = () => {
   return context;
 };
 
-// Helper to fix user IDs based on email
-const fixUserId = (user) => {
-  if (!user) return user;
-  
-  // Map emails to correct database IDs
-  if (user.email === 'admin@lloyds.com' && user.id !== 4) {
-    return { ...user, id: 4 };
-  }
-  if (user.email === 'driver@lloyds.com' && user.id !== 5) {
-    return { ...user, id: 5 };
-  }
-  if (user.email === 'customer@lloyds.com' && user.id !== 6) {
-    return { ...user, id: 6 };
-  }
-  return user;
-};
+const API = 'https://lloyds-delivery.onrender.com';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // RESTORE SESSION
+  // LOAD SESSION (SOURCE OF TRUTH = /me)
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      const parsedUser = JSON.parse(storedUser);
-      const fixedUser = fixUserId(parsedUser);
-      setUser(fixedUser);
-      if (fixedUser !== parsedUser) {
-        localStorage.setItem('user', JSON.stringify(fixedUser));
+    const init = async () => {
+      const token = localStorage.getItem('token');
+
+      if (!token) {
+        setLoading(false);
+        return;
       }
-    }
-    setLoading(false);
+
+      try {
+        const res = await fetch(`${API}/api/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!res.ok) throw new Error();
+
+        const data = await res.json();
+
+        setUser(data);
+        localStorage.setItem('user', JSON.stringify(data));
+      } catch {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setUser(null);
+      }
+
+      setLoading(false);
+    };
+
+    init();
   }, []);
 
-  // LOGIN
-  const login = async (email, password) => {
-    try {
-      const res = await fetch('https://lloyds-delivery.onrender.com/api/auth/login', {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
+ const login = async (email, password) => {
+  try {
+    const res = await fetch('https://lloyds-delivery.onrender.com/api/auth/login', {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
 
-      const data = await res.json();
+    const data = await res.json();
 
-      if (!res.ok) {
-        toast.error(data.message || "Login failed");
-        return null;
-      }
-
-      // Fix the user ID before storing
-      const fixedUser = fixUserId(data.user);
-      
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(fixedUser));
-
-      setUser(fixedUser);
-      toast.success(`Welcome back, ${fixedUser.name || fixedUser.email}!`);
-
-      return fixedUser;
-    } catch (err) {
-      toast.error("Network error");
+    if (!res.ok) {
+      toast.error(data.message || "Login failed");
       return null;
     }
-  };
 
-  // REGISTER
-  const register = async (userData) => {
-    try {
-      toast.success('Account created. Please login.');
-      navigate('/login');
-    } catch (err) {
-      toast.error('Registration failed');
-      throw err;
+    const token = data.token;
+    const user = data.user;
+
+    if (!user) {
+      toast.error("Invalid server response");
+      return null;
     }
-  };
 
-  // LOGOUT
+    // FIX USER ID
+    const fixedUser = fixUserId(user);
+
+    // OPTIONAL: refresh full user from DB (safe version)
+    const freshUserRes = await fetch(
+      `https://lloyds-delivery.onrender.com/api/users/${fixedUser.id}`
+    );
+
+    let finalUser = fixedUser;
+
+    if (freshUserRes.ok) {
+      const freshUser = await freshUserRes.json();
+      finalUser = { ...fixedUser, ...freshUser };
+    }
+
+    localStorage.setItem("token", token);
+    localStorage.setItem("user", JSON.stringify(finalUser));
+
+    setUser(finalUser);
+
+    toast.success(`Welcome back, ${finalUser.name || finalUser.email}!`);
+
+    return finalUser;
+  } catch (err) {
+    console.error(err);
+    toast.error("Network error");
+    return null;
+  }
+};
+
   const logout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
+    localStorage.clear();
     setUser(null);
-    toast.success("Logged out");
-    navigate("/login");
+    navigate('/login');
   };
 
   return (
@@ -106,7 +117,6 @@ export const AuthProvider = ({ children }) => {
         user,
         setUser,
         login,
-        register,
         logout,
         loading,
         isAuthenticated: !!user,

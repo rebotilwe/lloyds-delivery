@@ -103,49 +103,32 @@ function AdminGuard({ children }) {
 // ---------------------
 function DriverGuard({ children }) {
   const { user, loading } = useAuth();
+
   if (loading) return <Loader />;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== 'driver') return <Navigate to="/" replace />;
-  
-  // If driver_status is null, they need to complete onboarding
-  if (user.driver_status === null) {
-    return <DriverOnboarding />;
-  }
-  
-  // If driver_status is pending, show waiting for approval message
-  if (user.driver_status === 'pending') {
-    return <DriverPendingApproval />;
-  }
-  
-  // If rejected, show rejected message
-  if (user.driver_status === 'rejected') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <div className="text-center max-w-md">
-          <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Clock className="w-10 h-10 text-red-600" />
-          </div>
-          <h1 className="text-2xl font-bold mb-2">Application Rejected</h1>
-          <p className="text-gray-600">
-            Your driver application has been rejected. Please contact support for more information.
-          </p>
-          <button
-            onClick={() => window.location.href = '/'}
-            className="mt-6 bg-green text-white px-6 py-2 rounded-lg"
-          >
-            Return to Home
-          </button>
-        </div>
-      </div>
-    );
-  }
-  
-  // If not approved, redirect home
-  if (user.driver_status !== 'approved') {
+
+  if (user.role !== 'driver') {
     return <Navigate to="/" replace />;
   }
-  
-  return children;
+
+  const status = user.driver_status;
+
+  switch (status) {
+    case null:
+      return <DriverOnboarding />;
+
+    case 'pending':
+      return <DriverPendingApproval />;
+
+    case 'approved':
+      return children;
+
+    case 'rejected':
+      return <Navigate to="/" replace />;
+
+    default:
+      return <DriverOnboarding />;
+  }
 }
 
 // ---------------------

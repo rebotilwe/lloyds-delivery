@@ -54,7 +54,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// LOGIN
+// LOGIN - UPDATED to allow drivers with null status to log in
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -93,32 +93,29 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // FIXED: Check driver status properly
+    // FIXED: Driver status check - ALLOW login for null status (needs onboarding)
     if (user.role === 'driver') {
-      // Driver needs to complete onboarding first
+      // Allow login if driver_status is null (needs onboarding) - frontend will redirect
       if (user.driver_status === null) {
-        return res.status(403).json({ 
-          message: "Please complete your driver onboarding first.",
-          status: user.driver_status,
-          needsOnboarding: true
-        });
+        console.log("✅ Driver needs onboarding - allowing login, frontend will redirect");
+        // Continue to login - don't block
       }
-      // Driver is pending admin approval
-      if (user.driver_status === 'pending') {
+      // Block login if pending admin approval (submitted documents but not approved)
+      else if (user.driver_status === 'pending') {
         return res.status(403).json({ 
           message: "Your driver application is pending admin approval.",
           status: user.driver_status
         });
       }
-      // Driver is rejected
-      if (user.driver_status === 'rejected') {
+      // Block login if rejected
+      else if (user.driver_status === 'rejected') {
         return res.status(403).json({ 
           message: "Your driver application was rejected. Please contact support.",
           status: user.driver_status
         });
       }
-      // Driver is approved - allow login
-      if (user.driver_status !== 'approved') {
+      // Block login if not approved (any other status)
+      else if (user.driver_status !== 'approved') {
         return res.status(403).json({ 
           message: "Your driver account is not active.",
           status: user.driver_status
@@ -134,7 +131,7 @@ router.post("/login", async (req, res) => {
 
     const { password_hash, ...userWithoutPassword } = user;
 
-    console.log("✅ Login successful:", { email, role: user.role });
+    console.log("✅ Login successful:", { email, role: user.role, driver_status: user.driver_status });
 
     return res.json({
       message: "Login successful",
@@ -146,7 +143,6 @@ router.post("/login", async (req, res) => {
     return res.status(500).json({ message: "Server error during login" });
   }
 });
-
 // GET CURRENT USER
 router.get("/me", async (req, res) => {
   try {

@@ -45,13 +45,11 @@ export const register = async (req, res) => {
 };
 
 
+
+
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ message: "Email and password required" });
-    }
 
     const [users] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
 
@@ -68,25 +66,21 @@ export const login = async (req, res) => {
     }
 
     const token = jwt.sign(
-      {
-        id: user.id,
-        role: user.role,
-        email: user.email,
-      },
+      { id: user.id, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    const { password_hash, ...userWithoutPassword } = user;
+    const { password_hash, ...safeUser } = user;
 
     return res.json({
-      message: "Login successful",
       token,
-      user: userWithoutPassword,
+      user: safeUser
     });
+
   } catch (err) {
-    console.error("Login error:", err);
-    return res.status(500).json({ message: "Server error during login" });
+    console.error(err);
+    return res.status(500).json({ message: "Server error" });
   }
 };
 

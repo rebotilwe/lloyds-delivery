@@ -30,7 +30,7 @@ router.post("/register", async (req, res) => {
     let vendor_status = null;
     
     if (role === 'driver') {
-      driver_status = 'pending';  // Needs admin approval
+      driver_status = null;  // FIXED: null means they need to complete onboarding first
     } else if (role === 'vendor') {
       vendor_status = 'pending';  // Needs admin approval
     }
@@ -93,12 +93,37 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // Check if driver is approved
-    if (user.role === 'driver' && user.driver_status !== 'approved') {
-      return res.status(403).json({ 
-        message: "Your driver account is pending approval. Please complete onboarding.",
-        status: user.driver_status
-      });
+    // FIXED: Check driver status properly
+    if (user.role === 'driver') {
+      // Driver needs to complete onboarding first
+      if (user.driver_status === null) {
+        return res.status(403).json({ 
+          message: "Please complete your driver onboarding first.",
+          status: user.driver_status,
+          needsOnboarding: true
+        });
+      }
+      // Driver is pending admin approval
+      if (user.driver_status === 'pending') {
+        return res.status(403).json({ 
+          message: "Your driver application is pending admin approval.",
+          status: user.driver_status
+        });
+      }
+      // Driver is rejected
+      if (user.driver_status === 'rejected') {
+        return res.status(403).json({ 
+          message: "Your driver application was rejected. Please contact support.",
+          status: user.driver_status
+        });
+      }
+      // Driver is approved - allow login
+      if (user.driver_status !== 'approved') {
+        return res.status(403).json({ 
+          message: "Your driver account is not active.",
+          status: user.driver_status
+        });
+      }
     }
 
     const token = jwt.sign(
@@ -205,7 +230,6 @@ router.post("/forgot-password", async (req, res) => {
     const users = await db.query("SELECT * FROM users WHERE email = $1", [email]);
     
     if (users.rows.length === 0) {
-      // Don't reveal that email doesn't exist for security
       return res.json({ message: "If an account exists, a reset link will be sent." });
     }
 

@@ -39,31 +39,36 @@ export default function DriverPayouts() {
     fetchPayouts();
   }, []);
 
-  const fetchDrivers = async () => {
-    try {
-      const response = await api.get('/users');
-      const allDrivers = response.data.filter(u => u.role === 'driver' && u.driver_status === 'approved');
-      
-      // Get pending balance from earnings-summary endpoint (without /:driverId)
-      const driversWithBalance = await Promise.all(allDrivers.map(async (driver) => {
-        try {
-          // Use the earnings-summary endpoint for each driver
-          const earningsRes = await api.get(`/driver/earnings-summary/${driver.id}`);
-          const pendingBalance = earningsRes.data?.summary?.pending_balance || 
-                                 earningsRes.data?.pending_balance || 
-                                 earningsRes.data?.available_balance || 0;
-          return { ...driver, pending_balance: parseFloat(pendingBalance) || 0 };
-        } catch (error) {
-          console.log(`Could not fetch earnings for driver ${driver.id}:`, error.message);
-          return { ...driver, pending_balance: 0 };
-        }
-      }));
-      setDrivers(driversWithBalance);
-    } catch (error) {
-      console.error('Error fetching drivers:', error);
-      setDrivers([]);
-    }
-  };
+const fetchDrivers = async () => {
+  try {
+    const response = await api.get('/users');
+    const allDrivers = response.data?.filter(u => u.role === 'driver' && u.driver_status === 'approved') || [];
+    
+    const driversWithBalance = await Promise.all(allDrivers.map(async (driver) => {
+      try {
+        // Use the earnings-summary endpoint for each driver
+        const earningsRes = await api.get(`/driver/earnings-summary/${driver.id}`);
+        // The endpoint returns available_balance, not pending_balance
+        const availableBalance = earningsRes.data?.summary?.available_balance || 
+                               earningsRes.data?.available_balance || 0;
+        return { 
+          ...driver, 
+          pending_balance: parseFloat(availableBalance) || 0 
+        };
+      } catch (error) {
+        console.log(`Could not fetch earnings for driver ${driver.id}:`, error.message);
+        // Fallback to user's available_balance from users table
+        const fallbackBalance = driver.available_balance || driver.pending_balance || 0;
+        return { ...driver, pending_balance: parseFloat(fallbackBalance) || 0 };
+      }
+    }));
+    
+    setDrivers(driversWithBalance);
+  } catch (error) {
+    console.error('Error fetching drivers:', error);
+    setDrivers([]);
+  }
+};
 
   const fetchPayouts = async () => {
     setLoading(true);

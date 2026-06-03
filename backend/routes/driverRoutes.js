@@ -435,6 +435,7 @@ router.post("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, 
 
 // ==================== ADMIN: PROCESS PAYOUT ====================
 // ==================== ADMIN: PROCESS PAYOUT ====================
+// ==================== ADMIN: PROCESS PAYOUT ====================
 router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { id } = req.params;
@@ -443,18 +444,42 @@ router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), a
     
     console.log("📝 Processing payout:", { id, status, reference_number, adminId });
     
-    // Update the payout - only update columns that exist
-    const result = await db.query(
-      `UPDATE driver_payouts 
-       SET status = $1, 
-           reference_number = COALESCE($2, reference_number),
-           processed_at = NOW(),
-           processed_by = $3,
-           paid_at = CASE WHEN $1 = 'paid' THEN NOW() ELSE paid_at END
-       WHERE id = $4
-       RETURNING id`,
-      [status, reference_number, adminId, id]
-    );
+    // Build update query dynamically based on available columns
+    let updateFields = [];
+    let queryParams = [];
+    let paramIndex = 1;
+    
+    updateFields.push(`status = $${paramIndex++}`);
+    queryParams.push(status);
+    
+    if (reference_number !== undefined) {
+      updateFields.push(`reference_number = $${paramIndex++}`);
+      queryParams.push(reference_number);
+    }
+    
+    if (notes !== undefined) {
+      updateFields.push(`notes = $${paramIndex++}`);
+      queryParams.push(notes);
+    }
+    
+    updateFields.push(`processed_by = $${paramIndex++}`);
+    queryParams.push(adminId);
+    
+    if (status === 'paid') {
+      updateFields.push(`paid_at = NOW()`);
+    }
+    
+    // Don't use processed_at if it doesn't exist
+    // processed_at column is optional
+    
+    queryParams.push(id);
+    
+    const query = `UPDATE driver_payouts 
+                   SET ${updateFields.join(", ")} 
+                   WHERE id = $${paramIndex}
+                   RETURNING id`;
+    
+    const result = await db.query(query, queryParams);
     
     if (result.rows.length === 0) {
       return res.status(404).json({ message: "Payout not found" });

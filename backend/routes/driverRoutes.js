@@ -433,10 +433,23 @@ router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), a
   }
 });
 // ==================== ADMIN: GET DRIVER EARNINGS SUMMARY ====================
+// ==================== ADMIN: GET DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { driverId } = req.params;
     
+    // First get the driver's balance from users table (most reliable)
+    const userBalance = await db.query(
+      `SELECT 
+         COALESCE(total_earnings, 0) as total_earnings,
+         COALESCE(available_balance, 0) as available_balance,
+         COALESCE(pending_balance, 0) as pending_balance
+       FROM users 
+       WHERE id = $1 AND role = 'driver'`,
+      [driverId]
+    );
+    
+    // Also get from driver_earnings for detailed breakdown
     const earnings = await db.query(
       `SELECT 
          COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending,
@@ -454,13 +467,18 @@ router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), 
       [driverId]
     );
     
+    // Use the user table balance as the source of truth
+    const availableBalance = parseFloat(userBalance.rows[0]?.available_balance || 0);
+    const totalEarned = parseFloat(userBalance.rows[0]?.total_earnings || 0);
+    const totalPaid = parseFloat(paidOut.rows[0]?.total || 0);
+    
     res.json({
       summary: {
         pending_balance: parseFloat(earnings.rows[0]?.pending || 0),
-        available_balance: parseFloat(earnings.rows[0]?.cleared || 0),
-        total_earned: parseFloat(earnings.rows[0]?.total || 0),
-        total_paid: parseFloat(paidOut.rows[0]?.total || 0),
-        pending_payout: parseFloat(earnings.rows[0]?.cleared || 0) - parseFloat(paidOut.rows[0]?.total || 0)
+        available_balance: availableBalance,
+        total_earned: totalEarned,
+        total_paid: totalPaid,
+        pending_payout: availableBalance - totalPaid
       }
     });
   } catch (err) {

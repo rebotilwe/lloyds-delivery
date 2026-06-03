@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import { createClient } from '@supabase/supabase-js';
 import db from "../config/db.js";
+import { verifyToken, authorizeRoles } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -31,6 +32,7 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
+// ==================== DRIVER ONBOARDING ====================
 router.post(
   "/onboarding",
   upload.fields([
@@ -149,9 +151,8 @@ router.post(
     }
   }
 );
-/* =========================
-   DRIVER EARNINGS SUMMARY
-========================= */
+
+// ==================== DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
@@ -208,9 +209,7 @@ router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (re
   }
 });
 
-/* =========================
-   DRIVER REQUEST WITHDRAWAL
-========================= */
+// ==================== DRIVER REQUEST WITHDRAWAL ====================
 router.post("/request-withdrawal", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
@@ -287,9 +286,7 @@ router.post("/request-withdrawal", verifyToken, authorizeRoles("driver"), async 
   }
 });
 
-/* =========================
-   DRIVER WITHDRAWAL HISTORY
-========================= */
+// ==================== DRIVER WITHDRAWAL HISTORY ====================
 router.get("/withdrawal-history", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
@@ -306,9 +303,7 @@ router.get("/withdrawal-history", verifyToken, authorizeRoles("driver"), async (
   }
 });
 
-/* =========================
-   DRIVER BANK DETAILS
-========================= */
+// ==================== DRIVER BANK DETAILS ====================
 router.get("/bank-details", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
@@ -347,9 +342,7 @@ router.post("/bank-details", verifyToken, authorizeRoles("driver"), async (req, 
   }
 });
 
-/* =========================
-   ADMIN: GET ALL PAYOUTS
-========================= */
+// ==================== ADMIN: GET ALL PAYOUTS ====================
 router.get("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const results = await db.query(
@@ -367,9 +360,7 @@ router.get("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, r
   }
 });
 
-/* =========================
-   ADMIN: PROCESS PAYOUT
-========================= */
+// ==================== ADMIN: PROCESS PAYOUT ====================
 router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { id } = req.params;

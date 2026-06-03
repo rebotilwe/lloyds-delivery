@@ -10,6 +10,7 @@ import {
   AlertCircle,
   CheckCircle,
   Bike,
+  Car,
   Loader2,
   X,
   FileText,
@@ -24,28 +25,43 @@ export default function DriverOnboarding() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [mobileView, setMobileView] = useState(false);
+  const [vehicleType, setVehicleType] = useState('bike'); // 'bike' or 'car'
 
   const [documents, setDocuments] = useState({
     id_copy: null,
     pdp: null,
     profile_photo: null,
-    bike_license: null,  // Changed from car_license
+    vehicle_license: null,
+    vehicle_registration: null, // For cars
   });
 
   const [previews, setPreviews] = useState({
     id_copy: null,
     pdp: null,
     profile_photo: null,
-    bike_license: null,
+    vehicle_license: null,
+    vehicle_registration: null,
   });
 
+  // Bike specific fields
   const [bikeInfo, setBikeInfo] = useState({
     make: '',
     model: '',
     year: '',
     color: '',
     license_plate: '',
-    engine_cc: '', // Added for motorbikes
+    engine_cc: '',
+  });
+
+  // Car specific fields
+  const [carInfo, setCarInfo] = useState({
+    make: '',
+    model: '',
+    year: '',
+    color: '',
+    license_plate: '',
+    seating_capacity: '4',
+    has_ac: true,
   });
 
   useEffect(() => {
@@ -53,7 +69,6 @@ export default function DriverOnboarding() {
     if (stored) setUser(JSON.parse(stored));
   }, []);
 
-  // Check if mobile view
   useEffect(() => {
     const checkMobile = () => {
       setMobileView(window.innerWidth < 640);
@@ -102,6 +117,11 @@ export default function DriverOnboarding() {
     setBikeInfo(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  const handleCarInfoChange = (e) => {
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    setCarInfo(prev => ({ ...prev, [e.target.name]: value }));
+  };
+
   const submitDocs = async () => {
     if (!user) {
       toast.error("User not found");
@@ -113,9 +133,29 @@ export default function DriverOnboarding() {
       return;
     }
 
-    if (!bikeInfo.make || !bikeInfo.model || !bikeInfo.license_plate) {
-      toast.error("Please complete bike information (Make, Model, License Plate)");
-      return;
+    // Validate vehicle-specific requirements
+    if (vehicleType === 'bike') {
+      if (!bikeInfo.make || !bikeInfo.model || !bikeInfo.license_plate) {
+        toast.error("Please complete bike information (Make, Model, License Plate)");
+        return;
+      }
+      if (!documents.vehicle_license) {
+        toast.error("Please upload your bike license");
+        return;
+      }
+    } else {
+      if (!carInfo.make || !carInfo.model || !carInfo.license_plate) {
+        toast.error("Please complete car information (Make, Model, License Plate)");
+        return;
+      }
+      if (!documents.vehicle_license) {
+        toast.error("Please upload your driver's license");
+        return;
+      }
+      if (!documents.vehicle_registration) {
+        toast.error("Please upload vehicle registration document");
+        return;
+      }
     }
 
     setLoading(true);
@@ -124,13 +164,19 @@ export default function DriverOnboarding() {
       const formData = new FormData();
 
       formData.append("userId", user.id);
-      formData.append("car_info", JSON.stringify(bikeInfo));
+      formData.append("vehicle_type", vehicleType);
+      
+      // Send vehicle info based on type
+      const vehicleInfo = vehicleType === 'bike' ? bikeInfo : carInfo;
+      formData.append("car_info", JSON.stringify(vehicleInfo));
 
       formData.append("id_copy", documents.id_copy);
       formData.append("pdp", documents.pdp);
       formData.append("profile_photo", documents.profile_photo);
-      if (documents.bike_license) {
-        formData.append("car_license", documents.bike_license); // Backend expects car_license field
+      formData.append("car_license", documents.vehicle_license);
+      
+      if (documents.vehicle_registration) {
+        formData.append("vehicle_registration", documents.vehicle_registration);
       }
 
       const res = await fetch("https://lloyds-delivery.onrender.com/api/driver/onboarding", {
@@ -150,6 +196,7 @@ export default function DriverOnboarding() {
       const updatedUser = {
         ...user,
         driver_status: "pending",
+        vehicle_type: vehicleType,
       };
 
       localStorage.setItem("user", JSON.stringify(updatedUser));
@@ -238,8 +285,7 @@ export default function DriverOnboarding() {
     );
   }
 
-  // After submission, show Under Review
-  if (submitted) {
+  if (submitted || user.driver_status === 'pending') {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
         <Card>
@@ -258,7 +304,6 @@ export default function DriverOnboarding() {
     );
   }
 
-  // Approved state
   if (user.driver_status === 'approved') {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
@@ -281,7 +326,6 @@ export default function DriverOnboarding() {
     );
   }
 
-  // Rejected state
   if (user.driver_status === 'rejected') {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
@@ -298,86 +342,188 @@ export default function DriverOnboarding() {
     );
   }
 
-  // Show onboarding form
   return (
     <div className="max-w-2xl mx-auto py-6 sm:py-10 px-3 sm:px-4">
       <Card className="overflow-hidden">
         <CardContent className="p-4 sm:p-6 space-y-5 sm:space-y-6">
           <div className="text-center">
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-              <Bike className="w-8 h-8 text-green" />
+              {vehicleType === 'bike' ? (
+                <Bike className="w-8 h-8 text-green" />
+              ) : (
+                <Car className="w-8 h-8 text-green" />
+              )}
             </div>
-            <h2 className="text-xl sm:text-2xl font-bold">Become a Delivery Rider</h2>
+            <h2 className="text-xl sm:text-2xl font-bold">Become a Delivery Partner</h2>
             <p className="text-xs sm:text-sm text-gray-500 mt-1">
-              Complete the form below to start delivering with your motorbike
+              Choose your vehicle type and complete the form below
             </p>
           </div>
 
           <DriverInfoCard />
 
-          {/* Bike Information */}
+          {/* Vehicle Type Selection */}
           <div className="space-y-3">
-            <h3 className="font-semibold text-sm sm:text-base flex items-center gap-2">
-              <Bike className="w-4 h-4 sm:w-5 sm:h-5 text-green" />
-              Motorbike Information
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs sm:text-sm">Make *</Label>
-                <Input 
-                  name="make" 
-                  placeholder="e.g., Honda, Yamaha, Suzuki" 
-                  onChange={handleBikeInfoChange}
-                  className="mt-1 text-sm"
-                />
-              </div>
-              <div>
-                <Label className="text-xs sm:text-sm">Model *</Label>
-                <Input 
-                  name="model" 
-                  placeholder="e.g., CBR 150, MT-15" 
-                  onChange={handleBikeInfoChange}
-                  className="mt-1 text-sm"
-                />
-              </div>
-              <div>
-                <Label className="text-xs sm:text-sm">Year</Label>
-                <Input 
-                  name="year" 
-                  placeholder="e.g., 2020" 
-                  onChange={handleBikeInfoChange}
-                  className="mt-1 text-sm"
-                />
-              </div>
-              <div>
-                <Label className="text-xs sm:text-sm">Engine CC</Label>
-                <Input 
-                  name="engine_cc" 
-                  placeholder="e.g., 150cc" 
-                  onChange={handleBikeInfoChange}
-                  className="mt-1 text-sm"
-                />
-              </div>
-              <div>
-                <Label className="text-xs sm:text-sm">Color</Label>
-                <Input 
-                  name="color" 
-                  placeholder="e.g., Red, Black" 
-                  onChange={handleBikeInfoChange}
-                  className="mt-1 text-sm"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <Label className="text-xs sm:text-sm">License Plate *</Label>
-                <Input 
-                  name="license_plate" 
-                  placeholder="e.g., ABC 123 GP" 
-                  onChange={handleBikeInfoChange}
-                  className="mt-1 text-sm"
-                />
-              </div>
+            <Label className="text-sm font-semibold">Select Vehicle Type *</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setVehicleType('bike')}
+                className={`p-4 rounded-lg border-2 transition-all ${
+                  vehicleType === 'bike' 
+                    ? 'border-green-500 bg-green-50' 
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <Bike className={`w-6 h-6 mx-auto mb-2 ${vehicleType === 'bike' ? 'text-green-500' : 'text-gray-400'}`} />
+                <p className={`font-medium ${vehicleType === 'bike' ? 'text-green-700' : 'text-gray-600'}`}>Motorcycle</p>
+                <p className="text-xs text-gray-400 mt-1">Scooter / Bike</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setVehicleType('car')}
+                className={`p-4 rounded-lg border-2 transition-all ${
+                  vehicleType === 'car' 
+                    ? 'border-green-500 bg-green-50' 
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <Car className={`w-6 h-6 mx-auto mb-2 ${vehicleType === 'car' ? 'text-green-500' : 'text-gray-400'}`} />
+                <p className={`font-medium ${vehicleType === 'car' ? 'text-green-700' : 'text-gray-600'}`}>Car / Van</p>
+                <p className="text-xs text-gray-400 mt-1">4+ seater</p>
+              </button>
             </div>
           </div>
+
+          {/* Vehicle Information based on type */}
+          {vehicleType === 'bike' ? (
+            <div className="space-y-3">
+              <h3 className="font-semibold text-sm sm:text-base flex items-center gap-2">
+                <Bike className="w-4 h-4 sm:w-5 sm:h-5 text-green" />
+                Motorcycle Information
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs sm:text-sm">Make *</Label>
+                  <Input 
+                    name="make" 
+                    placeholder="e.g., Honda, Yamaha, Suzuki" 
+                    onChange={handleBikeInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs sm:text-sm">Model *</Label>
+                  <Input 
+                    name="model" 
+                    placeholder="e.g., CBR 150, MT-15" 
+                    onChange={handleBikeInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs sm:text-sm">Year</Label>
+                  <Input 
+                    name="year" 
+                    placeholder="e.g., 2020" 
+                    onChange={handleBikeInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs sm:text-sm">Engine CC</Label>
+                  <Input 
+                    name="engine_cc" 
+                    placeholder="e.g., 150cc" 
+                    onChange={handleBikeInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs sm:text-sm">Color</Label>
+                  <Input 
+                    name="color" 
+                    placeholder="e.g., Red, Black" 
+                    onChange={handleBikeInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label className="text-xs sm:text-sm">License Plate *</Label>
+                  <Input 
+                    name="license_plate" 
+                    placeholder="e.g., ABC 123 GP" 
+                    onChange={handleBikeInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <h3 className="font-semibold text-sm sm:text-base flex items-center gap-2">
+                <Car className="w-4 h-4 sm:w-5 sm:h-5 text-green" />
+                Car Information
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs sm:text-sm">Make *</Label>
+                  <Input 
+                    name="make" 
+                    placeholder="e.g., Toyota, Ford, VW" 
+                    onChange={handleCarInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs sm:text-sm">Model *</Label>
+                  <Input 
+                    name="model" 
+                    placeholder="e.g., Corolla, Focus, Polo" 
+                    onChange={handleCarInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs sm:text-sm">Year</Label>
+                  <Input 
+                    name="year" 
+                    placeholder="e.g., 2020" 
+                    onChange={handleCarInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs sm:text-sm">Color</Label>
+                  <Input 
+                    name="color" 
+                    placeholder="e.g., White, Silver" 
+                    onChange={handleCarInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs sm:text-sm">Seating Capacity</Label>
+                  <Input 
+                    name="seating_capacity" 
+                    placeholder="e.g., 4, 5, 7" 
+                    value={carInfo.seating_capacity}
+                    onChange={handleCarInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label className="text-xs sm:text-sm">License Plate *</Label>
+                  <Input 
+                    name="license_plate" 
+                    placeholder="e.g., ABC 123 GP" 
+                    onChange={handleCarInfoChange}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Documents Upload */}
           <div className="space-y-4">
@@ -399,7 +545,7 @@ export default function DriverOnboarding() {
               label="PDP License" 
               required 
               preview={previews.pdp}
-              description="Professional Driving Permit (must have motorbike code)"
+              description="Professional Driving Permit (required for all drivers)"
             />
             
             <FileUploadArea 
@@ -411,24 +557,49 @@ export default function DriverOnboarding() {
             />
             
             <FileUploadArea 
-              field="bike_license" 
-              label="Bike License / Registration (Optional)" 
-              required={false} 
-              preview={previews.bike_license}
-              description="Motorbike registration document"
+              field="vehicle_license" 
+              label={vehicleType === 'bike' ? "Motorcycle License" : "Driver's License"} 
+              required 
+              preview={previews.vehicle_license}
+              description={vehicleType === 'bike' ? "Valid motorcycle license" : "Valid driver's license (Code 8 or higher)"}
             />
+
+            {vehicleType === 'car' && (
+              <FileUploadArea 
+                field="vehicle_registration" 
+                label="Vehicle Registration" 
+                required 
+                preview={previews.vehicle_registration}
+                description="Vehicle registration document (proof of ownership)"
+              />
+            )}
           </div>
 
           <div className="bg-blue-50 rounded-lg p-3 flex gap-2">
             <Info className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500 shrink-0 mt-0.5" />
             <div>
-              <p className="text-xs sm:text-sm text-blue-700 font-medium">Requirements for Riders</p>
+              <p className="text-xs sm:text-sm text-blue-700 font-medium">
+                Requirements for {vehicleType === 'bike' ? 'Riders' : 'Drivers'}
+              </p>
               <p className="text-[11px] sm:text-xs text-blue-600 mt-0.5">
-                • Valid driver's license with motorbike code<br />
-                • Valid Professional Driving Permit (PDP)<br />
-                • Reliable motorbike in good condition<br />
-                • Smartphone with GPS<br />
-                • Processing takes 24-48 hours
+                {vehicleType === 'bike' ? (
+                  <>
+                    • Valid motorcycle license with motorbike code<br />
+                    • Valid Professional Driving Permit (PDP)<br />
+                    • Reliable motorbike in good condition<br />
+                    • Smartphone with GPS<br />
+                    • Processing takes 24-48 hours
+                  </>
+                ) : (
+                  <>
+                    • Valid driver's license (Code 8 or higher)<br />
+                    • Valid Professional Driving Permit (PDP)<br />
+                    • Reliable car in good condition<br />
+                    • Vehicle registration document<br />
+                    • Smartphone with GPS<br />
+                    • Processing takes 24-48 hours
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -444,23 +615,9 @@ export default function DriverOnboarding() {
                 Submitting Application...
               </>
             ) : (
-              'Submit Rider Application'
+              `Submit ${vehicleType === 'bike' ? 'Rider' : 'Driver'} Application`
             )}
           </Button>
-
-          {(documents.id_copy || documents.pdp || documents.profile_photo) && (
-            <div className="flex flex-wrap gap-2 pt-2">
-              {documents.id_copy && (
-                <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">✓ ID Uploaded</span>
-              )}
-              {documents.pdp && (
-                <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">✓ PDP Uploaded</span>
-              )}
-              {documents.profile_photo && (
-                <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">✓ Photo Uploaded</span>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>

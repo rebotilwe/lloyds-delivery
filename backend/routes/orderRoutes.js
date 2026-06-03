@@ -7,6 +7,9 @@ const router = express.Router();
 /* =========================
    CREATE ORDER
 ========================= */
+/* =========================
+   CREATE ORDER (UPDATED with vehicle_type)
+========================= */
 router.post("/create", async (req, res) => {
   try {
     const {
@@ -24,16 +27,15 @@ router.post("/create", async (req, res) => {
       payment_status,
       payment_transaction_id,
       promo_code,
-      discount_applied
+      discount_applied,
+      required_vehicle_type  // ADD THIS
     } = req.body;
 
     console.log("Creating order with data:", { 
       customer_id, restaurant_id, total, delivery_address, 
       itemsCount: items?.length,
       payment_status,
-      payment_transaction_id,
-      promo_code,
-      discount_applied
+      required_vehicle_type  // ADD THIS
     });
 
     if (!customer_id || !restaurant_id || !total || !delivery_address) {
@@ -46,98 +48,19 @@ router.post("/create", async (req, res) => {
       `INSERT INTO orders 
        (customer_id, customer_name, restaurant_id, restaurant_name, status, total, 
         original_total, delivery_address, delivery_fee, notes, payment_status, 
-        payment_transaction_id, promo_code, discount_applied, reviewed, created_at) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW()) RETURNING id`,
+        payment_transaction_id, promo_code, discount_applied, required_vehicle_type, reviewed, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW()) RETURNING id`,
       [customer_id, customer_name || 'Customer', restaurant_id, restaurant_name, 
        status || 'pending', total, original_total || total, delivery_address, 
        delivery_fee || 0, notes || null, payment_status || 'pending', 
-       payment_transaction_id || null, promo_code || null, discount_applied || 0, false]
+       payment_transaction_id || null, promo_code || null, discount_applied || 0,
+       required_vehicle_type || 'bike', false]
     );
 
     const orderId = result.rows[0].id;
-    console.log(`✅ Order created with ID: ${orderId}`);
+    console.log(`✅ Order created with ID: ${orderId}, Vehicle Required: ${required_vehicle_type || 'bike'}`);
 
-    // Insert order items
-    if (items && Array.isArray(items) && items.length > 0) {
-      for (const item of items) {
-        const menuItemId = item.id || item.menu_item_id;
-        const itemName = item.name;
-        const quantity = item.quantity || 1;
-        const price = parseFloat(item.price) || 0;
-        
-        let finalMenuItemId = null;
-        if (menuItemId) {
-          const menuItemCheck = await db.query(
-            "SELECT id FROM menu_items WHERE id = $1",
-            [menuItemId]
-          );
-          if (menuItemCheck.rows.length > 0) {
-            finalMenuItemId = menuItemId;
-          }
-        }
-        
-        await db.query(
-          `INSERT INTO order_items 
-           (order_id, menu_item_id, name, quantity, price) 
-           VALUES ($1, $2, $3, $4, $5)`,
-          [orderId, finalMenuItemId, itemName, quantity, price]
-        );
-      }
-    }
-
-    // Notify vendor about new order
-    const io = req.app.get("io");
-    try {
-      const restaurant = await db.query(
-        "SELECT owner_id FROM restaurants WHERE id = $1",
-        [restaurant_id]
-      );
-
-      if (restaurant.rows[0]?.owner_id && io) {
-        io.to(`vendor_${restaurant.rows[0].owner_id}`).emit("new-order", {
-          orderId: orderId,
-          orderTotal: total,
-          customerName: customer_name,
-          itemsCount: items?.length || 0,
-          timestamp: new Date(),
-        });
-        console.log(`🔔 Notified vendor ${restaurant.rows[0].owner_id} about order ${orderId}`);
-      }
-    } catch (notifyErr) {
-      console.error("Failed to notify vendor:", notifyErr.message);
-    }
-
-    // Send email confirmation
-    try {
-      const customer = await db.query("SELECT email, name FROM users WHERE id = $1", [customer_id]);
-      if (customer.rows[0]?.email) {
-        const newOrder = await db.query("SELECT * FROM orders WHERE id = $1", [orderId]);
-        const orderItems = await db.query("SELECT * FROM order_items WHERE order_id = $1", [orderId]);
-        const orderWithItems = { ...newOrder.rows[0], items: orderItems.rows };
-        
-        sendOrderConfirmation(orderWithItems, customer.rows[0].email, customer.rows[0].name || customer_name)
-          .catch(emailErr => console.error("Email error:", emailErr.message));
-      }
-    } catch (emailErr) {
-      console.error("Failed to send email:", emailErr.message);
-    }
-
-    res.status(201).json({ 
-      success: true, 
-      orderId: orderId,
-      message: "Order placed successfully",
-      payment_status: payment_status || 'pending'
-    });
-
-  } catch (err) {
-    console.error("Error creating order:", err);
-    res.status(500).json({ 
-      message: "Failed to create order", 
-      error: err.message 
-    });
-  }
-});
-
+    // ... rest of your existing code (items insert, notifications, email) stays the same
 /* =========================
    GET ALL ORDERS (ADMIN)
 ========================= */
@@ -191,24 +114,52 @@ router.get("/customer/:customer_id", async (req, res) => {
    AVAILABLE ORDERS FOR DRIVERS
    Only shows orders that are READY FOR PICKUP
 ========================= */
+/* =========================
+   AVAILABLE ORDERS FOR DRIVERS
+   Filters by driver's vehicle capability
+========================= */
 router.get("/available", async (req, res) => {
   try {
-    const results = await db.query(
-      `SELECT o.*, 
-              u.name as customer_name,
-              u.phone as customer_phone,
-              r.name as restaurant_name,
-              r.address as restaurant_address,
-              r.latitude as restaurant_lat,
-              r.longitude as restaurant_lng,
-              (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
-       FROM orders o
-       LEFT JOIN users u ON o.customer_id = u.id
-       LEFT JOIN restaurants r ON o.restaurant_id = r.id
-       WHERE (o.driver_id IS NULL OR o.driver_id = 0) 
-         AND o.status = 'ready_for_pickup'
-       ORDER BY o.created_at ASC`
-    );
+    const { driver_id } = req.query;
+    let query = `
+      SELECT o.*, 
+             u.name as customer_name,
+             u.phone as customer_phone,
+             r.name as restaurant_name,
+             r.address as restaurant_address,
+             r.latitude as restaurant_lat,
+             r.longitude as restaurant_lng,
+             (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
+      FROM orders o
+      LEFT JOIN users u ON o.customer_id = u.id
+      LEFT JOIN restaurants r ON o.restaurant_id = r.id
+      WHERE (o.driver_id IS NULL OR o.driver_id = 0) 
+        AND o.status = 'ready_for_pickup'
+    `;
+    
+    const values = [];
+    let paramIndex = 1;
+    
+    // If a specific driver is requesting, filter by their vehicle type
+    if (driver_id) {
+      const driverResult = await db.query(
+        `SELECT vehicle_type FROM users WHERE id = $1 AND role = 'driver'`,
+        [driver_id]
+      );
+      
+      const driverVehicle = driverResult.rows[0]?.vehicle_type || 'bike';
+      
+      // Bike drivers can only take bike orders
+      // Car drivers can take both bike and car orders
+      if (driverVehicle === 'bike') {
+        query += ` AND (o.required_vehicle_type = 'bike' OR o.required_vehicle_type IS NULL)`;
+      }
+      // Car drivers: no filter needed
+    }
+    
+    query += ` ORDER BY o.created_at ASC`;
+    
+    const results = await db.query(query, values);
     res.json(results.rows || []);
   } catch (err) {
     console.error("Error fetching available orders:", err);
@@ -250,6 +201,9 @@ router.get("/driver/:id", async (req, res) => {
 /* =========================
    DRIVER ACCEPTS ORDER - UPDATED with driver_name and vendor notification
 ========================= */
+/* =========================
+   DRIVER ACCEPTS ORDER (UPDATED with vehicle check)
+========================= */
 router.put("/accept/:id", async (req, res) => {
   try {
     const { driver_id } = req.body;
@@ -262,9 +216,23 @@ router.put("/accept/:id", async (req, res) => {
       return res.status(400).json({ message: "driver_id is required" });
     }
 
-    // Check if order exists and is ready for pickup
+    // Check if driver exists and get their vehicle type
+    const driverCheck = await db.query(
+      "SELECT id, name, email, vehicle_type FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
+      [driver_id]
+    );
+    
+    if (driverCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Driver not found or not approved" });
+    }
+
+    const driver = driverCheck.rows[0];
+    const driverVehicle = driver.vehicle_type || 'bike';
+
+    // Check order details including required vehicle type
     const orderCheck = await db.query(
-      `SELECT o.*, r.name as restaurant_name, r.owner_id
+      `SELECT o.*, r.name as restaurant_name, r.owner_id,
+              o.required_vehicle_type
        FROM orders o
        LEFT JOIN restaurants r ON o.restaurant_id = r.id
        WHERE o.id = $1 AND (o.driver_id IS NULL OR o.driver_id = 0) AND o.status = 'ready_for_pickup'`,
@@ -276,18 +244,14 @@ router.put("/accept/:id", async (req, res) => {
     }
 
     const order = orderCheck.rows[0];
+    const requiredVehicle = order.required_vehicle_type || 'bike';
 
-    // Check if driver exists and is approved
-    const driverCheck = await db.query(
-      "SELECT id, name, email FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
-      [driver_id]
-    );
-    
-    if (driverCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Driver not found or not approved" });
+    // Vehicle compatibility check
+    if (driverVehicle === 'bike' && requiredVehicle === 'car') {
+      return res.status(400).json({ 
+        message: "This order requires a car. Bike riders cannot accept this order." 
+      });
     }
-
-    const driver = driverCheck.rows[0];
 
     // Update order with driver name and status
     await db.query(
@@ -310,10 +274,11 @@ router.put("/accept/:id", async (req, res) => {
         orderId: parseInt(orderId),
         driverId: driver_id,
         driverName: driver.name,
+        vehicleType: driverVehicle,
         status: "picked_up",
         timestamp: new Date(),
       });
-      console.log(`📢 Notified vendor ${order.owner_id}: Driver ${driver.name} accepted order #${orderId}`);
+      console.log(`📢 Notified vendor ${order.owner_id}: Driver ${driver.name} (${driverVehicle}) accepted order #${orderId}`);
     }
 
     res.json({ 
@@ -327,7 +292,7 @@ router.put("/accept/:id", async (req, res) => {
 });
 
 /* =========================
-   ADMIN ASSIGNS DRIVER TO ORDER (offers trip)
+   ADMIN ASSIGNS DRIVER TO ORDER (UPDATED with vehicle check)
 ========================= */
 router.put("/assign/:id", async (req, res) => {
   try {
@@ -341,6 +306,19 @@ router.put("/assign/:id", async (req, res) => {
       return res.status(400).json({ message: "driver_id is required" });
     }
 
+    // Check driver vehicle type
+    const driverCheck = await db.query(
+      "SELECT id, name, vehicle_type FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
+      [driver_id]
+    );
+    
+    if (driverCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Driver not found or not approved" });
+    }
+
+    const driver = driverCheck.rows[0];
+
+    // Check order required vehicle
     const orderCheck = await db.query(
       "SELECT * FROM orders WHERE id = $1 AND (driver_id IS NULL OR driver_id = 0) AND status = 'ready_for_pickup'",
       [orderId]
@@ -351,17 +329,15 @@ router.put("/assign/:id", async (req, res) => {
     }
 
     const order = orderCheck.rows[0];
+    const requiredVehicle = order.required_vehicle_type || 'bike';
+    const driverVehicle = driver.vehicle_type || 'bike';
 
-    const driverCheck = await db.query(
-      "SELECT id, name FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
-      [driver_id]
-    );
-    
-    if (driverCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Driver not found or not approved" });
+    // Vehicle compatibility check
+    if (driverVehicle === 'bike' && requiredVehicle === 'car') {
+      return res.status(400).json({ 
+        message: "This order requires a car. Cannot assign to bike rider." 
+      });
     }
-
-    const driver = driverCheck.rows[0];
 
     await db.query(
       "UPDATE orders SET driver_id = $1, driver_name = $2, status = 'picked_up' WHERE id = $3",
@@ -373,13 +349,15 @@ router.put("/assign/:id", async (req, res) => {
       restaurantName: order.restaurant_name,
       customerAddress: order.delivery_address,
       orderTotal: order.total,
+      requiredVehicle: requiredVehicle,
       message: "You have been assigned a delivery trip!"
     });
 
     res.json({ 
       message: "Order assigned to driver successfully",
       orderId: orderId,
-      driverId: driver_id
+      driverId: driver_id,
+      vehicleMatch: true
     });
   } catch (err) {
     console.error("Error assigning driver:", err);

@@ -21,6 +21,8 @@ import {
   Wallet,
   CreditCard,
   Banknote,
+  Bike,
+  Car,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatOrderStatus } from '@/lib/utils';
@@ -228,6 +230,12 @@ export default function DriverDashboard() {
         
         console.log('New order offered:', data);
         
+        // Check vehicle compatibility if order has requiredVehicle
+        if (data.requiredVehicle === 'car' && user?.vehicle_type === 'bike') {
+          console.log('Order requires car, but driver has bike - ignoring');
+          return;
+        }
+        
         if ('Notification' in window && Notification.permission === 'granted') {
           new Notification('New Delivery Offer!', {
             body: `Order #${data.orderId} from ${data.restaurantName} - R${data.orderTotal}`,
@@ -279,10 +287,11 @@ export default function DriverDashboard() {
     }
     
     setRefreshing(true);
-    console.log('Fetching orders for driver:', user.id);
+    console.log('Fetching orders for driver:', user.id, 'Vehicle:', user.vehicle_type);
     
     try {
-      const res1 = await fetch('https://lloyds-delivery.onrender.com/api/orders/available');
+      // Pass driver_id to filter orders by vehicle capability
+      const res1 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/available?driver_id=${user.id}`);
       let available = await res1.json();
       console.log('Available orders API response:', available);
       
@@ -304,27 +313,26 @@ export default function DriverDashboard() {
     }
   }, [user, declinedOrders]);
 
-const fetchEarningsData = async () => {
-  try {
-    const token = localStorage.getItem('token');
-    const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/earnings-summary', {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await res.json();
-    const summary = data.summary || {};
-    
-    // FIXED: Use correct field mapping
-    setEarningsSummary({
-      pending_balance: parseFloat(summary.pending_balance) || 0,
-      available_balance: parseFloat(summary.available_balance) || 0,
-      total_earned: parseFloat(summary.total_earned) || 0,
-      total_paid: parseFloat(summary.withdrawn_total) || 0,  // ← Changed from total_paid
-      pending_payout: parseFloat(summary.pending_payout) || 0
-    });
-  } catch (err) {
-    console.error('Error fetching earnings:', err);
-  }
-};
+  const fetchEarningsData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/earnings-summary', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      const summary = data.summary || {};
+      
+      setEarningsSummary({
+        pending_balance: parseFloat(summary.pending_balance) || 0,
+        available_balance: parseFloat(summary.available_balance) || 0,
+        total_earned: parseFloat(summary.total_earned) || 0,
+        total_paid: parseFloat(summary.withdrawn_total) || 0,
+        pending_payout: parseFloat(summary.pending_payout) || 0
+      });
+    } catch (err) {
+      console.error('Error fetching earnings:', err);
+    }
+  };
 
   const fetchWithdrawalHistory = async () => {
     try {
@@ -333,7 +341,6 @@ const fetchEarningsData = async () => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
-      // Ensure amounts are numbers
       const fixedData = (data || []).map(item => ({
         ...item,
         amount: parseFloat(item.amount) || 0,
@@ -452,7 +459,17 @@ const fetchEarningsData = async () => {
         body: JSON.stringify({ driver_id: user.id }),
       });
 
-      if (!response.ok) throw new Error('Failed to accept order');
+      const data = await response.json();
+      
+      if (!response.ok) {
+        // Handle vehicle mismatch error from backend
+        if (data.message && data.message.includes('requires a car')) {
+          toast.error('This order requires a car. Only car drivers can accept it.');
+        } else {
+          toast.error(data.message || 'Failed to accept order');
+        }
+        return;
+      }
 
       toast.success('Order accepted! Head to the restaurant');
       fetchOrders();
@@ -616,11 +633,27 @@ const fetchEarningsData = async () => {
           <h1 className="text-xl sm:text-2xl font-bold">Driver Dashboard</h1>
           <p className="text-xs sm:text-sm text-gray-500">Welcome back, {user?.name || 'Driver'}</p>
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Vehicle Type Badge */}
+          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg shadow-sm border">
+            {user?.vehicle_type === 'car' ? (
+              <>
+                <Car className="w-4 h-4 text-blue-500" />
+                <span className="text-xs font-medium text-gray-700">Car Driver</span>
+              </>
+            ) : (
+              <>
+                <Bike className="w-4 h-4 text-green" />
+                <span className="text-xs font-medium text-gray-700">Bike Rider</span>
+              </>
+            )}
+          </div>
+          
           <Button onClick={fetchOrders} variant="outline" size="sm" disabled={refreshing} className="text-xs">
             <RefreshCw className={`w-3 h-3 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
+          
           <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg shadow-sm">
             <span className="text-xs text-gray-500">Available</span>
             <Switch 
@@ -650,7 +683,7 @@ const fetchEarningsData = async () => {
         )}
         {hasActiveOrder && (
           <span className="text-[10px] sm:text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
-            🏍️ Currently on delivery
+            {user?.vehicle_type === 'car' ? '🚗 Currently on delivery' : '🏍️ Currently on delivery'}
           </span>
         )}
       </div>
@@ -913,13 +946,28 @@ const fetchEarningsData = async () => {
             {availableOrders.map((order) => {
               const distance = restaurantDistances[order.id];
               const estimatedTime = distance ? estimateDeliveryTime(distance) : null;
+              const requiredVehicle = order.required_vehicle_type || 'bike';
               
               return (
                 <Card key={order.id} className="hover:shadow-md transition">
                   <CardContent className="p-3 sm:p-4">
                     <div className="flex flex-col sm:flex-row justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm sm:text-base truncate">{order.restaurant_name || 'Restaurant'}</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-sm sm:text-base truncate">{order.restaurant_name || 'Restaurant'}</p>
+                          {requiredVehicle === 'car' && (
+                            <Badge className="bg-blue-100 text-blue-700 text-[10px]">
+                              <Car className="w-2.5 h-2.5 mr-1" />
+                              Car Required
+                            </Badge>
+                          )}
+                          {requiredVehicle === 'bike' && (
+                            <Badge className="bg-green-100 text-green-700 text-[10px]">
+                              <Bike className="w-2.5 h-2.5 mr-1" />
+                              Any Vehicle
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-xs text-gray-500 mt-0.5">
                           Order #{order.id} • {order.customer_name || 'Customer'} • {getItemCountText(order)}
                         </p>
@@ -950,8 +998,11 @@ const fetchEarningsData = async () => {
                         <div className="flex gap-2">
                           <Button 
                             onClick={() => acceptOrder(order.id)}
-                            disabled={hasActiveOrder}
-                            className="bg-green hover:bg-green/90 text-white text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4"
+                            disabled={hasActiveOrder || (requiredVehicle === 'car' && user?.vehicle_type === 'bike')}
+                            className={`bg-green hover:bg-green/90 text-white text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 ${
+                              requiredVehicle === 'car' && user?.vehicle_type === 'bike' ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                            title={requiredVehicle === 'car' && user?.vehicle_type === 'bike' ? 'This order requires a car' : ''}
                           >
                             Accept
                           </Button>

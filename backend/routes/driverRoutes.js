@@ -32,7 +32,7 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
-// ==================== DRIVER ONBOARDING ====================
+// In driverRoutes.js, update the onboarding POST endpoint
 router.post(
   "/onboarding",
   upload.fields([
@@ -40,24 +40,26 @@ router.post(
     { name: "pdp", maxCount: 1 },
     { name: "profile_photo", maxCount: 1 },
     { name: "car_license", maxCount: 1 },
+    { name: "vehicle_registration", maxCount: 1 }, // Add for cars
   ]),
   async (req, res) => {
     try {
-      const { userId, car_info } = req.body;
+      const { userId, car_info, vehicle_type } = req.body; // Add vehicle_type
       const files = req.files;
 
       console.log("📝 Processing driver application for userId:", userId);
+      console.log("Vehicle type:", vehicle_type);
 
       if (!userId) {
         return res.status(400).json({ message: "User ID is required" });
       }
 
-      // Parse car info
-      let car = {};
+      // Parse vehicle info (bike or car)
+      let vehicleInfo = {};
       try {
-        car = typeof car_info === 'string' ? JSON.parse(car_info) : (car_info || {});
+        vehicleInfo = typeof car_info === 'string' ? JSON.parse(car_info) : (car_info || {});
       } catch (e) {
-        car = {};
+        vehicleInfo = {};
       }
 
       // Upload each file to Supabase Storage
@@ -84,7 +86,6 @@ router.post(
           throw error;
         }
 
-        // Get public URL
         const { data: { publicUrl } } = supabase.storage
           .from(BUCKET_NAME)
           .getPublicUrl(fileName);
@@ -98,34 +99,40 @@ router.post(
         return res.status(400).json({ message: "Missing required files" });
       }
 
-      // Update database
+      // Update database with vehicle_type
       const sql = `
         UPDATE users 
         SET 
           driver_status = 'pending',
-          id_copy = $1,
-          pdp = $2,
-          profile_photo = $3,
-          car_license = $4,
-          car_make = $5,
-          car_model = $6,
-          car_year = $7,
-          car_color = $8,
-          license_plate = $9
-        WHERE id = $10
+          vehicle_type = $1,
+          id_copy = $2,
+          pdp = $3,
+          profile_photo = $4,
+          car_license = $5,
+          car_make = $6,
+          car_model = $7,
+          car_year = $8,
+          car_color = $9,
+          license_plate = $10,
+          vehicle_engine_cc = $11,
+          vehicle_registration = $12
+        WHERE id = $13
         RETURNING id
       `;
 
       const values = [
+        vehicle_type || 'bike',  // vehicle_type
         fileUrls.id_copy,
         fileUrls.pdp,
         fileUrls.profile_photo,
         fileUrls.car_license || null,
-        car?.make || null,
-        car?.model || null,
-        car?.year || null,
-        car?.color || null,
-        car?.license_plate || null,
+        vehicleInfo?.make || null,
+        vehicleInfo?.model || null,
+        vehicleInfo?.year || null,
+        vehicleInfo?.color || null,
+        vehicleInfo?.license_plate || null,
+        vehicleInfo?.engine_cc || null,  // For bikes
+        fileUrls.vehicle_registration || null,  // For cars
         userId,
       ];
 
@@ -151,7 +158,6 @@ router.post(
     }
   }
 );
-
 // ==================== DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {

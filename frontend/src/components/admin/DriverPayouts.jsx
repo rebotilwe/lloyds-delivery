@@ -39,43 +39,30 @@ export default function DriverPayouts() {
     fetchPayouts();
   }, []);
 
-const fetchDrivers = async () => {
-  try {
-    const response = await api.get('/users');
-    const allDrivers = response.data?.filter(u => u.role === 'driver' && u.driver_status === 'approved') || [];
-    
-    const driversWithBalance = await Promise.all(allDrivers.map(async (driver) => {
-      try {
-        // Use the earnings-summary endpoint for each driver
-        const earningsRes = await api.get(`/driver/earnings-summary/${driver.id}`);
-        // The endpoint returns available_balance, not pending_balance
-        const availableBalance = earningsRes.data?.summary?.available_balance || 
-                               earningsRes.data?.available_balance || 0;
-        return { 
-          ...driver, 
-          pending_balance: parseFloat(availableBalance) || 0 
-        };
-      } catch (error) {
-        console.log(`Could not fetch earnings for driver ${driver.id}:`, error.message);
-        // Fallback to user's available_balance from users table
-        const fallbackBalance = driver.available_balance || driver.pending_balance || 0;
-        return { ...driver, pending_balance: parseFloat(fallbackBalance) || 0 };
-      }
-    }));
-    
-    setDrivers(driversWithBalance);
-  } catch (error) {
-    console.error('Error fetching drivers:', error);
-    setDrivers([]);
-  }
-};
+  // FIXED: Use available_balance directly from users table
+  const fetchDrivers = async () => {
+    try {
+      const response = await api.get('/users');
+      const allDrivers = response.data?.filter(u => u.role === 'driver' && u.driver_status === 'approved') || [];
+      
+      // Use the available_balance directly from the user object
+      const driversWithBalance = allDrivers.map(driver => ({
+        ...driver,
+        pending_balance: parseFloat(driver.available_balance || driver.pending_balance || 0)
+      }));
+      
+      setDrivers(driversWithBalance);
+    } catch (error) {
+      console.error('Error fetching drivers:', error);
+      setDrivers([]);
+    }
+  };
 
   const fetchPayouts = async () => {
     setLoading(true);
     try {
       const response = await api.get('/driver/admin/payouts');
       const payoutsData = response.data || [];
-      // Ensure amounts are numbers
       const fixedPayouts = payoutsData.map(p => ({
         ...p,
         amount: parseFloat(p.amount) || 0

@@ -27,20 +27,6 @@ const getVendorRestaurant = async (vendorId) => {
 };
 
 /* =========================
-   HELPER: PROCESS REFUND WITH YOCO
-========================= */
-const processRefund = async (paymentTransactionId, amount) => {
-  console.log(`💰 Processing refund for transaction: ${paymentTransactionId}, Amount: R${amount}`);
-  
-  // Simulate refund processing
-  return {
-    success: true,
-    refundId: `ref_${Date.now()}`,
-    message: "Refund processed successfully"
-  };
-};
-
-/* =========================
    GET RESTAURANT
 ========================= */
 router.get("/restaurant", async (req, res) => {
@@ -57,7 +43,7 @@ router.get("/restaurant", async (req, res) => {
     res.json(restaurant);
   } catch (error) {
     console.error("Error fetching restaurant:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error: " + error.message });
   }
 });
 
@@ -72,13 +58,13 @@ router.post("/setup-restaurant", async (req, res) => {
       cuisine_type,
       address,
       phone,
-      delivery_fee,
-      markup_percentage
+      delivery_fee
     } = req.body;
 
     console.log("🏪 Setting up restaurant for vendor:", req.user.id);
-    console.log("📦 Received data:", { name, address, phone, cuisine_type, markup_percentage });
+    console.log("📦 Received data:", { name, address, phone, cuisine_type });
 
+    // Check if vendor already has a restaurant
     const existing = await db.query(
       "SELECT id FROM restaurants WHERE owner_id = $1",
       [req.user.id]
@@ -91,12 +77,6 @@ router.post("/setup-restaurant", async (req, res) => {
 
     if (!name || !address) {
       return res.status(400).json({ message: "Restaurant name and address are required" });
-    }
-
-    const numericMarkup = parseFloat(markup_percentage) || 12.5;
-    
-    if (numericMarkup < 10 || numericMarkup > 15) {
-      return res.status(400).json({ message: "Markup percentage must be between 10% and 15%" });
     }
 
     const result = await db.query(
@@ -112,16 +92,16 @@ router.post("/setup-restaurant", async (req, res) => {
         phone || null, 
         delivery_fee || 20, 
         req.user.id,
-        numericMarkup
+        12.5  // Default markup percentage
       ]
     );
 
-    console.log(`✅ Restaurant created: ID ${result.rows[0].id}, Name: ${name}, Markup: ${numericMarkup}%`);
+    console.log(`✅ Restaurant created: ID ${result.rows[0].id}, Name: ${name}`);
     
     res.status(201).json({ 
       success: true, 
       restaurant_id: result.rows[0].id,
-      markup_percentage: numericMarkup,
+      markup_percentage: 12.5,
       message: "Restaurant setup successfully"
     });
   } catch (error) {
@@ -138,11 +118,7 @@ router.post("/setup-restaurant", async (req, res) => {
 ========================= */
 router.get("/orders", async (req, res) => {
   try {
-    console.log("🔍 Vendor ID:", req.user.id);
-
     const restaurant = await getVendorRestaurant(req.user.id);
-
-    console.log("🏪 Restaurant found:", restaurant);
 
     if (!restaurant) {
       return res.json([]);
@@ -157,18 +133,7 @@ router.get("/orders", async (req, res) => {
        FROM orders o
        LEFT JOIN users u ON o.customer_id = u.id
        WHERE o.restaurant_id = $1
-       ORDER BY 
-         CASE o.status
-           WHEN 'pending' THEN 1
-           WHEN 'confirmed' THEN 2
-           WHEN 'preparing' THEN 3
-           WHEN 'ready_for_pickup' THEN 4
-           WHEN 'picked_up' THEN 5
-           WHEN 'on_the_way' THEN 6
-           WHEN 'delivered' THEN 7
-           ELSE 8
-         END,
-         o.created_at DESC`,
+       ORDER BY o.created_at DESC`,
       [restaurant.id]
     );
 
@@ -190,7 +155,7 @@ router.get("/orders", async (req, res) => {
 });
 
 /* =========================
-   ANALYTICS (UPDATED with vendor_amount)
+   ANALYTICS
 ========================= */
 router.get("/analytics", async (req, res) => {
   try {
@@ -201,11 +166,10 @@ router.get("/analytics", async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Use vendor_amount instead of total for vendor revenue
     const todayOrders = await db.query(
-      `SELECT COUNT(*) as count, COALESCE(SUM(vendor_amount), 0) as revenue
+      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue
        FROM orders
-       WHERE restaurant_id = $1 AND created_at >= $2 AND status = 'delivered'`,
+       WHERE restaurant_id = $1 AND created_at >= $2`,
       [restaurant.id, today]
     );
 
@@ -219,14 +183,14 @@ router.get("/analytics", async (req, res) => {
     weekAgo.setDate(weekAgo.getDate() - 7);
 
     const weeklyOrders = await db.query(
-      `SELECT COUNT(*) as count, COALESCE(SUM(vendor_amount), 0) as revenue
+      `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as revenue
        FROM orders
        WHERE restaurant_id = $1 AND status = 'delivered' AND created_at >= $2`,
       [restaurant.id, weekAgo]
     );
 
     const totalRevenue = await db.query(
-      `SELECT COALESCE(SUM(vendor_amount), 0) as total
+      `SELECT COALESCE(SUM(total), 0) as total
        FROM orders
        WHERE restaurant_id = $1 AND status = 'delivered'`,
       [restaurant.id]
@@ -247,7 +211,7 @@ router.get("/analytics", async (req, res) => {
 });
 
 /* =========================
-   UPDATE ORDER STATUS (VENDOR) - WITH REFUND ON REJECTION
+   UPDATE ORDER STATUS
 ========================= */
 router.put("/orders/:id/status", async (req, res) => {
   try {
@@ -260,140 +224,35 @@ router.put("/orders/:id/status", async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found" });
     }
 
-    // Get full order details including payment info and customer email
-    const orderCheck = await db.query(
-      `SELECT o.*, r.name as restaurant_name, r.address as restaurant_address,
-              r.latitude as restaurant_lat, r.longitude as restaurant_lng,
-              u.email as customer_email, u.name as customer_name
-       FROM orders o
-       LEFT JOIN restaurants r ON o.restaurant_id = r.id
-       LEFT JOIN users u ON o.customer_id = u.id
-       WHERE o.id = $1 AND o.restaurant_id = $2`,
-      [orderId, restaurant.id]
+    await db.query(
+      `UPDATE orders
+       SET status = $1,
+           estimated_prep_time = COALESCE($2, estimated_prep_time),
+           rejection_reason = COALESCE($3, rejection_reason)
+       WHERE id = $4 AND restaurant_id = $5`,
+      [status, estimated_prep_time, rejection_reason, orderId, restaurant.id]
     );
 
-    if (orderCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Order not found" });
-    }
-
-    const order = orderCheck.rows[0];
-    const previousStatus = order.status;
-
-    // Check if this is a rejection of a paid order
-    const isRejectionWithPayment = (status === 'rejected' && order.payment_status === 'paid');
-
-    if (isRejectionWithPayment) {
-      console.log(`🔄 Processing refund for rejected order #${orderId}`);
-      
-      try {
-        // Process refund
-        const refundResult = await processRefund(order.payment_transaction_id, order.total);
-        
-        if (refundResult.success) {
-          // Update order with rejection reason and refund status
-          await db.query(
-            `UPDATE orders
-             SET status = $1,
-                 rejection_reason = $2,
-                 payment_status = 'refunded',
-                 refund_transaction_id = $3,
-                 refunded_at = NOW()
-             WHERE id = $4`,
-            [status, rejection_reason, refundResult.refundId, orderId]
-          );
-          
-          console.log(`✅ Refund processed for order #${orderId}`);
-          
-          // Send refund email to customer
-          if (order.customer_email) {
-            try {
-              await sendRefundEmail(order, rejection_reason);
-            } catch (emailErr) {
-              console.error("Failed to send refund email:", emailErr.message);
-            }
-          }
-          
-          // Notify customer via socket about refund
-          io.to(`order_${orderId}`).emit("order-refunded", {
-            orderId: parseInt(orderId),
-            amount: order.total,
-            reason: rejection_reason,
-            message: "Your order was rejected and a refund has been processed"
-          });
-          
-          console.log(`✅ Order #${orderId} rejected and refund processed`);
-        } else {
-          throw new Error("Refund failed");
-        }
-      } catch (refundError) {
-        console.error("❌ Refund failed:", refundError);
-        
-        // Still update order as rejected but mark for manual refund
-        await db.query(
-          `UPDATE orders
-           SET status = $1,
-               rejection_reason = $2,
-               payment_status = 'refund_pending'
-           WHERE id = $3`,
-          [status, rejection_reason, orderId]
-        );
-        
-        // Notify admin about failed refund
-        io.emit("admin-alert", {
-          type: "refund_failed",
-          orderId: orderId,
-          message: `Refund failed for order #${orderId}. Manual intervention required.`
-        });
-      }
-    } else {
-      // Normal status update (no refund needed)
-      await db.query(
-        `UPDATE orders
-         SET status = $1,
-             estimated_prep_time = COALESCE($2, estimated_prep_time),
-             rejection_reason = COALESCE($3, rejection_reason)
-         WHERE id = $4`,
-        [status, estimated_prep_time, rejection_reason, orderId]
-      );
-    }
-
-    // Notify customer via socket of status change
+    // Notify customer via socket
     if (io) {
       io.to(`order_${orderId}`).emit("order-status-update", {
         orderId: parseInt(orderId),
         status,
-        previousStatus,
-        rejectionReason: rejection_reason,
         timestamp: new Date(),
       });
     }
 
     // Notify drivers if order is ready for pickup
     if (status === 'ready_for_pickup' && io) {
-      const notificationData = {
+      io.emit("order-ready-for-driver", {
         orderId: parseInt(orderId),
-        restaurantName: order.restaurant_name || restaurant.name,
-        restaurantAddress: order.restaurant_address || restaurant.address,
+        restaurantName: restaurant.name,
         orderTotal: order.total,
-        itemsCount: order.item_count || 0,
-        customerName: order.customer_name,
-        deliveryAddress: order.delivery_address,
-        deliveryFee: order.delivery_fee,
-        restaurantLat: order.restaurant_lat || restaurant.latitude,
-        restaurantLng: order.restaurant_lng || restaurant.longitude,
         timestamp: new Date(),
-      };
-      
-      io.emit("order-ready-for-driver", notificationData);
-      console.log(`📢 Broadcast to drivers: Order #${orderId} is ready for pickup`);
+      });
     }
 
-    res.json({ 
-      message: isRejectionWithPayment ? "Order rejected and refund processed" : "Order updated", 
-      status,
-      refundProcessed: isRejectionWithPayment
-    });
-    
+    res.json({ message: "Order updated", status });
   } catch (error) {
     console.error("Error updating order status:", error);
     res.status(500).json({ message: "Server error", error: error.message });
@@ -401,7 +260,7 @@ router.put("/orders/:id/status", async (req, res) => {
 });
 
 /* =========================
-   GET VENDOR MENU (UPDATED with vendor price)
+   GET VENDOR MENU
 ========================= */
 router.get("/menu", async (req, res) => {
   try {
@@ -411,22 +270,13 @@ router.get("/menu", async (req, res) => {
     }
 
     const menuItems = await db.query(
-      `SELECT id, name, description, vendor_price, customer_price, price as display_price,
-              category, image_url, is_available, markup_applied
-       FROM menu_items 
+      `SELECT * FROM menu_items 
        WHERE restaurant_id = $1 
        ORDER BY category, name`,
       [restaurant.id]
     );
 
-    const formattedItems = menuItems.rows.map(item => ({
-      ...item,
-      vendor_price: parseFloat(item.vendor_price) || 0,
-      customer_price: parseFloat(item.customer_price) || item.display_price,
-      markup_applied: parseFloat(item.markup_applied) || restaurant.markup_percentage || 12.5
-    }));
-
-    res.json(formattedItems);
+    res.json(menuItems.rows);
   } catch (error) {
     console.error("Error fetching menu:", error);
     res.status(500).json({ message: "Server error" });
@@ -434,7 +284,7 @@ router.get("/menu", async (req, res) => {
 });
 
 /* =========================
-   ADD MENU ITEM (UPDATED with markup)
+   ADD MENU ITEM
 ========================= */
 router.post("/menu", async (req, res) => {
   try {
@@ -445,22 +295,16 @@ router.post("/menu", async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found" });
     }
 
-    const markupPercentage = parseFloat(restaurant.markup_percentage) || 12.5;
-    const vendorPrice = parseFloat(price) || 0;
-    const customerPrice = Math.ceil((vendorPrice * (1 + markupPercentage / 100)) * 100) / 100;
-
     const result = await db.query(
       `INSERT INTO menu_items 
-       (restaurant_id, name, description, vendor_price, customer_price, price, category, image_url, markup_applied) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+       (restaurant_id, name, description, price, category, image_url) 
+       VALUES ($1, $2, $3, $4, $5, $6) 
        RETURNING id`,
-      [restaurant.id, name, description, vendorPrice, customerPrice, customerPrice, category, image_url, markupPercentage]
+      [restaurant.id, name, description, price, category, image_url]
     );
 
     res.status(201).json({ 
       id: result.rows[0].id,
-      vendor_price: vendorPrice,
-      customer_price: customerPrice,
       message: "Menu item added successfully"
     });
   } catch (error) {
@@ -470,7 +314,7 @@ router.post("/menu", async (req, res) => {
 });
 
 /* =========================
-   UPDATE MENU ITEM (UPDATED with markup)
+   UPDATE MENU ITEM
 ========================= */
 router.put("/menu/:id", async (req, res) => {
   try {
@@ -482,29 +326,14 @@ router.put("/menu/:id", async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found" });
     }
 
-    const markupPercentage = parseFloat(restaurant.markup_percentage) || 12.5;
-    const vendorPrice = parseFloat(price) || 0;
-    const customerPrice = Math.ceil((vendorPrice * (1 + markupPercentage / 100)) * 100) / 100;
-
     await db.query(
       `UPDATE menu_items 
-       SET name = COALESCE($1, name),
-           description = COALESCE($2, description),
-           vendor_price = $3,
-           customer_price = $4,
-           price = $4,
-           category = COALESCE($5, category),
-           image_url = COALESCE($6, image_url),
-           markup_applied = $7
-       WHERE id = $8 AND restaurant_id = $9`,
-      [name, description, vendorPrice, customerPrice, category, image_url, markupPercentage, menuItemId, restaurant.id]
+       SET name = $1, description = $2, price = $3, category = $4, image_url = $5
+       WHERE id = $6 AND restaurant_id = $7`,
+      [name, description, price, category, image_url, menuItemId, restaurant.id]
     );
 
-    res.json({ 
-      message: "Menu item updated successfully",
-      vendor_price: vendorPrice,
-      customer_price: customerPrice
-    });
+    res.json({ message: "Menu item updated successfully" });
   } catch (error) {
     console.error("Error updating menu item:", error);
     res.status(500).json({ message: "Server error" });
@@ -531,57 +360,6 @@ router.delete("/menu/:id", async (req, res) => {
     res.json({ message: "Menu item deleted successfully" });
   } catch (error) {
     console.error("Error deleting menu item:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-/* =========================
-   GET VENDOR SETTINGS
-========================= */
-router.get("/settings", async (req, res) => {
-  try {
-    const result = await db.query(
-      "SELECT * FROM vendor_settings WHERE vendor_id = $1",
-      [req.user.id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.json({
-        is_accepting_orders: true,
-        max_prep_time: 30,
-        auto_accept_orders: false,
-      });
-    }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error("Error fetching settings:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-/* =========================
-   UPDATE VENDOR SETTINGS
-========================= */
-router.put("/settings", async (req, res) => {
-  try {
-    const { is_accepting_orders, max_prep_time, auto_accept_orders } = req.body;
-
-    await db.query(
-      `INSERT INTO vendor_settings (vendor_id, is_accepting_orders, max_prep_time, auto_accept_orders, updated_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (vendor_id) 
-       DO UPDATE SET 
-         is_accepting_orders = EXCLUDED.is_accepting_orders,
-         max_prep_time = EXCLUDED.max_prep_time,
-         auto_accept_orders = EXCLUDED.auto_accept_orders,
-         updated_at = NOW()`,
-      [req.user.id, is_accepting_orders, max_prep_time, auto_accept_orders]
-    );
-
-    res.json({ message: "Settings updated successfully" });
-  } catch (error) {
-    console.error("Error updating settings:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -744,28 +522,6 @@ router.post("/request-withdrawal", async (req, res) => {
     });
   } catch (err) {
     console.error("Withdrawal request error:", err);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-/* =========================
-   GET VENDOR MARKUP SETTINGS
-========================= */
-router.get("/markup", async (req, res) => {
-  try {
-    const restaurant = await getVendorRestaurant(req.user.id);
-    if (!restaurant) {
-      return res.status(404).json({ message: "Restaurant not found" });
-    }
-    
-    res.json({
-      markup_percentage: restaurant.markup_percentage || 12.5,
-      min_markup: 10,
-      max_markup: 15,
-      message: `Your items have a ${restaurant.markup_percentage || 12.5}% markup applied to customer prices`
-    });
-  } catch (err) {
-    console.error("Markup error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });

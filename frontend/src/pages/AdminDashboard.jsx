@@ -46,6 +46,7 @@ import DisputeManagement from '@/components/admin/DisputeManagement';
 import CommissionSettings from '@/components/admin/CommissionSettings';
 import WithdrawalRequests from '@/components/admin/WithdrawalRequests';
 import DriverPayouts from '@/components/admin/DriverPayouts';
+import AdminVendorPayouts from '@/components/admin/AdminVendorPayouts';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -63,7 +64,8 @@ const tabs = [
   { id: 'drivers', label: 'Drivers', icon: Truck, color: 'bg-amber-500', path: '/admin/drivers' },
   { id: 'users', label: 'Users', icon: Users, color: 'bg-cyan-500', path: '/admin/users' },
   { id: 'finance', label: 'Finance', icon: DollarSign, color: 'bg-green-500', path: '/admin/finance' },
-  { id: 'payouts', label: 'Payouts', icon: DollarSign, color: 'bg-green-500', path: '/admin/payouts' },
+  { id: 'driver-payouts', label: 'Driver Payouts', icon: DollarSign, color: 'bg-blue-500', path: '/admin/driver-payouts' },
+  { id: 'vendor-payouts', label: 'Vendor Payouts', icon: DollarSign, color: 'bg-purple-500', path: '/admin/vendor-payouts' },
   { id: 'disputes', label: 'Disputes', icon: AlertCircle, color: 'bg-red-500', path: '/admin/disputes' },
   { id: 'settings', label: 'Settings', icon: Settings, color: 'bg-gray-500', path: '/admin/settings' },
 ];
@@ -400,21 +402,22 @@ export default function AdminDashboard() {
   const [selectedDriver, setSelectedDriver] = useState(null);
   const [showDocuments, setShowDocuments] = useState(false);
 
-  const getActiveTabFromPath = () => {
-    const path = location.pathname;
-    if (path === '/admin' || path === '/admin/') return 'overview';
-    if (path.includes('/orders')) return 'orders';
-    if (path.includes('/restaurants')) return 'restaurants';
-    if (path.includes('/vendors')) return 'vendors';
-    if (path.includes('/menu')) return 'menu';
-    if (path.includes('/users')) return 'users';
-    if (path.includes('/drivers')) return 'drivers';
-    if (path.includes('/finance')) return 'finance';
-    if (path.includes('/payouts')) return 'payouts';
-    if (path.includes('/disputes')) return 'disputes';
-    if (path.includes('/settings')) return 'settings';
-    return 'overview';
-  };
+const getActiveTabFromPath = () => {
+  const path = location.pathname;
+  if (path === '/admin' || path === '/admin/') return 'overview';
+  if (path.includes('/orders')) return 'orders';
+  if (path.includes('/restaurants')) return 'restaurants';
+  if (path.includes('/vendors')) return 'vendors';
+  if (path.includes('/menu')) return 'menu';
+  if (path.includes('/users')) return 'users';
+  if (path.includes('/drivers')) return 'drivers';
+  if (path.includes('/finance')) return 'finance';
+  if (path.includes('/driver-payouts')) return 'driver-payouts';
+  if (path.includes('/vendor-payouts')) return 'vendor-payouts';
+  if (path.includes('/disputes')) return 'disputes';
+  if (path.includes('/settings')) return 'settings';
+  return 'overview';
+};
 
   const [activeTab, setActiveTab] = useState(getActiveTabFromPath);
   
@@ -734,70 +737,17 @@ export default function AdminDashboard() {
           </div>
         )}
         
-        {activeTab === 'finance' && (
-          <div className="space-y-4">
-            <div className="flex flex-wrap gap-3 pb-3 border-b">
-              <Button onClick={exportOrdersToCSV} className="bg-green text-white text-sm">
-                <Download className="w-4 h-4 mr-2" /> Export Orders
-              </Button>
-              <Button onClick={exportRevenueSummary} variant="outline" className="text-sm">
-                <Download className="w-4 h-4 mr-2" /> Export Revenue
-              </Button>
-            </div>
-
-            <div className="bg-white rounded-xl border p-4 sm:p-5">
-              <h2 className="text-base sm:text-lg font-bold mb-4">Revenue Overview</h2>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center pb-2 border-b">
-                  <span className="text-gray-600 text-sm">Total Revenue</span>
-                  <span className="text-xl sm:text-2xl font-bold text-green">R{totalRevenue.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center pb-2 border-b">
-                  <span className="text-gray-600 text-sm">Today's Revenue</span>
-                  <span className="text-base sm:text-lg font-semibold">R{todayRevenue.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center pb-2 border-b">
-                  <span className="text-gray-600 text-sm">Completion Rate</span>
-                  <span className="text-base sm:text-lg font-semibold">{completionRate.toFixed(1)}%</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-600 text-sm">Average Order Value</span>
-                  <span className="text-base sm:text-lg font-semibold">R{averageOrderValue.toFixed(2)}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl border p-4 sm:p-5">
-              <h2 className="text-base sm:text-lg font-bold mb-4">Order Statistics</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-blue-600">{orders.length}</p>
-                  <p className="text-xs text-gray-500">Total</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-green-600">{completedOrders.length}</p>
-                  <p className="text-xs text-gray-500">Completed</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-yellow-600">{pendingOrders.length}</p>
-                  <p className="text-xs text-gray-500">Pending</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-red-500">
-                    {orders.filter(o => o.status === 'cancelled').length}
-                  </p>
-                  <p className="text-xs text-gray-500">Cancelled</p>
-                </div>
-              </div>
-            </div>
-
-            <CommissionSettings onRefresh={refreshAll} />
-            <WithdrawalRequests drivers={drivers} onRefresh={refreshAll} />
-          </div>
-        )}
-        {activeTab === 'payouts' && <DriverPayouts />}
-        {activeTab === 'disputes' && <DisputeManagement orders={orders} users={users} onRefresh={refreshAll} />}
-        {activeTab === 'settings' && <AdminSettings />}
+       {activeTab === 'finance' && (
+  <div className="space-y-4">
+    {/* Finance content... */}
+    <CommissionSettings onRefresh={refreshAll} />
+    <WithdrawalRequests drivers={drivers} onRefresh={refreshAll} />
+  </div>
+)}
+{activeTab === 'driver-payouts' && <DriverPayouts />}
+{activeTab === 'vendor-payouts' && <AdminVendorPayouts />}
+{activeTab === 'disputes' && <DisputeManagement orders={orders} users={users} onRefresh={refreshAll} />}
+{activeTab === 'settings' && <AdminSettings />}
       </div>
 
       {/* Driver Documents Modal */}

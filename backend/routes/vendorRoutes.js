@@ -525,5 +525,133 @@ router.post("/request-withdrawal", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+// ==================== ADMIN: GET ALL VENDOR PAYOUTS ====================
+router.get("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const results = await db.query(
+      `SELECT vp.*, u.name as vendor_name, u.email as vendor_email,
+              a.name as processed_by_name
+       FROM vendor_payouts vp
+       LEFT JOIN users u ON vp.vendor_id = u.id
+       LEFT JOIN users a ON vp.processed_by = a.id
+       ORDER BY vp.created_at DESC`
+    );
+    res.json(results.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ==================== ADMIN: CREATE VENDOR PAYOUT ====================
+router.post("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const { vendor_id, amount, period_start, period_end, notes } = req.body;
+    const adminId = req.user.id;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ message: "Invalid amount" });
+    }
+    
+    const vendorResult = await db.query(
+      "SELECT vendor_available_balance FROM users WHERE id = $1 AND role = 'vendor'",
+      [vendor_id]
+    );
+    
+    if (vendorResult.rows.length === 0) {
+      return res.status(404).json({ message: "Vendor not found" });
+    }
+    
+    const availableBalance = parseFloat(vendorResult.rows[0].vendor_available_balance || 0);
+    
+    if (amount > availableBalance) {
+      return res.status(400).json({ 
+        message: `Amount exceeds vendor's available balance of R${availableBalance.toFixed(2)}` 
+      });
+    }
+    
+    const result = await db.query(
+      `INSERT INTO vendor_payouts 
+       (vendor_id, amount, period_start, period_end, notes, processed_by, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
+       RETURNING id`,
+      [vendor_id, amount, period_start, period_end, notes || null, adminId]
+    );
+    
+    res.json({ 
+      success: true, 
+      payoutId: result.rows[0].id,
+      message: "Vendor payout created successfully" 
+    });
+  } catch (err) {
+    console.error("Create vendor payout error:", err);
+    res.status(500).json({ message: "Server error: " + err.message });
+  }
+});
+
+// ==================== ADMIN: PROCESS VENDOR PAYOUT ====================
+router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, reference_number, notes } = req.body;
+    const adminId = req.user.id;
+    
+    let updateFields = [];
+    let queryParams = [];
+    let paramIndex = 1;
+    
+    updateFields.push(`status = $${paramIndex++}`);
+    queryParams.push(status);
+    
+    if (reference_number !== undefined) {
+      updateFields.push(`reference_number = $${paramIndex++}`);
+      queryParams.push(reference_number);
+    }
+    
+    if (notes !== undefined) {
+      updateFields.push(`notes = $${paramIndex++}`);
+      queryParams.push(notes);
+    }
+    
+    updateFields.push(`processed_by = $${paramIndex++}`);
+    queryParams.push(adminId);
+    
+    if (status === 'paid') {
+      updateFields.push(`paid_at = NOW()`);
+      
+      // Get the payout amount and vendor_id to update vendor's withdrawn total
+      const payoutResult = await db.query(
+        "SELECT vendor_id, amount FROM vendor_payouts WHERE id = $1",
+        [id]
+      );
+      
+      if (payoutResult.rows.length > 0) {
+        const { vendor_id, amount } = payoutResult.rows[0];
+        await db.query(
+          "UPDATE users SET vendor_withdrawn_total = COALESCE(vendor_withdrawn_total, 0) + $1 WHERE id = $2",
+          [amount, vendor_id]
+        );
+      }
+    }
+    
+    queryParams.push(id);
+    
+    const query = `UPDATE vendor_payouts 
+                   SET ${updateFields.join(", ")} 
+                   WHERE id = $${paramIndex}
+                   RETURNING id`;
+    
+    const result = await db.query(query, queryParams);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Payout not found" });
+    }
+    
+    res.json({ message: `Vendor payout ${status}`, payoutId: id });
+  } catch (err) {
+    console.error("Process vendor payout error:", err);
+    res.status(500).json({ message: "Server error: " + err.message });
+  }
+});
 
 export default router;

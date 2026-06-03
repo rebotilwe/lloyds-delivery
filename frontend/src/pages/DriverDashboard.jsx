@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Truck,
   MapPin,
@@ -18,12 +18,19 @@ import {
   RefreshCw,
   XCircle,
   AlertCircle,
+  Wallet,
+  CreditCard,
+  Banknote,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatOrderStatus } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { useSocket } from '@/context/SocketContext';
 import { useAuth } from '@/lib/AuthContext';
@@ -89,16 +96,53 @@ export default function DriverDashboard() {
   const [driverLocation, setDriverLocation] = useState({ lat: null, lng: null });
   const [expandedOrders, setExpandedOrders] = useState({});
   const [restaurantDistances, setRestaurantDistances] = useState({});
+  const [dataLoaded, setDataLoaded] = useState(false);
 
-  // LOAD USER
+  // WITHDRAWAL STATES
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [loadingWithdraw, setLoadingWithdraw] = useState(false);
+  const [earningsSummary, setEarningsSummary] = useState(null);
+  const [withdrawalHistory, setWithdrawalHistory] = useState([]);
+  const [bankDetails, setBankDetails] = useState({
+    bank_name: '',
+    account_holder: '',
+    account_number: '',
+    branch_code: '',
+  });
+
+  // LOAD USER - FIXED
   useEffect(() => {
     const stored = localStorage.getItem('user');
     if (stored) {
-      setUser(JSON.parse(stored));
+      const parsedUser = JSON.parse(stored);
+      setUser(parsedUser);
+      console.log('Driver user loaded:', parsedUser);
     } else if (authUser) {
       setUser(authUser);
+      console.log('Driver user from auth:', authUser);
     }
   }, [authUser]);
+
+  // Fetch orders when user is available - FIXED
+  useEffect(() => {
+    if (user && user.id) {
+      console.log('User loaded, fetching orders...');
+      fetchOrders();
+      fetchEarningsData();
+      fetchWithdrawalHistory();
+      fetchBankDetails();
+    } else {
+      const timer = setTimeout(() => {
+        const storedUser = localStorage.getItem('user');
+        if (storedUser && !user) {
+          const parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
+        }
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [user]);
 
   // Load declined orders from localStorage
   useEffect(() => {
@@ -132,7 +176,7 @@ export default function DriverDashboard() {
     }
   }, [availableOrders, driverLocation]);
 
-  // Location tracking - only when available and has active order
+  // Location tracking
   useEffect(() => {
     if (navigator.geolocation && isAvailable) {
       const watchId = navigator.geolocation.watchPosition(
@@ -165,6 +209,7 @@ export default function DriverDashboard() {
   useEffect(() => {
     if (socket && user?.id && online) {
       socket.emit('join-driver', user.id);
+      console.log('Driver joined socket room:', user.id);
 
       socket.on('order-offered', (data) => {
         if (declinedOrders.includes(data.orderId)) return;
@@ -187,6 +232,7 @@ export default function DriverDashboard() {
         toast.success(`💰 You earned R${data.earning.toFixed(2)} for order #${data.orderId}`);
         fetchOrders();
         fetchUserData();
+        fetchEarningsData();
       });
 
       return () => {
@@ -214,34 +260,148 @@ export default function DriverDashboard() {
     }
   };
 
-  const fetchOrders = async () => {
-    if (!user) return;
+  const fetchOrders = useCallback(async () => {
+    if (!user?.id) {
+      console.log('No user ID available, skipping fetch');
+      return;
+    }
+    
     setRefreshing(true);
+    console.log('Fetching orders for driver:', user.id);
+    
     try {
       const res1 = await fetch('https://lloyds-delivery.onrender.com/api/orders/available');
       let available = await res1.json();
+      console.log('Available orders API response:', available);
+      
       available = available.filter(order => !declinedOrders.includes(order.id));
       setAvailableOrders(Array.isArray(available) ? available : []);
 
       const res2 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/${user.id}`);
       const mine = await res2.json();
+      console.log('My orders API response:', mine);
+      
       setMyOrders(Array.isArray(mine) ? mine : []);
+      setDataLoaded(true);
       
-      // Check if driver has any active orders (not delivered)
-      const hasActiveOrder = mine.some(order => 
-        ['picked_up', 'on_the_way'].includes(order.status)
-      );
-      
-      // Automatically set offline if has active order, but keep UI state
-      if (hasActiveOrder && isAvailable) {
-        // Don't change UI switch, but prevent showing available orders
-        // The "Available" switch will still show as ON but driver won't get new offers
-      }
     } catch (err) {
       console.error('Error fetching orders:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  }, [user, declinedOrders]);
+
+  // EARNINGS & WITHDRAWAL FUNCTIONS
+  const fetchEarningsData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/earnings-summary', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setEarningsSummary(data.summary);
+    } catch (err) {
+      console.error('Error fetching earnings:', err);
+    }
+  };
+
+  const fetchWithdrawalHistory = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/withdrawal-history', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setWithdrawalHistory(data);
+    } catch (err) {
+      console.error('Error fetching withdrawal history:', err);
+    }
+  };
+
+  const fetchBankDetails = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/bank-details', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data) {
+        setBankDetails(data);
+      }
+    } catch (err) {
+      console.error('Error fetching bank details:', err);
+    }
+  };
+
+  const saveBankDetails = async () => {
+    if (!bankDetails.bank_name || !bankDetails.account_number || !bankDetails.account_holder) {
+      toast.error('Please fill in bank name, account holder, and account number');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/bank-details', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(bankDetails)
+      });
+      
+      if (!res.ok) throw new Error('Failed to save bank details');
+      
+      toast.success('Bank details saved successfully');
+    } catch (err) {
+      toast.error('Failed to save bank details');
+    }
+  };
+
+  const handleWithdrawRequest = async () => {
+    const amount = parseFloat(withdrawAmount);
+    
+    if (isNaN(amount) || amount < 50) {
+      toast.error('Minimum withdrawal amount is R50');
+      return;
+    }
+    
+    if (amount > (earningsSummary?.available_balance || 0)) {
+      toast.error(`Insufficient balance. Available: R${earningsSummary?.available_balance?.toFixed(2)}`);
+      return;
+    }
+    
+    setLoadingWithdraw(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/request-withdrawal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          amount: amount,
+          bank_name: bankDetails.bank_name,
+          account_holder: bankDetails.account_holder,
+          account_number: bankDetails.account_number,
+          branch_code: bankDetails.branch_code
+        })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+      
+      toast.success('Withdrawal request submitted!');
+      setShowWithdrawModal(false);
+      setWithdrawAmount('');
+      fetchEarningsData();
+      fetchWithdrawalHistory();
+    } catch (err) {
+      toast.error(err.message || 'Failed to submit request');
+    } finally {
+      setLoadingWithdraw(false);
     }
   };
 
@@ -253,7 +413,6 @@ export default function DriverDashboard() {
   }, [myOrders]);
 
   const acceptOrder = async (orderId) => {
-    // Don't allow accepting if already on a delivery
     if (hasActiveOrder) {
       toast.error('Complete your current delivery first');
       return;
@@ -271,8 +430,6 @@ export default function DriverDashboard() {
       toast.success('Order accepted! Head to the restaurant');
       fetchOrders();
       setTrackingOrder(orderId);
-      
-      // Automatically set offline when accepting an order
       setIsAvailable(false);
       
     } catch (err) {
@@ -326,9 +483,9 @@ export default function DriverDashboard() {
       
       if (nextStatus === 'delivered') {
         setTrackingOrder(null);
-        // Automatically go back online after delivery
         setIsAvailable(true);
         toast.success('You are now back online and can accept new orders');
+        fetchEarningsData();
       }
       
       fetchOrders();
@@ -398,11 +555,27 @@ export default function DriverDashboard() {
     window.open(`https://maps.google.com/?q=${encodedAddress}`, '_blank');
   };
 
-  if (loading) {
+  // Show loading skeleton while data is being fetched
+  if (loading && !dataLoaded) {
     return (
       <div className="max-w-5xl mx-auto px-3 sm:px-4 py-6 sm:py-8">
         <div className="space-y-3 sm:space-y-4">
           {[1, 2, 3].map(i => <Skeleton key={i} className="h-28 sm:h-32 w-full rounded-xl" />)}
+        </div>
+      </div>
+    );
+  }
+
+  // Show message if no user found
+  if (!user) {
+    return (
+      <div className="max-w-5xl mx-auto px-4 py-8 text-center">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+          <h2 className="text-xl font-bold mb-2">Unable to load driver profile</h2>
+          <p className="text-gray-600">Please try logging out and back in.</p>
+          <Button onClick={() => window.location.href = '/login'} className="mt-4 bg-green text-white">
+            Go to Login
+          </Button>
         </div>
       </div>
     );
@@ -450,7 +623,7 @@ export default function DriverDashboard() {
         )}
         {hasActiveOrder && (
           <span className="text-[10px] sm:text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
-            🚚 Currently on delivery
+            🏍️ Currently on delivery
           </span>
         )}
       </div>
@@ -463,6 +636,109 @@ export default function DriverDashboard() {
         <StatCard label="Earnings" value={`R${totalEarnings.toFixed(2)}`} icon={DollarSign} color="bg-purple-500" />
         <StatCard label="Rating" value={averageRating > 0 ? `${averageRating}★` : '—'} icon={Star} color="bg-yellow-500" />
       </div>
+
+      {/* Earnings Summary Card - NEW */}
+      {earningsSummary && (
+        <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-xl p-4 mb-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <Wallet className="w-5 h-5 text-green" />
+                <h3 className="font-semibold text-gray-700">Available Balance</h3>
+              </div>
+              <p className="text-3xl font-bold text-green">R{earningsSummary.available_balance?.toFixed(2) || '0.00'}</p>
+              <div className="flex flex-wrap gap-4 mt-2 text-xs text-gray-500">
+                <span>Pending: R{earningsSummary.pending_balance?.toFixed(2) || '0.00'}</span>
+                <span>Total Earned: R{earningsSummary.total_earned?.toFixed(2) || '0.00'}</span>
+                <span>Withdrawn: R{earningsSummary.total_paid?.toFixed(2) || '0.00'}</span>
+              </div>
+            </div>
+            <Button 
+              onClick={() => setShowWithdrawModal(true)}
+              className="bg-green text-white shrink-0"
+              disabled={!earningsSummary.available_balance || earningsSummary.available_balance < 50}
+            >
+              <Banknote className="w-4 h-4 mr-2" />
+              Request Withdrawal
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Bank Details Card - NEW */}
+      <div className="bg-white border rounded-xl p-4 mb-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <CreditCard className="w-4 h-4 text-gray-500" />
+              <h3 className="font-semibold text-sm">Bank Details</h3>
+            </div>
+            {bankDetails.bank_name ? (
+              <div className="text-sm">
+                <p>{bankDetails.bank_name}</p>
+                <p className="text-xs text-gray-500">{bankDetails.account_number}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">No bank details added</p>
+            )}
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => {
+              const bankName = prompt('Enter Bank Name:', bankDetails.bank_name || '');
+              const accountHolder = prompt('Enter Account Holder Name:', bankDetails.account_holder || '');
+              const accountNumber = prompt('Enter Account Number:', bankDetails.account_number || '');
+              const branchCode = prompt('Enter Branch Code (optional):', bankDetails.branch_code || '');
+              
+              if (bankName && accountHolder && accountNumber) {
+                setBankDetails({
+                  bank_name: bankName,
+                  account_holder: accountHolder,
+                  account_number: accountNumber,
+                  branch_code: branchCode || '',
+                });
+                saveBankDetails();
+              }
+            }}
+          >
+            {bankDetails.bank_name ? 'Update Bank Details' : 'Add Bank Details'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Withdrawal History - NEW */}
+      {withdrawalHistory.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-sm sm:text-base font-bold mb-3">Withdrawal History</h2>
+          <div className="space-y-2">
+            {withdrawalHistory.map((payout) => (
+              <Card key={payout.id}>
+                <CardContent className="p-3 flex justify-between items-center">
+                  <div>
+                    <p className="font-medium text-green">R{payout.amount.toFixed(2)}</p>
+                    <p className="text-xs text-gray-400">
+                      {new Date(payout.requested_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <Badge className={
+                      payout.status === 'paid' ? 'bg-green-100 text-green-800' :
+                      payout.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }>
+                      {payout.status?.toUpperCase()}
+                    </Badge>
+                    {payout.reference_number && (
+                      <p className="text-xs text-gray-400 mt-1">Ref: {payout.reference_number}</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Weekly Summary Card */}
       <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-xl p-3 sm:p-4 mb-6 sm:mb-8">
@@ -617,7 +893,6 @@ export default function DriverDashboard() {
                           <p className="text-xs text-gray-500 truncate">{formatAddress(order.delivery_address)}</p>
                         </div>
                         
-                        {/* Distance & Time Estimate - For display only, not filtering */}
                         {distance && (
                           <div className="flex flex-wrap items-center gap-3 mt-2">
                             <span className="text-xs text-gray-500">
@@ -739,6 +1014,61 @@ export default function DriverDashboard() {
           </Button>
         </Link>
       </div>
+
+      {/* Withdrawal Modal */}
+      <Dialog open={showWithdrawModal} onOpenChange={setShowWithdrawModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Request Withdrawal</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <p className="text-sm text-gray-600">Available Balance</p>
+              <p className="text-2xl font-bold text-green">R{earningsSummary?.available_balance?.toFixed(2) || '0.00'}</p>
+            </div>
+            
+            <div>
+              <Label>Amount (R) *</Label>
+              <Input
+                type="number"
+                placeholder="Minimum R50"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+                className="mt-1"
+              />
+              <p className="text-xs text-gray-400 mt-1">Minimum withdrawal: R50</p>
+            </div>
+            
+            <div className="border-t pt-3">
+              <p className="text-sm font-medium mb-2">Bank Details for Payout</p>
+              <div className="space-y-2 text-sm text-gray-600">
+                <p><span className="font-medium">Bank:</span> {bankDetails.bank_name || 'Not set'}</p>
+                <p><span className="font-medium">Account Holder:</span> {bankDetails.account_holder || 'Not set'}</p>
+                <p><span className="font-medium">Account Number:</span> {bankDetails.account_number || 'Not set'}</p>
+              </div>
+              {(!bankDetails.bank_name || !bankDetails.account_number) && (
+                <p className="text-xs text-red-500 mt-2">
+                  ⚠️ Please add your bank details in the section above before requesting withdrawal.
+                </p>
+              )}
+            </div>
+            
+            <div className="flex gap-3 pt-2">
+              <Button 
+                onClick={handleWithdrawRequest} 
+                disabled={loadingWithdraw || !bankDetails.bank_name || !bankDetails.account_number}
+                className="flex-1 bg-green text-white"
+              >
+                {loadingWithdraw ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                Request Withdrawal
+              </Button>
+              <Button onClick={() => setShowWithdrawModal(false)} variant="outline" className="flex-1">
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

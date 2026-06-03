@@ -434,27 +434,38 @@ router.post("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, 
 });
 
 // ==================== ADMIN: PROCESS PAYOUT ====================
+// ==================== ADMIN: PROCESS PAYOUT ====================
 router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { id } = req.params;
     const { status, reference_number, notes } = req.body;
     const adminId = req.user.id;
     
-    await db.query(
+    console.log("📝 Processing payout:", { id, status, reference_number, adminId });
+    
+    // Update the payout - only update columns that exist
+    const result = await db.query(
       `UPDATE driver_payouts 
        SET status = $1, 
            reference_number = COALESCE($2, reference_number),
-           notes = COALESCE($3, notes),
            processed_at = NOW(),
-           processed_by = $4
-       WHERE id = $5`,
-      [status, reference_number, notes, adminId, id]
+           processed_by = $3,
+           paid_at = CASE WHEN $1 = 'paid' THEN NOW() ELSE paid_at END
+       WHERE id = $4
+       RETURNING id`,
+      [status, reference_number, adminId, id]
     );
     
-    res.json({ message: `Withdrawal ${status}` });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Payout not found" });
+    }
+    
+    console.log(`✅ Payout ${id} updated to ${status}`);
+    
+    res.json({ message: `Withdrawal ${status}`, payoutId: id });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
+    console.error("Process payout error:", err);
+    res.status(500).json({ message: "Server error: " + err.message });
   }
 });
 

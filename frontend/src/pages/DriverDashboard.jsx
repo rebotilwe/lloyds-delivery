@@ -316,6 +316,12 @@ export default function DriverDashboard() {
       const mine = await res2.json();
       console.log('My orders API response:', mine);
       
+      // Debug: Check if customer_phone exists
+      if (mine.length > 0) {
+        console.log('Sample order customer_phone:', mine[0].customer_phone);
+        console.log('Sample order customer_name:', mine[0].customer_name);
+      }
+      
       setMyOrders(Array.isArray(mine) ? mine : []);
       setDataLoaded(true);
       
@@ -854,7 +860,7 @@ export default function DriverDashboard() {
                   <div className="flex justify-between items-start">
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-sm sm:text-base truncate">{order.restaurant_name || 'Restaurant'}</p>
-                      <p className="text-xs text-gray-500">Order #{order.id} • {order.customer_name || 'Customer'}</p>
+                      <p className="text-xs text-gray-500">Order #{order.id}</p>
                       <p className="text-xs text-gray-400 mt-1">
                         Status: <span className="font-medium">{formatOrderStatus(order.status)}</span>
                       </p>
@@ -864,8 +870,18 @@ export default function DriverDashboard() {
                     </span>
                   </div>
 
-                  {/* Customer Contact Info */}
-                  {order.customer_phone && (
+                  {/* Customer Name Card - Prominently Displayed */}
+                  {order.customer_name && (
+                    <div className="flex items-center gap-2 bg-green-50 rounded-lg p-2 border border-green-100">
+                      <User className="w-4 h-4 text-green" />
+                      <span className="text-sm font-medium text-gray-700">
+                        Customer: {order.customer_name}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Customer Contact Info - Call & WhatsApp Buttons */}
+                  {order.customer_phone ? (
                     <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-2">
                       <div className="flex items-center gap-1">
                         <Phone className="w-3 h-3 text-blue-500" />
@@ -873,9 +889,10 @@ export default function DriverDashboard() {
                           href={`tel:${order.customer_phone}`} 
                           className="text-xs text-blue-600 hover:underline"
                         >
-                          Call
+                          Call Customer
                         </a>
                       </div>
+                      <div className="w-px h-4 bg-gray-300" />
                       <div className="flex items-center gap-1">
                         <MessageCircle className="w-3 h-3 text-green-600" />
                         <a 
@@ -888,8 +905,15 @@ export default function DriverDashboard() {
                         </a>
                       </div>
                     </div>
+                  ) : (
+                    order.customer_name && (
+                      <div className="bg-yellow-50 rounded-lg p-2 text-center">
+                        <p className="text-xs text-yellow-600">⚠️ No phone number available for this customer</p>
+                      </div>
+                    )
                   )}
 
+                  {/* Delivery Address */}
                   <div className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg p-2">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />
@@ -906,6 +930,7 @@ export default function DriverDashboard() {
                     </Button>
                   </div>
 
+                  {/* Action Button */}
                   <Button
                     className="w-full bg-green hover:bg-green/90 text-white text-sm h-9 sm:h-10"
                     onClick={() => handleOrderAction(order)}
@@ -913,6 +938,7 @@ export default function DriverDashboard() {
                     {getButtonText(order)}
                   </Button>
 
+                  {/* Order Items Expandable */}
                   {order.items && order.items.length > 0 && (
                     <>
                       <button

@@ -20,6 +20,9 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// Import cron jobs
+import { setupWeeklyDriverPayouts, setupMonthlyVendorPayouts, ensurePayoutColumns } from "./cronJobs.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -201,7 +204,6 @@ io.on("connection", (socket) => {
     console.log(`🚚 Driver ${driverId} connected`);
   });
 
-  // ✅ NEW: Vendor joins their restaurant room
   socket.on("join-vendor", (vendorId) => {
     socket.join(`vendor_${vendorId}`);
     console.log(`🏪 Vendor ${vendorId} connected`);
@@ -260,6 +262,18 @@ app.use((err, req, res, next) => {
   }
   res.status(500).json({ message: err.message || "Internal server error" });
 });
+
+// Initialize cron jobs for automated payouts
+(async () => {
+  try {
+    await ensurePayoutColumns();
+    setupWeeklyDriverPayouts();
+    setupMonthlyVendorPayouts();
+    console.log('✅ Automated payout cron jobs initialized');
+  } catch (err) {
+    console.error('❌ Failed to initialize cron jobs:', err.message);
+  }
+})();
 
 const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT, () => {

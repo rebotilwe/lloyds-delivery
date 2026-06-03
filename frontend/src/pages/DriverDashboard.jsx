@@ -23,6 +23,7 @@ import {
   Banknote,
   Bike,
   Car,
+  MessageCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatOrderStatus } from '@/lib/utils';
@@ -81,6 +82,19 @@ function estimateDeliveryTime(distanceKm) {
   const minutes = Math.ceil((distanceKm / avgSpeed) * 60);
   return minutes;
 }
+
+// Helper to format phone number for WhatsApp
+const formatWhatsAppNumber = (phone) => {
+  if (!phone) return '#';
+  let cleaned = phone.replace(/\D/g, '');
+  if (cleaned.startsWith('0')) {
+    cleaned = '27' + cleaned.substring(1);
+  }
+  if (!cleaned.startsWith('27')) {
+    cleaned = '27' + cleaned;
+  }
+  return cleaned;
+};
 
 export default function DriverDashboard() {
   const { socket, online } = useSocket();
@@ -850,6 +864,32 @@ export default function DriverDashboard() {
                     </span>
                   </div>
 
+                  {/* Customer Contact Info */}
+                  {order.customer_phone && (
+                    <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-2">
+                      <div className="flex items-center gap-1">
+                        <Phone className="w-3 h-3 text-blue-500" />
+                        <a 
+                          href={`tel:${order.customer_phone}`} 
+                          className="text-xs text-blue-600 hover:underline"
+                        >
+                          Call
+                        </a>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <MessageCircle className="w-3 h-3 text-green-600" />
+                        <a 
+                          href={`https://wa.me/${formatWhatsAppNumber(order.customer_phone)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-green-600 hover:underline"
+                        >
+                          WhatsApp
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg p-2">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />
@@ -865,15 +905,6 @@ export default function DriverDashboard() {
                       Navigate
                     </Button>
                   </div>
-
-                  {order.customer_phone && (
-                    <div className="flex items-center gap-2">
-                      <Phone className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400" />
-                      <a href={`tel:${order.customer_phone}`} className="text-xs sm:text-sm text-blue-600 hover:underline">
-                        {order.customer_phone}
-                      </a>
-                    </div>
-                  )}
 
                   <Button
                     className="w-full bg-green hover:bg-green/90 text-white text-sm h-9 sm:h-10"

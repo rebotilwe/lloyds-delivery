@@ -16,6 +16,7 @@ import restaurantRoutes from "./routes/restaurantRoutes.js";
 import menuItemRoutes from "./routes/menuItemRoutes.js";
 import vendorRoutes from "./routes/vendorRoutes.js";
 import vendorMenuRoutes from "./routes/vendorMenuRoutes.js";
+import adminVendorRoutes from "./routes/adminVendorRoutes.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -189,6 +190,7 @@ app.use("/api/restaurants", restaurantRoutes);
 app.use("/api/menu-items", menuItemRoutes);
 app.use("/api/vendor", vendorRoutes);
 app.use("/api/vendor/menu", vendorMenuRoutes);
+app.use("/api/admin", adminVendorRoutes);
 
 // Socket.io connection handling
 io.on("connection", (socket) => {

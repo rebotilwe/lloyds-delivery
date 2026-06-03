@@ -288,6 +288,8 @@ function App() {
                     <Route path="users" element={<AdminDashboard />} />
                     <Route path="finance" element={<AdminDashboard />} />
                     <Route path="payouts" element={<AdminDashboard />} />
+                    <Route path="vendor-payouts" element={<AdminDashboard />} />
+                    <Route path="driver-payouts" element={<AdminDashboard />} />
                     <Route path="disputes" element={<AdminDashboard />} />
                     <Route path="settings" element={<AdminDashboard />} />
                     <Route path="alerts" element={<AdminDashboard />} />

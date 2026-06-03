@@ -59,7 +59,7 @@ export default function AdminVendorPayouts() {
   const fetchPayouts = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/vendor/admin/payouts');
+     const response = await api.get('/admin/vendor-payouts'); 
       const payoutsData = response.data || [];
       const fixedPayouts = payoutsData.map(p => ({
         ...p,
@@ -89,7 +89,7 @@ export default function AdminVendorPayouts() {
     }
 
     try {
-      await api.post('/vendor/admin/payouts', {
+     await api.post('/admin/vendor-payouts',{
         vendor_id: selectedVendor.id,
         amount: parseFloat(payoutAmount),
         period_start: payoutPeriod.start,
@@ -111,7 +111,7 @@ export default function AdminVendorPayouts() {
 
   const markAsPaid = async (payoutId, referenceNumber) => {
     try {
-      await api.put(`/vendor/admin/payouts/${payoutId}/process`, {
+      await api.put(`/admin/vendor-payouts/${payoutId}/process`, {
         status: 'paid',
         reference_number: referenceNumber,
         payment_method: 'bank_transfer',

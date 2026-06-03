@@ -458,6 +458,32 @@ router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), a
   }
 });
 
+// ==================== ADMIN: MARK PAYOUT AS PAID (alternative endpoint for frontend compatibility) ====================
+router.put("/admin/payouts/:id/mark-paid", verifyToken, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reference_number, payment_method } = req.body;
+    const adminId = req.user.id;
+    
+    await db.query(
+      `UPDATE driver_payouts 
+       SET status = 'paid', 
+           reference_number = COALESCE($1, reference_number),
+           payment_method = COALESCE($2, payment_method),
+           paid_at = NOW(),
+           processed_at = NOW(),
+           processed_by = $3
+       WHERE id = $4`,
+      [reference_number, payment_method, adminId, id]
+    );
+    
+    res.json({ message: "Payout marked as paid" });
+  } catch (err) {
+    console.error("Mark paid error:", err);
+    res.status(500).json({ message: "Server error: " + err.message });
+  }
+});
+
 // ==================== ADMIN: GET DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {

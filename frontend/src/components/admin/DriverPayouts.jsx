@@ -39,13 +39,11 @@ export default function DriverPayouts() {
     fetchPayouts();
   }, []);
 
-  // FIXED: Use available_balance directly from users table
   const fetchDrivers = async () => {
     try {
       const response = await api.get('/users');
       const allDrivers = response.data?.filter(u => u.role === 'driver' && u.driver_status === 'approved') || [];
       
-      // Use the available_balance directly from the user object
       const driversWithBalance = allDrivers.map(driver => ({
         ...driver,
         pending_balance: parseFloat(driver.available_balance || driver.pending_balance || 0)
@@ -111,17 +109,21 @@ export default function DriverPayouts() {
     }
   };
 
+  // FIXED: Use /process endpoint instead of /mark-paid
   const markAsPaid = async (payoutId, referenceNumber) => {
     try {
-      await api.put(`/driver/admin/payouts/${payoutId}/mark-paid`, {
+      await api.put(`/driver/admin/payouts/${payoutId}/process`, {
+        status: 'paid',
         reference_number: referenceNumber,
-        payment_method: 'bank_transfer'
+        payment_method: 'bank_transfer',
+        notes: `Paid with reference: ${referenceNumber}`
       });
       toast.success('Payout marked as paid');
       fetchPayouts();
       fetchDrivers();
     } catch (error) {
-      toast.error('Failed to update payout');
+      console.error('Error marking payout:', error);
+      toast.error(error.response?.data?.message || 'Failed to update payout');
     }
   };
 

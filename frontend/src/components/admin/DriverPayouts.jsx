@@ -39,23 +39,23 @@ export default function DriverPayouts() {
     fetchPayouts();
   }, []);
 
-  const fetchDrivers = async () => {
-    try {
-      const response = await api.get('/users');
-      const allDrivers = response.data?.filter(u => u.role === 'driver' && u.driver_status === 'approved') || [];
-      
-      const driversWithBalance = allDrivers.map(driver => ({
-        ...driver,
-        pending_balance: parseFloat(driver.available_balance || driver.pending_balance || 0)
-      }));
-      
-      setDrivers(driversWithBalance);
-    } catch (error) {
-      console.error('Error fetching drivers:', error);
-      setDrivers([]);
-    }
-  };
-
+ const fetchDrivers = async () => {
+  try {
+    const response = await api.get('/users');
+    const allDrivers = response.data?.filter(u => u.role === 'driver' && u.driver_status === 'approved') || [];
+    
+    // FIXED: Use available_balance, not pending_balance
+    const driversWithBalance = allDrivers.map(driver => ({
+      ...driver,
+      pending_balance: parseFloat(driver.available_balance || 0)  // ← Changed from driver.pending_balance
+    }));
+    
+    setDrivers(driversWithBalance);
+  } catch (error) {
+    console.error('Error fetching drivers:', error);
+    setDrivers([]);
+  }
+};
   const fetchPayouts = async () => {
     setLoading(true);
     try {

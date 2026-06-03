@@ -304,26 +304,27 @@ export default function DriverDashboard() {
     }
   }, [user, declinedOrders]);
 
-  // EARNINGS & WITHDRAWAL FUNCTIONS
-  const fetchEarningsData = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/earnings-summary', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      const summary = data.summary || {};
-      setEarningsSummary({
-        pending_balance: parseFloat(summary.pending_balance) || 0,
-        available_balance: parseFloat(summary.available_balance) || 0,
-        total_earned: parseFloat(summary.total_earned) || 0,
-        total_paid: parseFloat(summary.total_paid) || 0,
-        pending_payout: parseFloat(summary.pending_payout) || 0
-      });
-    } catch (err) {
-      console.error('Error fetching earnings:', err);
-    }
-  };
+const fetchEarningsData = async () => {
+  try {
+    const token = localStorage.getItem('token');
+    const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/earnings-summary', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+    const summary = data.summary || {};
+    
+    // FIXED: Use correct field mapping
+    setEarningsSummary({
+      pending_balance: parseFloat(summary.pending_balance) || 0,
+      available_balance: parseFloat(summary.available_balance) || 0,
+      total_earned: parseFloat(summary.total_earned) || 0,
+      total_paid: parseFloat(summary.withdrawn_total) || 0,  // ← Changed from total_paid
+      pending_payout: parseFloat(summary.pending_payout) || 0
+    });
+  } catch (err) {
+    console.error('Error fetching earnings:', err);
+  }
+};
 
   const fetchWithdrawalHistory = async () => {
     try {

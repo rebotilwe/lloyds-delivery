@@ -153,12 +153,10 @@ router.post(
 );
 
 // ==================== DRIVER EARNINGS SUMMARY ====================
-// ==================== DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
     
-    // Check if tables exist
     const earningsTableExists = await db.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -248,7 +246,6 @@ router.post("/request-withdrawal", verifyToken, authorizeRoles("driver"), async 
     const driverId = req.user.id;
     const { amount, bank_name, account_holder, account_number, branch_code } = req.body;
     
-    // Check available balance
     const earnings = await db.query(
       `SELECT COALESCE(SUM(amount), 0) as total
        FROM driver_earnings
@@ -275,7 +272,6 @@ router.post("/request-withdrawal", verifyToken, authorizeRoles("driver"), async 
       });
     }
     
-    // Save bank details if provided
     if (bank_name && account_number) {
       await db.query(
         `UPDATE users SET 
@@ -288,7 +284,6 @@ router.post("/request-withdrawal", verifyToken, authorizeRoles("driver"), async 
       );
     }
     
-    // Get bank details from user
     const userBank = await db.query(
       `SELECT bank_name, bank_account_name as account_holder, 
               bank_account_number as account_number, bank_branch_code as branch_code
@@ -298,7 +293,6 @@ router.post("/request-withdrawal", verifyToken, authorizeRoles("driver"), async 
     
     const bankDetails = userBank.rows[0] || {};
     
-    // Create withdrawal request
     const result = await db.query(
       `INSERT INTO driver_payouts 
        (driver_id, amount, status, bank_name, account_holder, account_number, branch_code, requested_at)
@@ -320,12 +314,10 @@ router.post("/request-withdrawal", verifyToken, authorizeRoles("driver"), async 
 });
 
 // ==================== DRIVER WITHDRAWAL HISTORY ====================
-// ==================== DRIVER WITHDRAWAL HISTORY ====================
 router.get("/withdrawal-history", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
     
-    // Check if table exists first
     const tableExists = await db.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -347,10 +339,10 @@ router.get("/withdrawal-history", verifyToken, authorizeRoles("driver"), async (
     res.json(history.rows || []);
   } catch (err) {
     console.error("Withdrawal history error:", err);
-    // Return empty array instead of error
     res.json([]);
   }
 });
+
 // ==================== DRIVER BANK DETAILS ====================
 router.get("/bank-details", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
@@ -408,6 +400,39 @@ router.get("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, r
   }
 });
 
+// ==================== ADMIN: CREATE PAYOUT ====================
+router.post("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const { driver_id, amount, period_start, period_end, notes } = req.body;
+    const adminId = req.user.id;
+    
+    console.log("📝 Creating payout for driver:", driver_id, "Amount:", amount);
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ message: "Invalid amount" });
+    }
+    
+    const result = await db.query(
+      `INSERT INTO driver_payouts 
+       (driver_id, amount, period_start, period_end, notes, processed_by, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
+       RETURNING id`,
+      [driver_id, amount, period_start, period_end, notes || null, adminId]
+    );
+    
+    console.log("✅ Payout created with ID:", result.rows[0].id);
+    
+    res.json({ 
+      success: true, 
+      payoutId: result.rows[0].id,
+      message: "Payout created successfully" 
+    });
+  } catch (err) {
+    console.error("Create payout error:", err);
+    res.status(500).json({ message: "Server error: " + err.message });
+  }
+});
+
 // ==================== ADMIN: PROCESS PAYOUT ====================
 router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
@@ -432,13 +457,12 @@ router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), a
     res.status(500).json({ message: "Server error" });
   }
 });
-// ==================== ADMIN: GET DRIVER EARNINGS SUMMARY ====================
+
 // ==================== ADMIN: GET DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { driverId } = req.params;
     
-    // First get the driver's balance from users table (most reliable)
     const userBalance = await db.query(
       `SELECT 
          COALESCE(total_earnings, 0) as total_earnings,
@@ -449,7 +473,6 @@ router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), 
       [driverId]
     );
     
-    // Also get from driver_earnings for detailed breakdown
     const earnings = await db.query(
       `SELECT 
          COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending,
@@ -467,7 +490,6 @@ router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), 
       [driverId]
     );
     
-    // Use the user table balance as the source of truth
     const availableBalance = parseFloat(userBalance.rows[0]?.available_balance || 0);
     const totalEarned = parseFloat(userBalance.rows[0]?.total_earnings || 0);
     const totalPaid = parseFloat(paidOut.rows[0]?.total || 0);

@@ -4,12 +4,13 @@ import bcrypt from "bcryptjs";
 
 const router = express.Router();
 
-// GET all users - include vendor_status
+// GET all users - include balance fields
 router.get("/", async (req, res) => {
   try {
     const results = await db.query(
       `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, 
               total_deliveries, earnings, created_at,
+              total_earnings, available_balance, pending_balance, withdrawn_total,
               id_copy, pdp, profile_photo, car_license,
               car_make, car_model, car_year, car_color, license_plate
        FROM users ORDER BY created_at DESC`
@@ -21,12 +22,13 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET user by ID - include vendor_status
+// GET user by ID - include balance fields
 router.get("/:id", async (req, res) => {
   try {
     const results = await db.query(
       `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, 
               total_deliveries, earnings, created_at,
+              total_earnings, available_balance, pending_balance, withdrawn_total,
               id_copy, pdp, profile_photo, car_license,
               car_make, car_model, car_year, car_color, license_plate
        FROM users WHERE id = $1`,
@@ -42,10 +44,13 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// UPDATE user - ADD vendor_status support
+// UPDATE user - support balance fields
 router.put("/:id", async (req, res) => {
   try {
-    const { name, email, phone, role, driver_status, vendor_status, is_available } = req.body;
+    const { 
+      name, email, phone, role, driver_status, vendor_status, is_available,
+      total_earnings, available_balance, pending_balance, withdrawn_total
+    } = req.body;
     
     const updateFields = [];
     const updateValues = [];
@@ -78,6 +83,22 @@ router.put("/:id", async (req, res) => {
     if (is_available !== undefined) {
       updateFields.push(`is_available = $${paramIndex++}`);
       updateValues.push(is_available);
+    }
+    if (total_earnings !== undefined) {
+      updateFields.push(`total_earnings = $${paramIndex++}`);
+      updateValues.push(total_earnings);
+    }
+    if (available_balance !== undefined) {
+      updateFields.push(`available_balance = $${paramIndex++}`);
+      updateValues.push(available_balance);
+    }
+    if (pending_balance !== undefined) {
+      updateFields.push(`pending_balance = $${paramIndex++}`);
+      updateValues.push(pending_balance);
+    }
+    if (withdrawn_total !== undefined) {
+      updateFields.push(`withdrawn_total = $${paramIndex++}`);
+      updateValues.push(withdrawn_total);
     }
     
     if (updateFields.length === 0) {

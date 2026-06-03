@@ -153,76 +153,61 @@ router.post(
 );
 
 // ==================== DRIVER EARNINGS SUMMARY ====================
+// ==================== DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
     
-    const earningsTableExists = await db.query(`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_name = 'driver_earnings'
-      )
-    `);
+    // Get earnings directly from users table (the source of truth)
+    const userResult = await db.query(
+      `SELECT 
+         COALESCE(total_earnings, 0) as total_earned,
+         COALESCE(available_balance, 0) as available_balance,
+         COALESCE(pending_balance, 0) as pending_balance,
+         COALESCE(withdrawn_total, 0) as withdrawn_total
+       FROM users 
+       WHERE id = $1`,
+      [driverId]
+    );
     
-    if (!earningsTableExists.rows[0].exists) {
-      return res.json({
-        summary: {
-          pending_balance: 0,
-          available_balance: 0,
-          total_earned: 0,
-          total_paid: 0,
-          pending_payout: 0
-        },
-        recent_earnings: [],
-        payout_history: []
-      });
+    const userData = userResult.rows[0] || {};
+    
+    // Get pending earnings from driver_earnings table (if it exists)
+    let pendingEarnings = 0;
+    try {
+      const earningsTableExists = await db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_name = 'driver_earnings'
+        )
+      `);
+      
+      if (earningsTableExists.rows[0].exists) {
+        const earningsResult = await db.query(
+          `SELECT COALESCE(SUM(amount), 0) as pending
+           FROM driver_earnings
+           WHERE driver_id = $1 AND status = 'pending'`,
+          [driverId]
+        );
+        pendingEarnings = parseFloat(earningsResult.rows[0]?.pending || 0);
+      }
+    } catch (err) {
+      console.log("driver_earnings table not found or error:", err.message);
     }
     
-    const earnings = await db.query(
-      `SELECT 
-         COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending,
-         COALESCE(SUM(CASE WHEN status = 'cleared' THEN amount ELSE 0 END), 0) as cleared,
-         COALESCE(SUM(amount), 0) as total
-       FROM driver_earnings
-       WHERE driver_id = $1`,
-      [driverId]
-    );
-    
-    const paidOut = await db.query(
-      `SELECT COALESCE(SUM(amount), 0) as total
-       FROM driver_payouts
-       WHERE driver_id = $1 AND status = 'paid'`,
-      [driverId]
-    );
-    
-    const recentEarnings = await db.query(
-      `SELECT de.*, o.restaurant_name, o.id as order_id
-       FROM driver_earnings de
-       JOIN orders o ON de.order_id = o.id
-       WHERE de.driver_id = $1
-       ORDER BY de.created_at DESC
-       LIMIT 20`,
-      [driverId]
-    );
-    
-    const payouts = await db.query(
-      `SELECT * FROM driver_payouts
-       WHERE driver_id = $1
-       ORDER BY created_at DESC
-       LIMIT 10`,
-      [driverId]
-    );
+    // Calculate pending payout (available balance that hasn't been requested yet)
+    const pendingPayout = Math.max(0, userData.available_balance - userData.withdrawn_total);
     
     res.json({
       summary: {
-        pending_balance: parseFloat(earnings.rows[0]?.pending || 0),
-        available_balance: parseFloat(earnings.rows[0]?.cleared || 0),
-        total_earned: parseFloat(earnings.rows[0]?.total || 0),
-        total_paid: parseFloat(paidOut.rows[0]?.total || 0),
-        pending_payout: parseFloat(earnings.rows[0]?.cleared || 0) - parseFloat(paidOut.rows[0]?.total || 0)
+        pending_balance: pendingEarnings,
+        available_balance: parseFloat(userData.available_balance || 0),
+        total_earned: parseFloat(userData.total_earned || 0),
+        total_paid: parseFloat(userData.withdrawn_total || 0),  // Use withdrawn_total from users
+        pending_payout: pendingPayout
       },
-      recent_earnings: recentEarnings.rows || [],
-      payout_history: payouts.rows || []
+      recent_earnings: [],
+      payout_history: []
     });
   } catch (err) {
     console.error("Earnings summary error:", err);
@@ -239,7 +224,6 @@ router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (re
     });
   }
 });
-
 // ==================== DRIVER REQUEST WITHDRAWAL ====================
 router.post("/request-withdrawal", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
@@ -521,48 +505,34 @@ router.put("/admin/payouts/:id/mark-paid", verifyToken, authorizeRoles("admin"),
 });
 
 // ==================== ADMIN: GET DRIVER EARNINGS SUMMARY ====================
+// ==================== ADMIN: GET DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { driverId } = req.params;
     
-    const userBalance = await db.query(
+    const userResult = await db.query(
       `SELECT 
          COALESCE(total_earnings, 0) as total_earnings,
          COALESCE(available_balance, 0) as available_balance,
-         COALESCE(pending_balance, 0) as pending_balance
+         COALESCE(pending_balance, 0) as pending_balance,
+         COALESCE(withdrawn_total, 0) as withdrawn_total
        FROM users 
        WHERE id = $1 AND role = 'driver'`,
       [driverId]
     );
     
-    const earnings = await db.query(
-      `SELECT 
-         COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending,
-         COALESCE(SUM(CASE WHEN status = 'cleared' THEN amount ELSE 0 END), 0) as cleared,
-         COALESCE(SUM(amount), 0) as total
-       FROM driver_earnings
-       WHERE driver_id = $1`,
-      [driverId]
-    );
-    
-    const paidOut = await db.query(
-      `SELECT COALESCE(SUM(amount), 0) as total
-       FROM driver_payouts
-       WHERE driver_id = $1 AND status = 'paid'`,
-      [driverId]
-    );
-    
-    const availableBalance = parseFloat(userBalance.rows[0]?.available_balance || 0);
-    const totalEarned = parseFloat(userBalance.rows[0]?.total_earnings || 0);
-    const totalPaid = parseFloat(paidOut.rows[0]?.total || 0);
+    const userData = userResult.rows[0] || {};
+    const availableBalance = parseFloat(userData.available_balance || 0);
+    const totalEarned = parseFloat(userData.total_earnings || 0);
+    const totalPaid = parseFloat(userData.withdrawn_total || 0);
     
     res.json({
       summary: {
-        pending_balance: parseFloat(earnings.rows[0]?.pending || 0),
+        pending_balance: parseFloat(userData.pending_balance || 0),
         available_balance: availableBalance,
         total_earned: totalEarned,
         total_paid: totalPaid,
-        pending_payout: availableBalance - totalPaid
+        pending_payout: Math.max(0, availableBalance - totalPaid)
       }
     });
   } catch (err) {
@@ -578,5 +548,4 @@ router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), 
     });
   }
 });
-
 export default router;

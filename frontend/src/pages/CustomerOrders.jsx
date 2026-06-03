@@ -5,12 +5,13 @@ import { api } from '@/api/client';
 import { 
   Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, 
   AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
-  Calendar, Clock as ClockIcon 
+  Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { useSocket } from '@/context/SocketContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useCart } from '@/lib/cartStore';
@@ -19,7 +20,7 @@ import { format } from 'date-fns';
 import ReviewModal from '@/components/ReviewModal';
 import { formatOrderStatus } from '@/lib/utils';
 
-// Order status steps for tracker (simplified for mobile)
+// Order status steps for tracker
 const STATUS_STEPS = [
   { key: 'pending', label: 'Placed', step: 1 },
   { key: 'confirmed', label: 'Confirmed', step: 2 },
@@ -30,20 +31,88 @@ const STATUS_STEPS = [
   { key: 'delivered', label: 'Delivered', step: 7 },
 ];
 
-// Get current step index
 const getCurrentStep = (status) => {
   const step = STATUS_STEPS.find(s => s.key === status);
   return step ? step.step : 0;
 };
 
-// Helper for className merging
 function cn(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
+// Helper to format phone number for WhatsApp
+const formatWhatsAppNumber = (phone) => {
+  if (!phone) return '#';
+  let cleaned = phone.replace(/\D/g, '');
+  if (cleaned.startsWith('0')) {
+    cleaned = '27' + cleaned.substring(1);
+  }
+  if (!cleaned.startsWith('27')) {
+    cleaned = '27' + cleaned;
+  }
+  return cleaned;
+};
+
+// Driver Info Card Component
+function DriverInfoCard({ driver }) {
+  if (!driver || !driver.id) return null;
+
+  return (
+    <div className="bg-blue-50 rounded-lg p-3 mt-3">
+      <div className="flex items-center gap-3">
+        <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-lg">
+          {driver.name?.charAt(0).toUpperCase() || 'D'}
+        </div>
+        
+        <div className="flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold text-sm">{driver.name || 'Driver'}</p>
+            <Badge className="bg-green-100 text-green-700 text-[10px]">
+              <Truck className="w-2.5 h-2.5 mr-1" />
+              Your Driver
+            </Badge>
+          </div>
+          
+          <div className="flex items-center gap-3 mt-1">
+            {driver.phone && (
+              <>
+                <a 
+                  href={`tel:${driver.phone}`}
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
+                >
+                  <Phone className="w-3 h-3" />
+                  Call
+                </a>
+                <a 
+                  href={`https://wa.me/${formatWhatsAppNumber(driver.phone)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800 transition-colors"
+                >
+                  <MessageCircle className="w-3 h-3" />
+                  WhatsApp
+                </a>
+              </>
+            )}
+          </div>
+        </div>
+        
+        {driver.vehicle_type && (
+          <div className="text-right">
+            {driver.vehicle_type === 'car' ? (
+              <Car className="w-5 h-5 text-blue-500" />
+            ) : (
+              <Bike className="w-5 h-5 text-green" />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Live Map Component
 let L = null;
-let mapInitialized = false;
 
 function LiveMap({ driverLocation, orderStatus }) {
   const mapRef = React.useRef(null);
@@ -93,7 +162,7 @@ function LiveMap({ driverLocation, orderStatus }) {
       
       driverMarkerRef.current = L.marker([driverLocation.lat, driverLocation.lng], { icon: driverIcon })
         .addTo(mapRef.current)
-        .bindPopup('<b>Driver</b><br>Your delivery is on the way!');
+        .bindPopup('<b>Your Driver</b><br>En route to your location!');
       
       mapRef.current.setView([driverLocation.lat, driverLocation.lng], 14);
     }
@@ -129,7 +198,7 @@ function LiveMap({ driverLocation, orderStatus }) {
   );
 }
 
-// Active order card component (mobile optimized)
+// Active order card component
 function ActiveOrderCard({ order, onCancel, onReorder, driverLocation }) {
   const [expanded, setExpanded] = useState(false);
   const currentStep = getCurrentStep(order.status);
@@ -162,7 +231,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, driverLocation }) {
       </div>
       
       <CardContent className="p-3 sm:p-4 space-y-3 sm:space-y-4">
-        {/* Order Tracker - Horizontal scroll on mobile */}
+        {/* Order Tracker */}
         <div className="relative overflow-x-auto pb-2 -mx-1 px-1">
           <div className="flex justify-between min-w-[500px] sm:min-w-0">
             {STATUS_STEPS.map((step) => (
@@ -190,7 +259,17 @@ function ActiveOrderCard({ order, onCancel, onReorder, driverLocation }) {
           </div>
         </div>
 
-        {/* Order Details - Stack on mobile */}
+        {/* Driver Info Card */}
+        {(order.driver_id || order.driver_name) && (
+          <DriverInfoCard driver={{
+            id: order.driver_id,
+            name: order.driver_name,
+            phone: order.driver_phone,
+            vehicle_type: order.driver_vehicle_type
+          }} />
+        )}
+
+        {/* Order Details */}
         <div className="grid grid-cols-2 gap-2 sm:gap-3 text-sm">
           <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
             <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">Total</p>
@@ -208,7 +287,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, driverLocation }) {
           <span className="text-xs sm:text-sm break-words flex-1">{order.delivery_address || 'No address provided'}</span>
         </div>
 
-        {/* Status Message */}
+        {/* Status Messages */}
         {order.status === 'confirmed' && (
           <div className="bg-blue-50 p-2 rounded-lg text-center">
             <p className="text-[10px] sm:text-xs text-blue-700">⏱️ Restaurant is preparing your order</p>
@@ -289,7 +368,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, driverLocation }) {
   );
 }
 
-// Order history card component (mobile optimized)
+// Order history card component
 function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
   const [expanded, setExpanded] = useState(false);
   
@@ -365,7 +444,22 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
             </div>
           )}
           
-          {/* Action Buttons */}
+          {/* Driver Info in History */}
+          {order.driver_name && (
+            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
+              <Truck className="w-3 h-3" />
+              <span>Delivered by: {order.driver_name}</span>
+              {order.driver_phone && (
+                <a 
+                  href={`tel:${order.driver_phone}`}
+                  className="text-blue-600 hover:underline ml-auto"
+                >
+                  <Phone className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          )}
+          
           <div className="flex gap-2 pt-2">
             {order.status === 'delivered' && !order.reviewed && (
               <Button
@@ -473,9 +567,7 @@ export default function CustomerOrders() {
   const handleReorder = (order) => {
     const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
     
-    // Clear current cart first
     if (window.confirm(`Add items from ${order.restaurant_name} to your cart? This will replace your current cart.`)) {
-      // Add items to cart
       items.forEach(item => {
         addToCart({
           id: item.id || item.menu_item_id,
@@ -653,7 +745,6 @@ export default function CustomerOrders() {
         </div>
       )}
 
-      {/* Review Modal */}
       {showReviewModal && selectedOrder && (
         <ReviewModal
           order={selectedOrder}

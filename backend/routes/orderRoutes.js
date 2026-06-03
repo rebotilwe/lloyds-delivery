@@ -160,16 +160,20 @@ router.get("/", async (req, res) => {
 });
 
 /* =========================
-   CUSTOMER ORDERS
+   CUSTOMER ORDERS (UPDATED with driver details)
 ========================= */
 router.get("/customer/:customer_id", async (req, res) => {
   try {
     const results = await db.query(
       `SELECT o.*, 
               r.name as restaurant_name,
+              d.name as driver_name,
+              d.phone as driver_phone,
+              d.vehicle_type as driver_vehicle_type,
               (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
        FROM orders o
        LEFT JOIN restaurants r ON o.restaurant_id = r.id
+       LEFT JOIN users d ON o.driver_id = d.id
        WHERE o.customer_id = $1 
        ORDER BY o.created_at DESC`,
       [req.params.customer_id]
@@ -238,7 +242,7 @@ router.get("/available", async (req, res) => {
 });
 
 /* =========================
-   DRIVER ORDERS (assigned/accepted)
+   DRIVER ORDERS (assigned/accepted) - includes customer phone
 ========================= */
 router.get("/driver/:id", async (req, res) => {
   try {
@@ -285,7 +289,7 @@ router.put("/accept/:id", async (req, res) => {
 
     // Check if driver exists and get their vehicle type
     const driverCheck = await db.query(
-      "SELECT id, name, email, vehicle_type FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
+      "SELECT id, name, email, vehicle_type, phone FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
       [driver_id]
     );
     
@@ -322,8 +326,8 @@ router.put("/accept/:id", async (req, res) => {
 
     // Update order with driver name and status
     await db.query(
-      "UPDATE orders SET driver_id = $1, driver_name = $2, status = 'picked_up' WHERE id = $3",
-      [driver_id, driver.name, orderId]
+      "UPDATE orders SET driver_id = $1, driver_name = $2, driver_phone = $3, status = 'picked_up' WHERE id = $4",
+      [driver_id, driver.name, driver.phone, orderId]
     );
 
     // Notify customer via socket
@@ -332,6 +336,8 @@ router.put("/accept/:id", async (req, res) => {
       status: "picked_up",
       driverId: driver_id,
       driverName: driver.name,
+      driverPhone: driver.phone,
+      driverVehicle: driverVehicle,
       message: "Driver is on the way to pickup your order",
     });
 
@@ -341,6 +347,7 @@ router.put("/accept/:id", async (req, res) => {
         orderId: parseInt(orderId),
         driverId: driver_id,
         driverName: driver.name,
+        driverPhone: driver.phone,
         vehicleType: driverVehicle,
         status: "picked_up",
         timestamp: new Date(),
@@ -375,7 +382,7 @@ router.put("/assign/:id", async (req, res) => {
 
     // Check driver vehicle type
     const driverCheck = await db.query(
-      "SELECT id, name, vehicle_type FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
+      "SELECT id, name, vehicle_type, phone FROM users WHERE id = $1 AND role = 'driver' AND driver_status = 'approved'",
       [driver_id]
     );
     
@@ -407,8 +414,8 @@ router.put("/assign/:id", async (req, res) => {
     }
 
     await db.query(
-      "UPDATE orders SET driver_id = $1, driver_name = $2, status = 'picked_up' WHERE id = $3",
-      [driver_id, driver.name, orderId]
+      "UPDATE orders SET driver_id = $1, driver_name = $2, driver_phone = $3, status = 'picked_up' WHERE id = $4",
+      [driver_id, driver.name, driver.phone, orderId]
     );
 
     io.to(`driver_${driver_id}`).emit("order-offered", {
@@ -722,6 +729,7 @@ router.get("/:id", async (req, res) => {
       created_at: order.created_at,
       driver_id: order.driver_id,
       driver_name: order.driver_name,
+      driver_phone: order.driver_phone,
       driver_earning: order.driver_earning,
       notes: order.notes,
       payment_status: order.payment_status,

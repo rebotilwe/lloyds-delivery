@@ -153,9 +153,32 @@ router.post(
 );
 
 // ==================== DRIVER EARNINGS SUMMARY ====================
+// ==================== DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
+    
+    // Check if tables exist
+    const earningsTableExists = await db.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'driver_earnings'
+      )
+    `);
+    
+    if (!earningsTableExists.rows[0].exists) {
+      return res.json({
+        summary: {
+          pending_balance: 0,
+          available_balance: 0,
+          total_earned: 0,
+          total_paid: 0,
+          pending_payout: 0
+        },
+        recent_earnings: [],
+        payout_history: []
+      });
+    }
     
     const earnings = await db.query(
       `SELECT 
@@ -194,18 +217,28 @@ router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (re
     
     res.json({
       summary: {
-        pending_balance: parseFloat(earnings.rows[0].pending),
-        available_balance: parseFloat(earnings.rows[0].cleared),
-        total_earned: parseFloat(earnings.rows[0].total),
-        total_paid: parseFloat(paidOut.rows[0].total),
-        pending_payout: parseFloat(earnings.rows[0].cleared) - parseFloat(paidOut.rows[0].total)
+        pending_balance: parseFloat(earnings.rows[0]?.pending || 0),
+        available_balance: parseFloat(earnings.rows[0]?.cleared || 0),
+        total_earned: parseFloat(earnings.rows[0]?.total || 0),
+        total_paid: parseFloat(paidOut.rows[0]?.total || 0),
+        pending_payout: parseFloat(earnings.rows[0]?.cleared || 0) - parseFloat(paidOut.rows[0]?.total || 0)
       },
-      recent_earnings: recentEarnings.rows,
-      payout_history: payouts.rows
+      recent_earnings: recentEarnings.rows || [],
+      payout_history: payouts.rows || []
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
+    console.error("Earnings summary error:", err);
+    res.json({
+      summary: {
+        pending_balance: 0,
+        available_balance: 0,
+        total_earned: 0,
+        total_paid: 0,
+        pending_payout: 0
+      },
+      recent_earnings: [],
+      payout_history: []
+    });
   }
 });
 
@@ -287,22 +320,37 @@ router.post("/request-withdrawal", verifyToken, authorizeRoles("driver"), async 
 });
 
 // ==================== DRIVER WITHDRAWAL HISTORY ====================
+// ==================== DRIVER WITHDRAWAL HISTORY ====================
 router.get("/withdrawal-history", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
+    
+    // Check if table exists first
+    const tableExists = await db.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_name = 'driver_payouts'
+      )
+    `);
+    
+    if (!tableExists.rows[0].exists) {
+      return res.json([]);
+    }
+    
     const history = await db.query(
       `SELECT * FROM driver_payouts
        WHERE driver_id = $1
        ORDER BY requested_at DESC`,
       [driverId]
     );
-    res.json(history.rows);
+    
+    res.json(history.rows || []);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
+    console.error("Withdrawal history error:", err);
+    // Return empty array instead of error
+    res.json([]);
   }
 });
-
 // ==================== DRIVER BANK DETAILS ====================
 router.get("/bank-details", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {

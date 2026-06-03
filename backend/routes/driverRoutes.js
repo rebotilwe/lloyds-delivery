@@ -153,7 +153,6 @@ router.post(
 );
 
 // ==================== DRIVER EARNINGS SUMMARY ====================
-// ==================== DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
@@ -203,7 +202,7 @@ router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (re
         pending_balance: pendingEarnings,
         available_balance: parseFloat(userData.available_balance || 0),
         total_earned: parseFloat(userData.total_earned || 0),
-        total_paid: parseFloat(userData.withdrawn_total || 0),  // Use withdrawn_total from users
+        withdrawn_total: parseFloat(userData.withdrawn_total || 0),  // ← CHANGED: use withdrawn_total
         pending_payout: pendingPayout
       },
       recent_earnings: [],
@@ -216,7 +215,7 @@ router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (re
         pending_balance: 0,
         available_balance: 0,
         total_earned: 0,
-        total_paid: 0,
+        withdrawn_total: 0,  // ← CHANGED
         pending_payout: 0
       },
       recent_earnings: [],

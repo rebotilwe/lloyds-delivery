@@ -5,9 +5,6 @@ import { sendOrderConfirmation, sendOrderStatusUpdate } from "../services/emailS
 const router = express.Router();
 
 /* =========================
-   CREATE ORDER
-========================= */
-/* =========================
    CREATE ORDER (UPDATED with vehicle_type)
 ========================= */
 router.post("/create", async (req, res) => {
@@ -28,14 +25,14 @@ router.post("/create", async (req, res) => {
       payment_transaction_id,
       promo_code,
       discount_applied,
-      required_vehicle_type  // ADD THIS
+      required_vehicle_type
     } = req.body;
 
     console.log("Creating order with data:", { 
       customer_id, restaurant_id, total, delivery_address, 
       itemsCount: items?.length,
       payment_status,
-      required_vehicle_type  // ADD THIS
+      required_vehicle_type
     });
 
     if (!customer_id || !restaurant_id || !total || !delivery_address) {
@@ -60,7 +57,87 @@ router.post("/create", async (req, res) => {
     const orderId = result.rows[0].id;
     console.log(`✅ Order created with ID: ${orderId}, Vehicle Required: ${required_vehicle_type || 'bike'}`);
 
-    // ... rest of your existing code (items insert, notifications, email) stays the same
+    // Insert order items
+    if (items && Array.isArray(items) && items.length > 0) {
+      for (const item of items) {
+        const menuItemId = item.id || item.menu_item_id;
+        const itemName = item.name;
+        const quantity = item.quantity || 1;
+        const price = parseFloat(item.price) || 0;
+        
+        let finalMenuItemId = null;
+        if (menuItemId) {
+          const menuItemCheck = await db.query(
+            "SELECT id FROM menu_items WHERE id = $1",
+            [menuItemId]
+          );
+          if (menuItemCheck.rows.length > 0) {
+            finalMenuItemId = menuItemId;
+          }
+        }
+        
+        await db.query(
+          `INSERT INTO order_items 
+           (order_id, menu_item_id, name, quantity, price) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [orderId, finalMenuItemId, itemName, quantity, price]
+        );
+      }
+    }
+
+    // Notify vendor about new order
+    const io = req.app.get("io");
+    try {
+      const restaurant = await db.query(
+        "SELECT owner_id FROM restaurants WHERE id = $1",
+        [restaurant_id]
+      );
+
+      if (restaurant.rows[0]?.owner_id && io) {
+        io.to(`vendor_${restaurant.rows[0].owner_id}`).emit("new-order", {
+          orderId: orderId,
+          orderTotal: total,
+          customerName: customer_name,
+          itemsCount: items?.length || 0,
+          timestamp: new Date(),
+        });
+        console.log(`🔔 Notified vendor ${restaurant.rows[0].owner_id} about order ${orderId}`);
+      }
+    } catch (notifyErr) {
+      console.error("Failed to notify vendor:", notifyErr.message);
+    }
+
+    // Send email confirmation
+    try {
+      const customer = await db.query("SELECT email, name FROM users WHERE id = $1", [customer_id]);
+      if (customer.rows[0]?.email) {
+        const newOrder = await db.query("SELECT * FROM orders WHERE id = $1", [orderId]);
+        const orderItems = await db.query("SELECT * FROM order_items WHERE order_id = $1", [orderId]);
+        const orderWithItems = { ...newOrder.rows[0], items: orderItems.rows };
+        
+        sendOrderConfirmation(orderWithItems, customer.rows[0].email, customer.rows[0].name || customer_name)
+          .catch(emailErr => console.error("Email error:", emailErr.message));
+      }
+    } catch (emailErr) {
+      console.error("Failed to send email:", emailErr.message);
+    }
+
+    res.status(201).json({ 
+      success: true, 
+      orderId: orderId,
+      message: "Order placed successfully",
+      payment_status: payment_status || 'pending'
+    });
+
+  } catch (err) {
+    console.error("Error creating order:", err);
+    res.status(500).json({ 
+      message: "Failed to create order", 
+      error: err.message 
+    });
+  }
+});
+
 /* =========================
    GET ALL ORDERS (ADMIN)
 ========================= */
@@ -111,12 +188,7 @@ router.get("/customer/:customer_id", async (req, res) => {
 });
 
 /* =========================
-   AVAILABLE ORDERS FOR DRIVERS
-   Only shows orders that are READY FOR PICKUP
-========================= */
-/* =========================
-   AVAILABLE ORDERS FOR DRIVERS
-   Filters by driver's vehicle capability
+   AVAILABLE ORDERS FOR DRIVERS (UPDATED with vehicle filtering)
 ========================= */
 router.get("/available", async (req, res) => {
   try {
@@ -138,7 +210,6 @@ router.get("/available", async (req, res) => {
     `;
     
     const values = [];
-    let paramIndex = 1;
     
     // If a specific driver is requesting, filter by their vehicle type
     if (driver_id) {
@@ -150,7 +221,6 @@ router.get("/available", async (req, res) => {
       const driverVehicle = driverResult.rows[0]?.vehicle_type || 'bike';
       
       // Bike drivers can only take bike orders
-      // Car drivers can take both bike and car orders
       if (driverVehicle === 'bike') {
         query += ` AND (o.required_vehicle_type = 'bike' OR o.required_vehicle_type IS NULL)`;
       }
@@ -198,9 +268,6 @@ router.get("/driver/:id", async (req, res) => {
   }
 });
 
-/* =========================
-   DRIVER ACCEPTS ORDER - UPDATED with driver_name and vendor notification
-========================= */
 /* =========================
    DRIVER ACCEPTS ORDER (UPDATED with vehicle check)
 ========================= */
@@ -366,7 +433,7 @@ router.put("/assign/:id", async (req, res) => {
 });
 
 /* =========================
-   UPDATE ORDER STATUS (DRIVER) - UPDATED with delivery notification to vendor
+   UPDATE ORDER STATUS (DRIVER)
 ========================= */
 router.put("/status/:id", async (req, res) => {
   try {
@@ -374,7 +441,6 @@ router.put("/status/:id", async (req, res) => {
     const orderId = req.params.id;
     const io = req.app.get("io");
 
-    // Get order details including vendor owner_id
     const prevOrder = await db.query(
       `SELECT o.*, r.owner_id 
        FROM orders o
@@ -393,14 +459,12 @@ router.put("/status/:id", async (req, res) => {
 
     await db.query("UPDATE orders SET status = $1 WHERE id = $2", [status, orderId]);
 
-    // Notify customer via socket
     io.to(`order_${orderId}`).emit("order-status-update", {
       orderId: parseInt(orderId),
       status: status,
       timestamp: new Date(),
     });
 
-    // Notify vendor when order is delivered
     if (status === "delivered" && vendorId && io) {
       io.to(`vendor_${vendorId}`).emit("order-delivered", {
         orderId: parseInt(orderId),
@@ -409,7 +473,6 @@ router.put("/status/:id", async (req, res) => {
       console.log(`📢 Notified vendor ${vendorId}: Order #${orderId} has been delivered`);
     }
 
-    // Send email for status changes
     if (status !== previousStatus && status !== 'pending') {
       (async () => {
         try {
@@ -431,7 +494,6 @@ router.put("/status/:id", async (req, res) => {
       })();
     }
 
-    // Calculate earnings when delivered
     if (status === "delivered") {
       const orders = await db.query(
         "SELECT total, delivery_fee FROM orders WHERE id = $1",
@@ -668,6 +730,7 @@ router.get("/:id", async (req, res) => {
       promo_code: order.promo_code,
       discount_applied: order.discount_applied,
       item_count: order.item_count,
+      required_vehicle_type: order.required_vehicle_type,
       items: items.rows.map(item => ({
         id: item.id,
         name: item.name,

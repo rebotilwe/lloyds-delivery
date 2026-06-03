@@ -17,6 +17,12 @@ import {
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 
+// Helper function to safely format currency
+const formatCurrency = (value) => {
+  const num = typeof value === 'number' ? value : parseFloat(value);
+  return !isNaN(num) ? num.toFixed(2) : '0.00';
+};
+
 export default function DriverPayouts() {
   const [drivers, setDrivers] = useState([]);
   const [payouts, setPayouts] = useState([]);
@@ -37,18 +43,25 @@ export default function DriverPayouts() {
     try {
       const response = await api.get('/users');
       const allDrivers = response.data.filter(u => u.role === 'driver' && u.driver_status === 'approved');
-      // Calculate pending balance for each driver
+      
+      // Get pending balance from earnings-summary endpoint (without /:driverId)
       const driversWithBalance = await Promise.all(allDrivers.map(async (driver) => {
         try {
+          // Use the earnings-summary endpoint for each driver
           const earningsRes = await api.get(`/driver/earnings-summary/${driver.id}`);
-          return { ...driver, pending_balance: earningsRes.data?.summary?.pending_balance || 0 };
-        } catch {
+          const pendingBalance = earningsRes.data?.summary?.pending_balance || 
+                                 earningsRes.data?.pending_balance || 
+                                 earningsRes.data?.available_balance || 0;
+          return { ...driver, pending_balance: parseFloat(pendingBalance) || 0 };
+        } catch (error) {
+          console.log(`Could not fetch earnings for driver ${driver.id}:`, error.message);
           return { ...driver, pending_balance: 0 };
         }
       }));
       setDrivers(driversWithBalance);
     } catch (error) {
       console.error('Error fetching drivers:', error);
+      setDrivers([]);
     }
   };
 
@@ -56,9 +69,16 @@ export default function DriverPayouts() {
     setLoading(true);
     try {
       const response = await api.get('/driver/admin/payouts');
-      setPayouts(response.data || []);
+      const payoutsData = response.data || [];
+      // Ensure amounts are numbers
+      const fixedPayouts = payoutsData.map(p => ({
+        ...p,
+        amount: parseFloat(p.amount) || 0
+      }));
+      setPayouts(fixedPayouts);
     } catch (error) {
       console.error('Error fetching payouts:', error);
+      setPayouts([]);
     } finally {
       setLoading(false);
     }
@@ -74,7 +94,7 @@ export default function DriverPayouts() {
       return;
     }
     if (parseFloat(payoutAmount) > (selectedDriver.pending_balance || 0)) {
-      toast.error('Amount exceeds driver\'s pending balance');
+      toast.error(`Amount exceeds driver's pending balance of R${formatCurrency(selectedDriver.pending_balance)}`);
       return;
     }
 
@@ -117,13 +137,17 @@ export default function DriverPayouts() {
     if (filterStatus !== 'all' && payout.status !== filterStatus) return false;
     if (searchTerm) {
       return payout.driver_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-             payout.id.toString().includes(searchTerm);
+             payout.id?.toString().includes(searchTerm);
     }
     return true;
   });
 
-  const totalPending = payouts.filter(p => p.status === 'pending').reduce((sum, p) => sum + p.amount, 0);
-  const totalPaid = payouts.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
+  const totalPending = payouts
+    .filter(p => p.status === 'pending')
+    .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+  const totalPaid = payouts
+    .filter(p => p.status === 'paid')
+    .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
 
   if (loading) {
     return (
@@ -154,7 +178,7 @@ export default function DriverPayouts() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500">Total Pending</p>
-                <p className="text-2xl font-bold text-yellow-600">R{totalPending.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-yellow-600">R{formatCurrency(totalPending)}</p>
               </div>
               <Clock className="w-8 h-8 text-yellow-600 opacity-50" />
             </div>
@@ -165,7 +189,7 @@ export default function DriverPayouts() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-gray-500">Total Paid</p>
-                <p className="text-2xl font-bold text-green-600">R{totalPaid.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-green-600">R{formatCurrency(totalPaid)}</p>
               </div>
               <CheckCircle className="w-8 h-8 text-green-600 opacity-50" />
             </div>
@@ -217,59 +241,62 @@ export default function DriverPayouts() {
             </CardContent>
           </Card>
         ) : (
-          filteredPayouts.map((payout) => (
-            <Card key={payout.id} className="hover:shadow-md transition">
-              <CardContent className="p-4">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="font-semibold">#{payout.id}</p>
-                      <Badge className={
-                        payout.status === 'paid' ? 'bg-green-100 text-green-800' :
-                        payout.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                      }>
-                        {payout.status?.toUpperCase()}
-                      </Badge>
-                    </div>
-                    <p className="font-medium">{payout.driver_name}</p>
-                    <p className="text-xs text-gray-500">{payout.driver_email}</p>
-                    {payout.period_start && payout.period_end && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        Period: {format(new Date(payout.period_start), 'dd MMM')} - {format(new Date(payout.period_end), 'dd MMM yyyy')}
-                      </p>
-                    )}
-                    <p className="text-xs text-gray-400">
-                      Created: {format(new Date(payout.created_at), 'dd MMM yyyy, h:mm a')}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xl font-bold text-green">R{payout.amount.toFixed(2)}</p>
-                    {payout.status === 'pending' && (
-                      <div className="flex gap-2 mt-2">
-                        <Button 
-                          size="sm" 
-                          onClick={() => {
-                            const ref = prompt('Enter payment reference number:');
-                            if (ref) markAsPaid(payout.id, ref);
-                          }}
-                          className="bg-green text-white"
-                        >
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          Mark Paid
-                        </Button>
+          filteredPayouts.map((payout) => {
+            const safeAmount = parseFloat(payout.amount) || 0;
+            return (
+              <Card key={payout.id} className="hover:shadow-md transition">
+                <CardContent className="p-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="font-semibold">#{payout.id}</p>
+                        <Badge className={
+                          payout.status === 'paid' ? 'bg-green-100 text-green-800' :
+                          payout.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }>
+                          {payout.status?.toUpperCase() || 'PENDING'}
+                        </Badge>
                       </div>
-                    )}
-                    {payout.status === 'paid' && payout.reference_number && (
-                      <p className="text-xs text-gray-500 mt-1">
-                        Ref: {payout.reference_number}
+                      <p className="font-medium">{payout.driver_name || 'Unknown Driver'}</p>
+                      <p className="text-xs text-gray-500">{payout.driver_email || ''}</p>
+                      {payout.period_start && payout.period_end && (
+                        <p className="text-xs text-gray-400 mt-1">
+                          Period: {format(new Date(payout.period_start), 'dd MMM')} - {format(new Date(payout.period_end), 'dd MMM yyyy')}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400">
+                        Created: {payout.created_at ? format(new Date(payout.created_at), 'dd MMM yyyy, h:mm a') : 'Unknown date'}
                       </p>
-                    )}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xl font-bold text-green">R{formatCurrency(safeAmount)}</p>
+                      {payout.status === 'pending' && (
+                        <div className="flex gap-2 mt-2">
+                          <Button 
+                            size="sm" 
+                            onClick={() => {
+                              const ref = prompt('Enter payment reference number:');
+                              if (ref) markAsPaid(payout.id, ref);
+                            }}
+                            className="bg-green text-white"
+                          >
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Mark Paid
+                          </Button>
+                        </div>
+                      )}
+                      {payout.status === 'paid' && payout.reference_number && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Ref: {payout.reference_number}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))
+                </CardContent>
+              </Card>
+            );
+          })
         )}
       </div>
 
@@ -283,7 +310,7 @@ export default function DriverPayouts() {
             <div>
               <label className="text-sm font-medium">Select Driver</label>
               <Select onValueChange={(id) => {
-                const driver = drivers.find(d => d.id.toString() === id);
+                const driver = drivers.find(d => d.id?.toString() === id);
                 setSelectedDriver(driver);
               }}>
                 <SelectTrigger>
@@ -291,8 +318,8 @@ export default function DriverPayouts() {
                 </SelectTrigger>
                 <SelectContent>
                   {drivers.map(driver => (
-                    <SelectItem key={driver.id} value={driver.id.toString()}>
-                      {driver.name} - R{(driver.pending_balance || 0).toFixed(2)} pending
+                    <SelectItem key={driver.id} value={driver.id?.toString() || ''}>
+                      {driver.name} - R{formatCurrency(driver.pending_balance)} pending
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -303,7 +330,7 @@ export default function DriverPayouts() {
               <div className="bg-gray-50 p-3 rounded-lg">
                 <p className="text-sm text-gray-600">Available Balance</p>
                 <p className="text-xl font-bold text-green">
-                  R{(selectedDriver.pending_balance || 0).toFixed(2)}
+                  R{formatCurrency(selectedDriver.pending_balance)}
                 </p>
               </div>
             )}

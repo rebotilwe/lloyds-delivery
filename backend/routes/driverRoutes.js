@@ -432,5 +432,49 @@ router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), a
     res.status(500).json({ message: "Server error" });
   }
 });
+// ==================== ADMIN: GET DRIVER EARNINGS SUMMARY ====================
+router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    
+    const earnings = await db.query(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending,
+         COALESCE(SUM(CASE WHEN status = 'cleared' THEN amount ELSE 0 END), 0) as cleared,
+         COALESCE(SUM(amount), 0) as total
+       FROM driver_earnings
+       WHERE driver_id = $1`,
+      [driverId]
+    );
+    
+    const paidOut = await db.query(
+      `SELECT COALESCE(SUM(amount), 0) as total
+       FROM driver_payouts
+       WHERE driver_id = $1 AND status = 'paid'`,
+      [driverId]
+    );
+    
+    res.json({
+      summary: {
+        pending_balance: parseFloat(earnings.rows[0]?.pending || 0),
+        available_balance: parseFloat(earnings.rows[0]?.cleared || 0),
+        total_earned: parseFloat(earnings.rows[0]?.total || 0),
+        total_paid: parseFloat(paidOut.rows[0]?.total || 0),
+        pending_payout: parseFloat(earnings.rows[0]?.cleared || 0) - parseFloat(paidOut.rows[0]?.total || 0)
+      }
+    });
+  } catch (err) {
+    console.error("Earnings summary error:", err);
+    res.json({
+      summary: {
+        pending_balance: 0,
+        available_balance: 0,
+        total_earned: 0,
+        total_paid: 0,
+        pending_payout: 0
+      }
+    });
+  }
+});
 
 export default router;

@@ -102,7 +102,13 @@ export default function DriverDashboard() {
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [loadingWithdraw, setLoadingWithdraw] = useState(false);
-  const [earningsSummary, setEarningsSummary] = useState(null);
+  const [earningsSummary, setEarningsSummary] = useState({
+    pending_balance: 0,
+    available_balance: 0,
+    total_earned: 0,
+    total_paid: 0,
+    pending_payout: 0
+  });
   const [withdrawalHistory, setWithdrawalHistory] = useState([]);
   const [bankDetails, setBankDetails] = useState({
     bank_name: '',
@@ -111,7 +117,13 @@ export default function DriverDashboard() {
     branch_code: '',
   });
 
-  // LOAD USER - FIXED
+  // Helper function to safely format currency
+  const formatCurrency = (value) => {
+    const num = typeof value === 'number' ? value : parseFloat(value);
+    return !isNaN(num) ? num.toFixed(2) : '0.00';
+  };
+
+  // LOAD USER
   useEffect(() => {
     const stored = localStorage.getItem('user');
     if (stored) {
@@ -124,7 +136,7 @@ export default function DriverDashboard() {
     }
   }, [authUser]);
 
-  // Fetch orders when user is available - FIXED
+  // Fetch orders when user is available
   useEffect(() => {
     if (user && user.id) {
       console.log('User loaded, fetching orders...');
@@ -159,7 +171,7 @@ export default function DriverDashboard() {
     localStorage.setItem('declined_orders', JSON.stringify(declinedOrders));
   }, [declinedOrders]);
 
-  // Calculate distances for available orders (display only - not filtering)
+  // Calculate distances for available orders
   useEffect(() => {
     if (availableOrders.length > 0 && driverLocation.lat && driverLocation.lng) {
       const distances = {};
@@ -229,7 +241,7 @@ export default function DriverDashboard() {
       });
 
       socket.on('earnings-updated', (data) => {
-        toast.success(`💰 You earned R${data.earning.toFixed(2)} for order #${data.orderId}`);
+        toast.success(`💰 You earned R${formatCurrency(data.earning)} for order #${data.orderId}`);
         fetchOrders();
         fetchUserData();
         fetchEarningsData();
@@ -300,7 +312,14 @@ export default function DriverDashboard() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
-      setEarningsSummary(data.summary);
+      const summary = data.summary || {};
+      setEarningsSummary({
+        pending_balance: parseFloat(summary.pending_balance) || 0,
+        available_balance: parseFloat(summary.available_balance) || 0,
+        total_earned: parseFloat(summary.total_earned) || 0,
+        total_paid: parseFloat(summary.total_paid) || 0,
+        pending_payout: parseFloat(summary.pending_payout) || 0
+      });
     } catch (err) {
       console.error('Error fetching earnings:', err);
     }
@@ -313,9 +332,16 @@ export default function DriverDashboard() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
-      setWithdrawalHistory(data);
+      // Ensure amounts are numbers
+      const fixedData = (data || []).map(item => ({
+        ...item,
+        amount: parseFloat(item.amount) || 0,
+        requested_at: item.requested_at || item.created_at
+      }));
+      setWithdrawalHistory(fixedData);
     } catch (err) {
       console.error('Error fetching withdrawal history:', err);
+      setWithdrawalHistory([]);
     }
   };
 
@@ -368,7 +394,7 @@ export default function DriverDashboard() {
     }
     
     if (amount > (earningsSummary?.available_balance || 0)) {
-      toast.error(`Insufficient balance. Available: R${earningsSummary?.available_balance?.toFixed(2)}`);
+      toast.error(`Insufficient balance. Available: R${formatCurrency(earningsSummary?.available_balance)}`);
       return;
     }
     
@@ -637,7 +663,7 @@ export default function DriverDashboard() {
         <StatCard label="Rating" value={averageRating > 0 ? `${averageRating}★` : '—'} icon={Star} color="bg-yellow-500" />
       </div>
 
-      {/* Earnings Summary Card - NEW */}
+      {/* Earnings Summary Card */}
       {earningsSummary && (
         <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-xl p-4 mb-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -646,11 +672,13 @@ export default function DriverDashboard() {
                 <Wallet className="w-5 h-5 text-green" />
                 <h3 className="font-semibold text-gray-700">Available Balance</h3>
               </div>
-              <p className="text-3xl font-bold text-green">R{earningsSummary.available_balance?.toFixed(2) || '0.00'}</p>
+              <p className="text-3xl font-bold text-green">
+                R{formatCurrency(earningsSummary.available_balance)}
+              </p>
               <div className="flex flex-wrap gap-4 mt-2 text-xs text-gray-500">
-                <span>Pending: R{earningsSummary.pending_balance?.toFixed(2) || '0.00'}</span>
-                <span>Total Earned: R{earningsSummary.total_earned?.toFixed(2) || '0.00'}</span>
-                <span>Withdrawn: R{earningsSummary.total_paid?.toFixed(2) || '0.00'}</span>
+                <span>Pending: R{formatCurrency(earningsSummary.pending_balance)}</span>
+                <span>Total Earned: R{formatCurrency(earningsSummary.total_earned)}</span>
+                <span>Withdrawn: R{formatCurrency(earningsSummary.total_paid)}</span>
               </div>
             </div>
             <Button 
@@ -665,7 +693,7 @@ export default function DriverDashboard() {
         </div>
       )}
 
-      {/* Bank Details Card - NEW */}
+      {/* Bank Details Card */}
       <div className="bg-white border rounded-xl p-4 mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div>
@@ -707,35 +735,41 @@ export default function DriverDashboard() {
         </div>
       </div>
 
-      {/* Withdrawal History - NEW */}
+      {/* Withdrawal History */}
       {withdrawalHistory.length > 0 && (
         <div className="mb-6">
           <h2 className="text-sm sm:text-base font-bold mb-3">Withdrawal History</h2>
           <div className="space-y-2">
-            {withdrawalHistory.map((payout) => (
-              <Card key={payout.id}>
-                <CardContent className="p-3 flex justify-between items-center">
-                  <div>
-                    <p className="font-medium text-green">R{payout.amount.toFixed(2)}</p>
-                    <p className="text-xs text-gray-400">
-                      {new Date(payout.requested_at).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <Badge className={
-                      payout.status === 'paid' ? 'bg-green-100 text-green-800' :
-                      payout.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }>
-                      {payout.status?.toUpperCase()}
-                    </Badge>
-                    {payout.reference_number && (
-                      <p className="text-xs text-gray-400 mt-1">Ref: {payout.reference_number}</p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+            {withdrawalHistory.map((payout) => {
+              const amount = typeof payout.amount === 'number' ? payout.amount : parseFloat(payout.amount);
+              const safeAmount = !isNaN(amount) ? amount : 0;
+              const requestedDate = payout.requested_at || payout.created_at;
+              
+              return (
+                <Card key={payout.id}>
+                  <CardContent className="p-3 flex justify-between items-center">
+                    <div>
+                      <p className="font-medium text-green">R{safeAmount.toFixed(2)}</p>
+                      <p className="text-xs text-gray-400">
+                        {requestedDate ? new Date(requestedDate).toLocaleDateString() : 'Unknown date'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <Badge className={
+                        payout.status === 'paid' ? 'bg-green-100 text-green-800' :
+                        payout.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-red-100 text-red-800'
+                      }>
+                        {payout.status?.toUpperCase() || 'PENDING'}
+                      </Badge>
+                      {payout.reference_number && (
+                        <p className="text-xs text-gray-400 mt-1">Ref: {payout.reference_number}</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </div>
       )}
@@ -747,7 +781,7 @@ export default function DriverDashboard() {
             <TrendingUp className="w-5 h-5 text-green" />
             <div>
               <p className="text-xs text-gray-500">This Week's Earnings</p>
-              <p className="text-xl sm:text-2xl font-bold text-green">R{weeklyEarnings.toFixed(2)}</p>
+              <p className="text-xl sm:text-2xl font-bold text-green">R{formatCurrency(weeklyEarnings)}</p>
             </div>
           </div>
           <div className="text-center sm:text-right">
@@ -1024,7 +1058,9 @@ export default function DriverDashboard() {
           <div className="space-y-4">
             <div className="bg-gray-50 p-3 rounded-lg">
               <p className="text-sm text-gray-600">Available Balance</p>
-              <p className="text-2xl font-bold text-green">R{earningsSummary?.available_balance?.toFixed(2) || '0.00'}</p>
+              <p className="text-2xl font-bold text-green">
+                R{formatCurrency(earningsSummary?.available_balance)}
+              </p>
             </div>
             
             <div>

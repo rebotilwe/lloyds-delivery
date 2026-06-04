@@ -39,7 +39,21 @@ const getCurrentStep = (status) => {
 function cn(...classes) {
   return classes.filter(Boolean).join(' ');
 }
+// Add this function near the top
+const markOrdersAsViewed = (orderIds) => {
+  const viewed = localStorage.getItem('viewed_orders');
+  const viewedOrders = viewed ? JSON.parse(viewed) : [];
+  const newViewed = [...new Set([...viewedOrders, ...orderIds])];
+  localStorage.setItem('viewed_orders', JSON.stringify(newViewed));
+};
 
+// When the page loads, mark all displayed orders as viewed
+useEffect(() => {
+  if (activeOrders.length > 0) {
+    const orderIds = activeOrders.map(o => o.id);
+    markOrdersAsViewed(orderIds);
+  }
+}, [activeOrders]);
 // Helper to format phone number for WhatsApp
 const formatWhatsAppNumber = (phone) => {
   if (!phone) return '#';

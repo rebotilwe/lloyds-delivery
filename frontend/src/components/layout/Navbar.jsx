@@ -36,6 +36,10 @@ export default function Navbar() {
 
   const [unreadOrders, setUnreadOrders] = useState(0);
   const [notifications, setNotifications] = useState([]);
+  const [readNotifications, setReadNotifications] = useState(() => {
+    const saved = localStorage.getItem('read_notifications');
+    return saved ? JSON.parse(saved) : [];
+  });
 
   const totalItems = getTotalItems?.() || 0;
   const cartTotal = typeof total === 'function' ? total() : total || 0;
@@ -73,7 +77,6 @@ export default function Navbar() {
 
   // ---------------- NAV LINKS ----------------
   const navLinks = [
-    // { path: '/', label: 'Home', icon: Home, show: true },
     { path: '/cart', label: 'Cart', icon: ShoppingBag, show: isCustomer, badge: totalItems },
     { path: '/orders', label: 'Orders', icon: Package, show: isCustomer },
     { path: '/driver', label: 'Driver', icon: Truck, show: isDriver },
@@ -90,12 +93,17 @@ export default function Navbar() {
           customer_email: user.email,
         });
 
-        const unread = orders.filter(
+        // Filter active orders (not delivered or cancelled)
+        const activeOrders = orders.filter(
           (o) => o.status !== 'delivered' && o.status !== 'cancelled'
         );
 
-        setUnreadOrders(unread.length);
-        setNotifications(unread.slice(0, 5));
+        // Calculate unread count by checking localStorage
+        const viewedOrders = JSON.parse(localStorage.getItem('viewed_orders') || '[]');
+        const trulyUnread = activeOrders.filter(o => !viewedOrders.includes(o.id));
+        
+        setUnreadOrders(trulyUnread.length);
+        setNotifications(activeOrders.slice(0, 5));
       } catch (err) {
         console.log(err);
       }
@@ -106,6 +114,26 @@ export default function Navbar() {
     const interval = setInterval(fetchUnread, 30000);
     return () => clearInterval(interval);
   }, [isAuthenticated, isCustomer, user]);
+
+  // Mark notification as read
+  const markAsRead = (orderId) => {
+    const updated = [...readNotifications, orderId];
+    setReadNotifications(updated);
+    localStorage.setItem('read_notifications', JSON.stringify(updated));
+    setUnreadOrders(prev => Math.max(0, prev - 1));
+  };
+
+  // Mark all as read
+  const markAllAsRead = () => {
+    const allOrderIds = notifications.map(n => n.id);
+    const updated = [...new Set([...readNotifications, ...allOrderIds])];
+    setReadNotifications(updated);
+    localStorage.setItem('read_notifications', JSON.stringify(updated));
+    setUnreadOrders(0);
+  };
+
+  // Get unread notifications for display
+  const unreadNotifications = notifications.filter(n => !readNotifications.includes(n.id));
 
   const handleLogout = () => {
     logout();
@@ -201,27 +229,41 @@ export default function Navbar() {
                     <div className="absolute right-0 mt-2 w-80 bg-white text-black rounded-lg shadow-xl z-50 overflow-hidden">
                       <div className="p-3 border-b font-semibold flex justify-between items-center">
                         <span>Notifications</span>
-                        {unreadOrders > 0 && (
+                        <div className="flex gap-2">
+                          {unreadOrders > 0 && (
+                            <button 
+                              onClick={markAllAsRead}
+                              className="text-xs text-green hover:underline"
+                            >
+                              Mark all read
+                            </button>
+                          )}
                           <button 
                             onClick={() => navigate('/orders')}
                             className="text-xs text-green hover:underline"
                           >
                             View all
                           </button>
-                        )}
+                        </div>
                       </div>
                       <div className="max-h-96 overflow-y-auto">
-                        {notifications.length === 0 ? (
+                        {unreadNotifications.length === 0 ? (
                           <div className="p-6 text-center">
                             <Bell className="w-8 h-8 text-gray-300 mx-auto mb-2" />
                             <p className="text-sm text-gray-500">No new notifications</p>
+                            {notifications.length > 0 && (
+                              <p className="text-xs text-gray-400 mt-1">
+                                You have {notifications.length} completed orders
+                              </p>
+                            )}
                           </div>
                         ) : (
-                          notifications.map((n, i) => (
+                          unreadNotifications.map((n) => (
                             <div
-                              key={i}
+                              key={n.id}
                               className="p-3 border-b hover:bg-gray-50 cursor-pointer transition"
                               onClick={() => {
+                                markAsRead(n.id);
                                 setNotificationsOpen(false);
                                 navigate('/orders');
                               }}
@@ -351,13 +393,12 @@ export default function Navbar() {
         </div>
       </nav>
 
-      {/* MOBILE MENU - Improved */}
+      {/* MOBILE MENU */}
       {mobileMenuOpen && (
         <>
           <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setMobileMenuOpen(false)} />
           <div className="fixed top-14 left-0 right-0 bg-navy text-white z-40 md:hidden shadow-xl animate-slideDown max-h-[calc(100vh-3.5rem)] overflow-y-auto">
             <div className="p-3 space-y-1">
-              {/* User Info at top of mobile menu */}
               {isAuthenticated && (
                 <div className="p-3 mb-2 bg-white/10 rounded-lg">
                   <div className="flex items-center gap-3">
@@ -371,16 +412,6 @@ export default function Navbar() {
                   </div>
                 </div>
               )}
-
-              {/* Nav Links */}
-              {/* <Link 
-                to="/" 
-                onClick={() => setMobileMenuOpen(false)} 
-                className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition"
-              >
-                <Home className="w-5 h-5" /> 
-                <span>Home</span>
-              </Link> */}
               
               {isCustomer && (
                 <>
@@ -433,7 +464,6 @@ export default function Navbar() {
                 </Link>
               )}
 
-              {/* Profile */}
               {isAuthenticated && (
                 <Link 
                   to="/profile" 
@@ -445,7 +475,6 @@ export default function Navbar() {
                 </Link>
               )}
 
-              {/* Help/Support */}
               <Link 
                 to="/contact" 
                 onClick={() => setMobileMenuOpen(false)} 

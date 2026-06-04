@@ -54,8 +54,7 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// LOGIN
-// LOGIN - FIXED (don't block pending drivers)
+// LOGIN - Add vehicle_type to the SELECT
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -66,8 +65,10 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Email and password required" });
     }
 
+    // ✅ ADD vehicle_type to the SELECT query
     const users = await db.query(
-      `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, earnings, password_hash 
+      `SELECT id, name, email, role, phone, driver_status, vendor_status, 
+              is_available, earnings, vehicle_type, password_hash 
        FROM users WHERE email = $1`,
       [email]
     );
@@ -86,17 +87,13 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    // FIXED: Don't block pending drivers - they need to login to complete onboarding
-    // Just block vendors who aren't approved (they can't do anything without a restaurant)
+    // Don't block pending drivers - they need to login to complete onboarding
     if (user.role === 'vendor' && user.vendor_status !== 'approved') {
       return res.status(403).json({ 
         message: "Your vendor account is pending approval. You'll receive an email once approved.",
         status: user.vendor_status
       });
     }
-
-    // Allow all drivers to login - the frontend guard will handle showing onboarding/pending pages
-    // based on driver_status
 
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role, name: user.name },
@@ -106,7 +103,12 @@ router.post("/login", async (req, res) => {
 
     const { password_hash, ...userWithoutPassword } = user;
 
-    console.log("✅ Login successful:", { email, role: user.role, driver_status: user.driver_status });
+    console.log("✅ Login successful:", { 
+      email, 
+      role: user.role, 
+      driver_status: user.driver_status,
+      vehicle_type: user.vehicle_type  // Should now show 'car' for John
+    });
 
     return res.json({
       message: "Login successful",
@@ -119,7 +121,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// GET CURRENT USER
+// GET CURRENT USER - Add vehicle_type
 router.get("/me", async (req, res) => {
   try {
     const token = req.headers.authorization?.split(" ")[1];
@@ -131,7 +133,8 @@ router.get("/me", async (req, res) => {
       }
       
       const users = await db.query(
-        `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, earnings 
+        `SELECT id, name, email, role, phone, driver_status, vendor_status, 
+                is_available, earnings, vehicle_type 
          FROM users WHERE id = $1`,
         [userId]
       );
@@ -145,7 +148,8 @@ router.get("/me", async (req, res) => {
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-super-secret-key-change-this");
     const users = await db.query(
-      `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, earnings 
+      `SELECT id, name, email, role, phone, driver_status, vendor_status, 
+              is_available, earnings, vehicle_type 
        FROM users WHERE id = $1`,
       [decoded.id]
     );

@@ -118,18 +118,18 @@ export default function AdminUsers({ users = [], onRefresh }) {
 
   // Mobile User Card Component
   const MobileUserCard = ({ user }) => (
-    <div className="bg-white border rounded-xl p-4 mb-3 shadow-sm">
-      <div className="flex justify-between items-start mb-3">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center text-white font-semibold text-sm">
+    <div className="bg-white border rounded-xl p-3 sm:p-4 mb-3 shadow-sm">
+      <div className="flex justify-between items-start gap-2 mb-3">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center text-white font-semibold text-sm shrink-0">
             {user.name?.charAt(0) || 'U'}
           </div>
-          <div>
-            <p className="font-semibold text-sm">{user.name || '-'}</p>
-            <p className="text-xs text-gray-500">{user.email}</p>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-sm truncate">{user.name || '-'}</p>
+            <p className="text-xs text-gray-500 truncate">{user.email}</p>
           </div>
         </div>
-        <Badge className={roleColors[user.role] || roleColors.customer}>
+        <Badge className={cn(roleColors[user.role] || roleColors.customer, 'shrink-0 text-[10px] sm:text-xs')}>
           {(user.role || 'customer').charAt(0).toUpperCase() + (user.role || 'customer').slice(1)}
         </Badge>
       </div>
@@ -137,17 +137,17 @@ export default function AdminUsers({ users = [], onRefresh }) {
       <div className="space-y-2 text-sm">
         {user.phone && (
           <div className="flex items-center gap-2">
-            <Phone className="w-3 h-3 text-gray-400" />
-            <span className="text-xs text-gray-600">{user.phone}</span>
+            <Phone className="w-3 h-3 text-gray-400 shrink-0" />
+            <span className="text-xs text-gray-600 truncate">{user.phone}</span>
           </div>
         )}
         <div className="flex items-center gap-2">
-          <Mail className="w-3 h-3 text-gray-400" />
-          <span className="text-xs text-gray-600">{user.email}</span>
+          <Mail className="w-3 h-3 text-gray-400 shrink-0" />
+          <span className="text-xs text-gray-600 truncate">{user.email}</span>
         </div>
         <div className="flex items-center gap-2">
-          <Calendar className="w-3 h-3 text-gray-400" />
-          <span className="text-xs text-gray-500">
+          <Calendar className="w-3 h-3 text-gray-400 shrink-0" />
+          <span className="text-xs text-gray-500 truncate">
             Joined {user.created_at ? format(new Date(user.created_at), 'dd MMM yyyy') : '-'}
           </span>
         </div>
@@ -156,28 +156,28 @@ export default function AdminUsers({ users = [], onRefresh }) {
       {/* Status Badge */}
       <div className="mt-3">
         {user.driver_status === 'pending' && (
-          <Badge className="bg-yellow-100 text-yellow-800">Pending Approval</Badge>
+          <Badge className="bg-yellow-100 text-yellow-800 text-[10px] sm:text-xs">Pending Approval</Badge>
         )}
         {user.driver_status === 'approved' && (
-          <Badge className="bg-green-100 text-green-800">Approved Driver</Badge>
+          <Badge className="bg-green-100 text-green-800 text-[10px] sm:text-xs">Approved Driver</Badge>
         )}
         {user.driver_status === 'rejected' && (
-          <Badge className="bg-red-100 text-red-800">Rejected</Badge>
+          <Badge className="bg-red-100 text-red-800 text-[10px] sm:text-xs">Rejected</Badge>
         )}
         {!user.driver_status && user.role !== 'driver' && (
-          <Badge className="bg-green-100 text-green-800">Active</Badge>
+          <Badge className="bg-green-100 text-green-800 text-[10px] sm:text-xs">Active</Badge>
         )}
         {user.role === 'driver' && !user.driver_status && (
-          <Badge className="bg-gray-100 text-gray-800">Not Submitted</Badge>
+          <Badge className="bg-gray-100 text-gray-800 text-[10px] sm:text-xs">Not Submitted</Badge>
         )}
       </div>
       
-      {/* Action Buttons */}
-      <div className="flex gap-2 mt-3 pt-3 border-t">
+      {/* Action Buttons - Stack on mobile */}
+      <div className="flex flex-col sm:flex-row gap-2 mt-3 pt-3 border-t">
         <Button 
           variant="outline" 
           size="sm" 
-          className="flex-1 text-xs"
+          className="w-full sm:flex-1 text-xs"
           onClick={() => handleEdit(user)}
         >
           <Pencil className="w-3 h-3 mr-1" />
@@ -186,7 +186,7 @@ export default function AdminUsers({ users = [], onRefresh }) {
         <Button 
           variant="outline" 
           size="sm" 
-          className="flex-1 text-xs text-red-500 border-red-200 hover:bg-red-50"
+          className="w-full sm:flex-1 text-xs text-red-500 border-red-200 hover:bg-red-50"
           onClick={() => handleDelete(user)}
           disabled={deletingId === user.id}
         >
@@ -200,7 +200,7 @@ export default function AdminUsers({ users = [], onRefresh }) {
         <Button 
           variant="outline" 
           size="sm" 
-          className="flex-1 text-xs"
+          className="w-full sm:flex-1 text-xs"
           onClick={() => handleResetPassword(user)}
           disabled={resettingId === user.id}
         >
@@ -214,6 +214,9 @@ export default function AdminUsers({ users = [], onRefresh }) {
       </div>
     </div>
   );
+
+  // Helper for className merging
+  const cn = (...classes) => classes.filter(Boolean).join(' ');
 
   return (
     <>
@@ -234,7 +237,7 @@ export default function AdminUsers({ users = [], onRefresh }) {
                   placeholder="Search users..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 h-9 text-sm w-full sm:w-48"
+                  className="pl-9 pr-8 h-9 text-sm w-full sm:w-48"
                 />
                 {searchTerm && (
                   <button
@@ -266,15 +269,15 @@ export default function AdminUsers({ users = [], onRefresh }) {
           <div className="p-3">
             {filteredUsers.length === 0 ? (
               <div className="text-center py-8">
-                <User className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                <p className="text-gray-500">No users found</p>
+                <User className="w-10 h-10 sm:w-12 sm:h-12 text-gray-300 mx-auto mb-2" />
+                <p className="text-sm text-gray-500">No users found</p>
                 {(searchTerm || roleFilter !== 'all') && (
                   <button
                     onClick={() => {
                       setSearchTerm('');
                       setRoleFilter('all');
                     }}
-                    className="text-sm text-green hover:underline mt-2"
+                    className="text-xs sm:text-sm text-green hover:underline mt-2"
                   >
                     Clear filters
                   </button>
@@ -311,8 +314,12 @@ export default function AdminUsers({ users = [], onRefresh }) {
                 ) : (
                   filteredUsers.map(user => (
                     <TableRow key={user.id} className="hover:bg-slate-50/60">
-                      <TableCell className="font-medium text-sm whitespace-nowrap">{user.name || '-'}</TableCell>
-                      <TableCell className="text-sm whitespace-nowrap">{user.email}</TableCell>
+                      <TableCell className="font-medium text-sm whitespace-nowrap max-w-[150px] truncate">
+                        {user.name || '-'}
+                      </TableCell>
+                      <TableCell className="text-sm whitespace-nowrap max-w-[200px] truncate">
+                        {user.email}
+                      </TableCell>
                       <TableCell className="whitespace-nowrap">
                         <Badge className={roleColors[user.role] || roleColors.customer}>
                           {(user.role || 'customer').charAt(0).toUpperCase() + (user.role || 'customer').slice(1)}
@@ -324,19 +331,19 @@ export default function AdminUsers({ users = [], onRefresh }) {
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
                         {user.driver_status === 'pending' && (
-                          <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>
+                          <Badge className="bg-yellow-100 text-yellow-800 text-[10px]">Pending</Badge>
                         )}
                         {user.driver_status === 'approved' && (
-                          <Badge className="bg-green-100 text-green-800">Approved</Badge>
+                          <Badge className="bg-green-100 text-green-800 text-[10px]">Approved</Badge>
                         )}
                         {user.driver_status === 'rejected' && (
-                          <Badge className="bg-red-100 text-red-800">Rejected</Badge>
+                          <Badge className="bg-red-100 text-red-800 text-[10px]">Rejected</Badge>
                         )}
                         {!user.driver_status && user.role !== 'driver' && (
-                          <Badge className="bg-green-100 text-green-800">Active</Badge>
+                          <Badge className="bg-green-100 text-green-800 text-[10px]">Active</Badge>
                         )}
                         {user.role === 'driver' && !user.driver_status && (
-                          <Badge className="bg-gray-100 text-gray-800">Not Submitted</Badge>
+                          <Badge className="bg-gray-100 text-gray-800 text-[10px]">Not Submitted</Badge>
                         )}
                       </TableCell>
                       <TableCell>
@@ -344,38 +351,38 @@ export default function AdminUsers({ users = [], onRefresh }) {
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            className="h-8 w-8"
+                            className="h-7 w-7 sm:h-8 sm:w-8"
                             onClick={() => handleEdit(user)}
                             title="Edit User"
                           >
-                            <Pencil className="w-3.5 h-3.5" />
+                            <Pencil className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                           </Button>
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            className="h-8 w-8 text-red-500"
+                            className="h-7 w-7 sm:h-8 sm:w-8 text-red-500"
                             onClick={() => handleDelete(user)}
                             disabled={deletingId === user.id}
                             title="Delete User"
                           >
                             {deletingId === user.id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <Loader2 className="w-3 h-3 animate-spin" />
                             ) : (
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             )}
                           </Button>
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            className="h-8 w-8"
+                            className="h-7 w-7 sm:h-8 sm:w-8"
                             onClick={() => handleResetPassword(user)}
                             disabled={resettingId === user.id}
                             title="Reset Password"
                           >
                             {resettingId === user.id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <Loader2 className="w-3 h-3 animate-spin" />
                             ) : (
-                              <Key className="w-3.5 h-3.5" />
+                              <Key className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             )}
                           </Button>
                         </div>
@@ -391,44 +398,44 @@ export default function AdminUsers({ users = [], onRefresh }) {
 
       {/* Edit User Dialog - Mobile Friendly */}
       <Dialog open={!!editingUser} onOpenChange={() => setEditingUser(null)}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[90vw] sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit User</DialogTitle>
+            <DialogTitle className="text-base sm:text-lg">Edit User</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-2">
             <div>
-              <label className="block text-sm font-medium mb-1">Name</label>
+              <label className="block text-xs sm:text-sm font-medium mb-1">Name</label>
               <Input 
                 value={editForm.name} 
                 onChange={e => setEditForm({ ...editForm, name: e.target.value })}
-                className="w-full"
+                className="w-full text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Email</label>
+              <label className="block text-xs sm:text-sm font-medium mb-1">Email</label>
               <Input 
                 type="email"
                 value={editForm.email} 
                 onChange={e => setEditForm({ ...editForm, email: e.target.value })}
-                className="w-full"
+                className="w-full text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Phone</label>
+              <label className="block text-xs sm:text-sm font-medium mb-1">Phone</label>
               <Input 
                 value={editForm.phone} 
                 onChange={e => setEditForm({ ...editForm, phone: e.target.value })}
-                className="w-full"
+                className="w-full text-sm"
                 placeholder="Phone number"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Role</label>
+              <label className="block text-xs sm:text-sm font-medium mb-1">Role</label>
               <Select 
                 value={editForm.role} 
                 onValueChange={val => setEditForm({ ...editForm, role: val })}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -439,10 +446,10 @@ export default function AdminUsers({ users = [], onRefresh }) {
               </Select>
             </div>
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
-              <Button onClick={handleUpdate} disabled={updating} className="flex-1 bg-navy text-white order-2 sm:order-1">
+              <Button onClick={handleUpdate} disabled={updating} className="flex-1 bg-navy text-white order-2 sm:order-1 text-sm">
                 {updating ? 'Saving...' : 'Save Changes'}
               </Button>
-              <Button onClick={() => setEditingUser(null)} variant="outline" className="flex-1 order-1 sm:order-2">
+              <Button onClick={() => setEditingUser(null)} variant="outline" className="flex-1 order-1 sm:order-2 text-sm">
                 Cancel
               </Button>
             </div>

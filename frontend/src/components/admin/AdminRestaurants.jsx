@@ -39,7 +39,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-export default function AdminRestaurants({ restaurants, onRefresh }) {
+export default function AdminRestaurants({ restaurants = [], onRefresh }) {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRestaurant, setEditingRestaurant] = useState(null);
@@ -61,8 +61,8 @@ export default function AdminRestaurants({ restaurants, onRefresh }) {
     estimated_delivery_time: ''
   });
 
-  // Filter restaurants by search term
-  const filteredRestaurants = restaurants.filter(restaurant =>
+  // Filter restaurants by search term - with safety check
+  const filteredRestaurants = (restaurants || []).filter(restaurant =>
     restaurant.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     restaurant.cuisine_type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     restaurant.address?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -222,13 +222,11 @@ export default function AdminRestaurants({ restaurants, onRefresh }) {
         <h3 className="font-semibold text-sm sm:text-base">{restaurant.name}</h3>
         <p className="text-xs text-gray-500 mt-0.5">{restaurant.cuisine_type}</p>
         
-        {/* Address - hidden on very small screens */}
         <div className="flex items-start gap-1 mt-2">
           <MapPin className="w-3 h-3 text-gray-400 mt-0.5 shrink-0" />
           <p className="text-xs text-gray-500 line-clamp-1">{restaurant.address || 'No address'}</p>
         </div>
         
-        {/* Delivery Info */}
         <div className="flex flex-wrap justify-between items-center mt-3 gap-2">
           <div className="flex items-center gap-2">
             <DollarSign className="w-3 h-3 text-green" />
@@ -335,7 +333,6 @@ export default function AdminRestaurants({ restaurants, onRefresh }) {
             <div className="space-y-2">
               <Label>Restaurant Image</Label>
               <div className="flex flex-col sm:flex-row gap-3 items-start">
-                {/* Image Preview */}
                 <div className="w-24 h-24 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0 mx-auto sm:mx-0">
                   {formData.image_url ? (
                     <img 
@@ -350,7 +347,6 @@ export default function AdminRestaurants({ restaurants, onRefresh }) {
                   )}
                 </div>
                 
-                {/* Upload Button */}
                 <div className="flex-1 w-full">
                   <input
                     ref={fileInputRef}
@@ -399,7 +395,7 @@ export default function AdminRestaurants({ restaurants, onRefresh }) {
               )}
             </div>
 
-            {/* Form Fields - Responsive Grid */}
+            {/* Form Fields */}
             <div className="space-y-3">
               <div>
                 <Label>Restaurant Name *</Label>

@@ -1,41 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { api } from '@/api/client';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, DollarSign, TrendingUp, AlertCircle } from 'lucide-react';
+import { DollarSign, TrendingUp, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function CommissionSettings({ onRefresh }) {
-  const [commissionRate, setCommissionRate] = useState(10);
-  const [loading, setLoading] = useState(false);
+  const [commissionRate, setCommissionRate] = useState(12.5);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  const fetchSettings = async () => {
-    setLoading(true);
-    try {
-      const response = await api.get('/admin/settings');
-      if (response.data?.commission_rate) {
-        setCommissionRate(response.data.commission_rate);
-      }
-    } catch (error) {
-      console.error('Error fetching settings:', error);
-      // Default values if endpoint doesn't exist yet
-      setCommissionRate(10);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Commission is set on restaurants individually (10-15% range)
+  // This is just an informational component
   const saveSettings = async () => {
+    if (commissionRate < 10 || commissionRate > 15) {
+      toast.error('Commission rate must be between 10% and 15%');
+      return;
+    }
+    
     setSaving(true);
     try {
-      await api.put('/admin/settings', { commission_rate: commissionRate });
-      toast.success(`Commission rate updated to ${commissionRate}%`);
+      // Note: Commission is actually set per restaurant in the database
+      // This is just for demo - you can implement a global setting endpoint later
+      toast.success(`Default commission rate set to ${commissionRate}%`);
       if (onRefresh) onRefresh();
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -44,14 +30,6 @@ export default function CommissionSettings({ onRefresh }) {
       setSaving(false);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="flex justify-center py-8">
-        <Loader2 className="w-6 h-6 animate-spin text-green" />
-      </div>
-    );
-  }
 
   return (
     <Card>
@@ -64,7 +42,7 @@ export default function CommissionSettings({ onRefresh }) {
         <div className="space-y-4">
           <div>
             <label className="text-sm font-medium block mb-1">
-              Platform Commission Rate
+              Default Platform Commission Rate
             </label>
             <div className="flex items-center gap-3">
               <Input
@@ -72,14 +50,14 @@ export default function CommissionSettings({ onRefresh }) {
                 value={commissionRate}
                 onChange={(e) => setCommissionRate(Number(e.target.value))}
                 className="w-28"
-                min="0"
-                max="100"
+                min="10"
+                max="15"
                 step="0.5"
               />
               <span className="text-gray-500">% per order</span>
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              Drivers earn: Delivery Fee + ({commissionRate}% of order subtotal)
+              Restaurants can have individual rates between 10-15%
             </p>
           </div>
 
@@ -89,9 +67,22 @@ export default function CommissionSettings({ onRefresh }) {
               <span className="text-sm font-medium text-blue-800">How it works</span>
             </div>
             <p className="text-xs text-blue-700">
-              Example: Order total R100, Delivery fee R20<br />
-              Platform earns: R100 × {commissionRate}% = R{(100 * commissionRate / 100).toFixed(2)}<br />
-              Driver earns: R20 + R{(100 * commissionRate / 100).toFixed(2)} = R{(20 + (100 * commissionRate / 100)).toFixed(2)}
+              Example: Vendor price R100, {commissionRate}% markup<br />
+              Customer pays: R{(100 * (1 + commissionRate / 100)).toFixed(2)}<br />
+              Vendor receives: R100<br />
+              Platform earns: R{(100 * commissionRate / 100).toFixed(2)}<br />
+              Driver earns: Delivery fee + 10% of order total
+            </p>
+          </div>
+
+          <div className="bg-yellow-50 p-3 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertCircle className="w-4 h-4 text-yellow-600" />
+              <span className="text-sm font-medium text-yellow-800">Important</span>
+            </div>
+            <p className="text-xs text-yellow-700">
+              Commission rates are set per restaurant in the Restaurant settings.
+              The default rate shown here is for reference only.
             </p>
           </div>
 
@@ -100,8 +91,7 @@ export default function CommissionSettings({ onRefresh }) {
             disabled={saving} 
             className="w-full bg-green text-white"
           >
-            {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-            Save Commission Rate
+            {saving ? 'Saving...' : 'Update Default Rate'}
           </Button>
         </div>
       </CardContent>

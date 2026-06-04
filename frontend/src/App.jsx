@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { SocketProvider } from '@/context/SocketContext';
@@ -22,8 +22,6 @@ import Signup from '@/pages/Signup';
 import CustomerOrders from '@/pages/CustomerOrders';
 import CustomerProfile from '@/pages/CustomerProfile';
 import DriverDashboard from '@/pages/DriverDashboard';
-import AdminDashboard from '@/pages/AdminDashboard';
-import AdminOrderDetails from '@/pages/AdminOrderDetails';
 import OrderConfirmation from '@/pages/OrderConfirmation';
 import DriverOnboarding from '@/pages/DriverOnboarding';
 import Contact from '@/pages/Contact';
@@ -36,6 +34,22 @@ import VendorSettings from '@/pages/VendorSettings';
 import VendorWaiting from '@/pages/VendorWaiting';
 import VendorOnboarding from '@/pages/VendorOnboarding';
 import PageNotFound from '@/lib/PageNotFound';
+
+// Admin pages
+import AdminDashboard from '@/pages/AdminDashboard';
+import AdminOrderDetails from '@/pages/AdminOrderDetails';
+import AdminOrders from '@/components/admin/AdminOrders';
+import AdminRestaurants from '@/components/admin/AdminRestaurants';
+import AdminMenuItems from '@/components/admin/AdminMenuItems';
+import AdminUsers from '@/components/admin/AdminUsers';
+import VendorManagement from '@/components/admin/VendorManagement';
+import DisputeManagement from '@/components/admin/DisputeManagement';
+import DriverPayouts from '@/components/admin/DriverPayouts';
+import AdminVendorPayouts from '@/components/admin/AdminVendorPayouts';
+
+import AdminDriversPage from '@/components/admin/AdminDriversPage';
+import AdminFinancePage from '@/components/admin/AdminFinancePage';
+import AdminSettingsPage from '@/components/admin/AdminSettingsPage';
 
 // LOADING COMPONENT
 const Loader = () => (
@@ -68,18 +82,12 @@ const DriverPendingApproval = () => (
   </div>
 );
 
-// ---------------------
-// LOADING GUARD
-// ---------------------
 function LoadingGuard({ children }) {
   const { loading } = useAuth();
   if (loading) return <Loader />;
   return children;
 }
 
-// ---------------------
-// AUTH GUARD
-// ---------------------
 function AuthGuard({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <Loader />;
@@ -87,9 +95,6 @@ function AuthGuard({ children }) {
   return children;
 }
 
-// ---------------------
-// ADMIN GUARD
-// ---------------------
 function AdminGuard({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <Loader />;
@@ -98,87 +103,137 @@ function AdminGuard({ children }) {
   return children;
 }
 
-// ---------------------
-// DRIVER GUARD - FIXED
-// ---------------------
 function DriverGuard({ children }) {
   const { user, loading } = useAuth();
-
   if (loading) return <Loader />;
   if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'driver') return <Navigate to="/" replace />;
 
-  if (user.role !== 'driver') {
-    return <Navigate to="/" replace />;
-  }
-
-  const status = user.driver_status;
-
-  switch (status) {
-    case null:
-      return <DriverOnboarding />;
-
-    case 'pending':
-      return <DriverPendingApproval />;
-
-    case 'approved':
-      return children;
-
-    case 'rejected':
-      return <Navigate to="/" replace />;
-
-    default:
-      return <DriverOnboarding />;
+  switch (user.driver_status) {
+    case null:      return <DriverOnboarding />;
+    case 'pending': return <DriverPendingApproval />;
+    case 'approved':return children;
+    case 'rejected':return <Navigate to="/" replace />;
+    default:        return <DriverOnboarding />;
   }
 }
 
-// ---------------------
-// VENDOR GUARD - FIXED
-// ---------------------
 function VendorGuard({ children }) {
   const { user, loading } = useAuth();
   const [hasRestaurant, setHasRestaurant] = useState(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    const checkVendorSetup = async () => {
+    const check = async () => {
       if (user && user.role === 'vendor') {
         try {
           const response = await api.get('/vendor/restaurant');
-          setHasRestaurant(!!response.data && !!response.data.id);
-        } catch (error) {
-          console.log('No restaurant found, needs onboarding');
+          setHasRestaurant(!!response.data?.id);
+        } catch {
           setHasRestaurant(false);
         }
       }
       setChecking(false);
     };
-
-    if (!loading) {
-      checkVendorSetup();
-    }
+    if (!loading) check();
   }, [user, loading]);
 
   if (loading || checking) return <Loader />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'vendor') return <Navigate to="/" replace />;
-  
-  // Vendor not approved yet
-  if (user.vendor_status !== 'approved') {
-    return <VendorWaiting />;
-  }
-  
-  // Vendor approved but no restaurant setup - GO TO ONBOARDING
-  if (hasRestaurant === false) {
-    return <VendorOnboarding />;
-  }
-  
+  if (user.vendor_status !== 'approved') return <VendorWaiting />;
+  if (hasRestaurant === false) return <VendorOnboarding />;
   return children;
 }
 
-// ---------------------
+// ── Admin sub-page wrappers with data fetching ──────────────────────────────────
+
+const AdminOrdersPage = () => {
+  const { data: orders = [] } = useQuery({
+    queryKey: ['orders'],
+    queryFn: async () => {
+      const r = await api.get('/orders');
+      return r?.data ?? (Array.isArray(r) ? r : []);
+    },
+    refetchInterval: 15000,
+  });
+  const { data: users = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: async () => {
+      const r = await api.get('/users');
+      return r?.data ?? (Array.isArray(r) ? r : []);
+    },
+  });
+  const drivers = users.filter(u => u.role === 'driver');
+  return <AdminOrders orders={orders} drivers={drivers} onRefresh={() => {}} />;
+};
+
+const AdminRestaurantsPage = () => {
+  const { data: restaurants = [] } = useQuery({
+    queryKey: ['restaurants'],
+    queryFn: async () => {
+      const r = await api.get('/restaurants');
+      return r?.data ?? (Array.isArray(r) ? r : []);
+    },
+  });
+  return <AdminRestaurants restaurants={restaurants} onRefresh={() => {}} />;
+};
+
+const AdminMenuPage = () => {
+  const { data: restaurants = [] } = useQuery({
+    queryKey: ['restaurants'],
+    queryFn: async () => {
+      const r = await api.get('/restaurants');
+      return r?.data ?? (Array.isArray(r) ? r : []);
+    },
+  });
+  return <AdminMenuItems restaurants={restaurants} />;
+};
+
+const AdminUsersPage = () => {
+  const { data: users = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: async () => {
+      const r = await api.get('/users');
+      return r?.data ?? (Array.isArray(r) ? r : []);
+    },
+  });
+  return <AdminUsers users={users} onRefresh={() => {}} />;
+};
+
+const AdminVendorsPage = () => {
+  const { data: users = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: async () => {
+      const r = await api.get('/users');
+      return r?.data ?? (Array.isArray(r) ? r : []);
+    },
+  });
+  const vendors = users.filter(u => u.role === 'vendor');
+  return <VendorManagement vendors={vendors} onRefresh={() => {}} />;
+};
+
+const AdminDisputesPage = () => {
+  const { data: orders = [] } = useQuery({
+    queryKey: ['orders'],
+    queryFn: async () => {
+      const r = await api.get('/orders');
+      return r?.data ?? (Array.isArray(r) ? r : []);
+    },
+  });
+  const { data: users = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: async () => {
+      const r = await api.get('/users');
+      return r?.data ?? (Array.isArray(r) ? r : []);
+    },
+  });
+  return <DisputeManagement orders={orders} users={users} onRefresh={() => {}} />;
+};
+
+// ── Query client ─────────────────────────────────────────────
 const queryClient = new QueryClient();
 
-// ---------------------
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -189,7 +244,7 @@ function App() {
               <LoadingGuard>
                 <Routes>
 
-                  {/* ---------------- PUBLIC ---------------- */}
+                  {/* PUBLIC */}
                   <Route element={<AppLayout />}>
                     <Route path="/" element={<Home />} />
                     <Route path="/restaurant/:id" element={<RestaurantDetail />} />
@@ -200,102 +255,50 @@ function App() {
                     <Route path="/reset-password" element={<ResetPassword />} />
                   </Route>
 
-                  {/* ---------------- CART (PROTECTED) ---------------- */}
-                  <Route
-                    path="/cart"
-                    element={
-                      <AuthGuard>
-                        <Cart />
-                      </AuthGuard>
-                    }
-                  />
+                  {/* CART */}
+                  <Route path="/cart" element={<AuthGuard><Cart /></AuthGuard>} />
 
-                  {/* ---------------- AUTH ---------------- */}
+                  {/* AUTH */}
                   <Route path="/login" element={<Login />} />
                   <Route path="/signup" element={<Signup />} />
 
-                  {/* ---------------- CUSTOMER PROTECTED ROUTES ---------------- */}
+                  {/* CUSTOMER */}
                   <Route element={<AppLayout />}>
-                    <Route
-                      path="/profile"
-                      element={
-                        <AuthGuard>
-                          <CustomerProfile />
-                        </AuthGuard>
-                      }
-                    />
-                    <Route
-                      path="/orders"
-                      element={
-                        <AuthGuard>
-                          <CustomerOrders />
-                        </AuthGuard>
-                      }
-                    />
+                    <Route path="/profile" element={<AuthGuard><CustomerProfile /></AuthGuard>} />
+                    <Route path="/orders"  element={<AuthGuard><CustomerOrders /></AuthGuard>} />
                   </Route>
 
-                  {/* ---------------- DRIVER ---------------- */}
-                  <Route
-                    path="/driver"
-                    element={
-                      <DriverGuard>
-                        <DriverDashboard />
-                      </DriverGuard>
-                    }
-                  />
+                  {/* DRIVER */}
+                  <Route path="/driver" element={<DriverGuard><DriverDashboard /></DriverGuard>} />
 
-                  {/* ---------------- VENDOR ---------------- */}
-                  <Route
-                    path="/vendor"
-                    element={
-                      <VendorGuard>
-                        <VendorLayout />
-                      </VendorGuard>
-                    }
-                  >
-                    <Route index element={<VendorDashboard />} />
-                    <Route path="orders" element={<VendorOrders />} />
-                    <Route path="menu" element={<VendorMenu />} />
+                  {/* VENDOR */}
+                  <Route path="/vendor" element={<VendorGuard><VendorLayout /></VendorGuard>}>
+                    <Route index         element={<VendorDashboard />} />
+                    <Route path="orders"   element={<VendorOrders />} />
+                    <Route path="menu"     element={<VendorMenu />} />
                     <Route path="settings" element={<VendorSettings />} />
                   </Route>
+                  <Route path="/vendor/onboarding" element={<AuthGuard><VendorOnboarding /></AuthGuard>} />
 
-                  {/* ---------------- VENDOR ONBOARDING ---------------- */}
-                  <Route
-                    path="/vendor/onboarding"
-                    element={
-                      <AuthGuard>
-                        <VendorOnboarding />
-                      </AuthGuard>
-                    }
-                  />
-
-                  {/* ---------------- ADMIN ROUTES ---------------- */}
-                  <Route
-                    path="/admin"
-                    element={
-                      <AdminGuard>
-                        <AdminLayout />
-                      </AdminGuard>
-                    }
-                  >
+                  {/* ── ADMIN ── */}
+                  <Route path="/admin" element={<AdminGuard><AdminLayout /></AdminGuard>}>
                     <Route index element={<AdminDashboard />} />
-                    <Route path="orders" element={<AdminDashboard />} />
-                    <Route path="orders/:id" element={<AdminOrderDetails />} />
-                    <Route path="restaurants" element={<AdminDashboard />} />
-                    <Route path="vendors" element={<AdminDashboard />} />
-                    <Route path="menu" element={<AdminDashboard />} />
-                    <Route path="drivers" element={<AdminDashboard />} />
-                    <Route path="users" element={<AdminDashboard />} />
-                    <Route path="finance" element={<AdminDashboard />} />
-                    <Route path="payouts" element={<AdminDashboard />} />
-                    <Route path="vendor-payouts" element={<AdminDashboard />} />
-                    <Route path="driver-payouts" element={<AdminDashboard />} />
-                    <Route path="disputes" element={<AdminDashboard />} />
-                    <Route path="settings" element={<AdminDashboard />} />
-                    <Route path="alerts" element={<AdminDashboard />} />
+                    <Route path="orders"         element={<AdminOrdersPage />} />
+                    <Route path="orders/:id"     element={<AdminOrderDetails />} />
+                    <Route path="restaurants"    element={<AdminRestaurantsPage />} />
+                    <Route path="menu"           element={<AdminMenuPage />} />
+                    <Route path="vendors"        element={<AdminVendorsPage />} />
+                    <Route path="drivers"        element={<AdminDriversPage />} />
+                    <Route path="users"          element={<AdminUsersPage />} />
+                    <Route path="finance"        element={<AdminFinancePage />} />
+                    <Route path="disputes"       element={<AdminDisputesPage />} />
+                    <Route path="payouts"        element={<DriverPayouts />} />
+                    <Route path="driver-payouts" element={<DriverPayouts />} />
+                    <Route path="vendor-payouts" element={<AdminVendorPayouts />} />
+                    <Route path="settings"       element={<AdminSettingsPage />} />
                   </Route>
 
-                  {/* ---------------- 404 ---------------- */}
+                  {/* 404 */}
                   <Route path="*" element={<PageNotFound />} />
 
                 </Routes>

@@ -14,99 +14,111 @@ import {
   Mail,
   Phone,
   MapPin,
-  AlertCircle
+  AlertCircle,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-export default function VendorManagement({ vendors, onRefresh }) {
+export default function VendorManagement({ vendors = [], onRefresh }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [updating, setUpdating] = useState(false);
 
-  const pendingVendors = vendors.filter(v => v.vendor_status === 'pending' || !v.vendor_status);
-  const approvedVendors = vendors.filter(v => v.vendor_status === 'approved');
-  const suspendedVendors = vendors.filter(v => v.vendor_status === 'suspended');
+  // Safety checks - use empty array if vendors is undefined
+  const safeVendors = vendors || [];
+  
+  const pendingVendors = safeVendors.filter(v => v.vendor_status === 'pending' || !v.vendor_status);
+  const approvedVendors = safeVendors.filter(v => v.vendor_status === 'approved');
+  const suspendedVendors = safeVendors.filter(v => v.vendor_status === 'suspended');
 
-  const filteredVendors = vendors.filter(vendor =>
+  const filteredVendors = safeVendors.filter(vendor =>
     vendor.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     vendor.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     vendor.phone?.includes(searchTerm)
   );
-const updateVendorStatus = async (vendorId, status) => {
-  setUpdating(true);
-  try {
-    // Use the dedicated vendor-status endpoint
-    await api.put(`/users/${vendorId}/vendor-status`, { vendor_status: status });
-    toast.success(`Vendor ${status === 'approved' ? 'approved' : status === 'suspended' ? 'suspended' : 'rejected'} successfully`);
-    onRefresh();
-    setShowDetails(false);
-  } catch (error) {
-    console.error('Error updating vendor:', error);
-    if (error.response?.data?.message) {
-      toast.error(error.response.data.message);
-    } else {
-      toast.error('Failed to update vendor status');
+
+  const updateVendorStatus = async (vendorId, status) => {
+    setUpdating(true);
+    try {
+      await api.put(`/users/${vendorId}/vendor-status`, { vendor_status: status });
+      toast.success(`Vendor ${status === 'approved' ? 'approved' : status === 'suspended' ? 'suspended' : 'rejected'} successfully`);
+      if (onRefresh) onRefresh();
+      setShowDetails(false);
+    } catch (error) {
+      console.error('Error updating vendor:', error);
+      if (error.response?.data?.message) {
+        toast.error(error.response.data.message);
+      } else {
+        toast.error('Failed to update vendor status');
+      }
+    } finally {
+      setUpdating(false);
     }
-  } finally {
-    setUpdating(false);
-  }
-};
+  };
 
   return (
     <div className="space-y-4">
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="text-center p-3 bg-yellow-50 rounded-lg">
-          <p className="text-xl font-bold text-yellow-600">{pendingVendors.length}</p>
-          <p className="text-xs text-gray-500">Pending Approval</p>
+      {/* Stats - Responsive */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="text-center p-2 sm:p-3 bg-yellow-50 rounded-lg">
+          <p className="text-lg sm:text-xl font-bold text-yellow-600">{pendingVendors.length}</p>
+          <p className="text-[10px] sm:text-xs text-gray-500">Pending</p>
         </div>
-        <div className="text-center p-3 bg-green-50 rounded-lg">
-          <p className="text-xl font-bold text-green-600">{approvedVendors.length}</p>
-          <p className="text-xs text-gray-500">Active Vendors</p>
+        <div className="text-center p-2 sm:p-3 bg-green-50 rounded-lg">
+          <p className="text-lg sm:text-xl font-bold text-green-600">{approvedVendors.length}</p>
+          <p className="text-[10px] sm:text-xs text-gray-500">Active</p>
         </div>
-        <div className="text-center p-3 bg-red-50 rounded-lg">
-          <p className="text-xl font-bold text-red-600">{suspendedVendors.length}</p>
-          <p className="text-xs text-gray-500">Suspended</p>
+        <div className="text-center p-2 sm:p-3 bg-red-50 rounded-lg">
+          <p className="text-lg sm:text-xl font-bold text-red-600">{suspendedVendors.length}</p>
+          <p className="text-[10px] sm:text-xs text-gray-500">Suspended</p>
         </div>
       </div>
 
-      {/* Search */}
+      {/* Search with clear button */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
         <Input
-          placeholder="Search vendors by name, email, or phone..."
+          placeholder="Search vendors..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="pl-10"
+          className="pl-9 pr-8 text-sm"
         />
+        {searchTerm && (
+          <button
+            onClick={() => setSearchTerm('')}
+            className="absolute right-3 top-1/2 transform -translate-y-1/2"
+          >
+            <X className="w-4 h-4 text-gray-400 hover:text-gray-600" />
+          </button>
+        )}
       </div>
 
       {/* Pending Vendors */}
       {pendingVendors.length > 0 && (
         <div>
-          <h3 className="font-semibold text-sm mb-2">Pending Approval ({pendingVendors.length})</h3>
+          <h3 className="font-semibold text-xs sm:text-sm mb-2">Pending Approval ({pendingVendors.length})</h3>
           <div className="space-y-2">
             {pendingVendors.map(vendor => (
               <div key={vendor.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-3 border rounded-lg bg-yellow-50/30">
-                <div>
-                  <p className="font-medium text-sm">{vendor.name || vendor.full_name}</p>
-                  <p className="text-xs text-gray-500">{vendor.email}</p>
-                  {vendor.phone && <p className="text-xs text-gray-400">{vendor.phone}</p>}
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate">{vendor.name || vendor.full_name}</p>
+                  <p className="text-xs text-gray-500 truncate">{vendor.email}</p>
+                  {vendor.phone && <p className="text-xs text-gray-400 truncate">{vendor.phone}</p>}
                 </div>
                 <div className="flex gap-2 w-full sm:w-auto">
                   <Button 
                     size="sm" 
                     variant="outline" 
                     onClick={() => { setSelectedVendor(vendor); setShowDetails(true); }}
-                    className="text-xs"
+                    className="text-xs flex-1 sm:flex-none"
                   >
                     <Eye className="w-3 h-3 mr-1" /> Review
                   </Button>
                   <Button 
                     size="sm" 
                     onClick={() => updateVendorStatus(vendor.id, 'approved')}
-                    className="bg-green text-white text-xs"
+                    className="bg-green text-white text-xs flex-1 sm:flex-none"
                     disabled={updating}
                   >
                     <CheckCircle className="w-3 h-3 mr-1" /> Approve
@@ -115,7 +127,7 @@ const updateVendorStatus = async (vendorId, status) => {
                     size="sm" 
                     variant="destructive" 
                     onClick={() => updateVendorStatus(vendor.id, 'rejected')}
-                    className="text-xs"
+                    className="text-xs flex-1 sm:flex-none"
                     disabled={updating}
                   >
                     <XCircle className="w-3 h-3 mr-1" /> Reject
@@ -128,41 +140,43 @@ const updateVendorStatus = async (vendorId, status) => {
       )}
 
       {/* Active Vendors */}
-      <div>
-        <h3 className="font-semibold text-sm mb-2">Active Vendors ({approvedVendors.length})</h3>
-        <div className="space-y-2">
-          {filteredVendors.filter(v => v.vendor_status === 'approved').map(vendor => (
-            <div key={vendor.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-              <div>
-                <p className="font-medium text-sm">{vendor.name || vendor.full_name}</p>
-                <p className="text-xs text-gray-500">{vendor.email}</p>
+      {approvedVendors.length > 0 && (
+        <div>
+          <h3 className="font-semibold text-xs sm:text-sm mb-2">Active Vendors ({approvedVendors.length})</h3>
+          <div className="space-y-2">
+            {filteredVendors.filter(v => v.vendor_status === 'approved').map(vendor => (
+              <div key={vendor.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 p-3 bg-gray-50 rounded-lg">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate">{vendor.name || vendor.full_name}</p>
+                  <p className="text-xs text-gray-500 truncate">{vendor.email}</p>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <Badge className="bg-green-100 text-green-800 text-[10px] sm:text-xs whitespace-nowrap">Active</Badge>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => updateVendorStatus(vendor.id, 'suspended')}
+                    className="text-xs text-red-500"
+                  >
+                    <Ban className="w-3 h-3 mr-1" /> Suspend
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <Badge className="bg-green-100 text-green-800">Active</Badge>
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={() => updateVendorStatus(vendor.id, 'suspended')}
-                  className="text-xs text-red-500"
-                >
-                  <Ban className="w-3 h-3 mr-1" /> Suspend
-                </Button>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Suspended Vendors */}
       {suspendedVendors.length > 0 && (
         <div>
-          <h3 className="font-semibold text-sm mb-2">Suspended Vendors ({suspendedVendors.length})</h3>
+          <h3 className="font-semibold text-xs sm:text-sm mb-2">Suspended Vendors ({suspendedVendors.length})</h3>
           <div className="space-y-2">
             {suspendedVendors.map(vendor => (
-              <div key={vendor.id} className="flex justify-between items-center p-3 bg-red-50 rounded-lg">
-                <div>
-                  <p className="font-medium text-sm">{vendor.name || vendor.full_name}</p>
-                  <p className="text-xs text-gray-500">{vendor.email}</p>
+              <div key={vendor.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 p-3 bg-red-50 rounded-lg">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate">{vendor.name || vendor.full_name}</p>
+                  <p className="text-xs text-gray-500 truncate">{vendor.email}</p>
                 </div>
                 <Button 
                   size="sm" 
@@ -177,42 +191,59 @@ const updateVendorStatus = async (vendorId, status) => {
         </div>
       )}
 
-      {/* Vendor Details Modal */}
+      {/* Empty State */}
+      {safeVendors.length === 0 && (
+        <div className="text-center py-8 sm:py-12 bg-gray-50 rounded-lg">
+          <Store className="w-10 h-10 sm:w-12 sm:h-12 text-gray-300 mx-auto mb-2 sm:mb-3" />
+          <p className="text-sm text-gray-500">No vendors found</p>
+        </div>
+      )}
+
+      {/* Vendor Details Modal - Mobile Friendly */}
       <Dialog open={showDetails} onOpenChange={setShowDetails}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-[90vw] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Vendor Details</DialogTitle>
+            <DialogTitle className="text-base sm:text-lg">Vendor Details</DialogTitle>
           </DialogHeader>
           {selectedVendor && (
             <div className="space-y-3">
               <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
-                <Store className="w-5 h-5 text-gray-400" />
-                <div>
-                  <p className="text-xs text-gray-500">Business Name</p>
-                  <p className="font-medium">{selectedVendor.name || selectedVendor.full_name}</p>
+                <Store className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] sm:text-xs text-gray-500">Business Name</p>
+                  <p className="font-medium text-sm truncate">{selectedVendor.name || selectedVendor.full_name}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
-                <Mail className="w-5 h-5 text-gray-400" />
-                <div>
-                  <p className="text-xs text-gray-500">Email</p>
-                  <p>{selectedVendor.email}</p>
+                <Mail className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] sm:text-xs text-gray-500">Email</p>
+                  <p className="text-sm break-all">{selectedVendor.email}</p>
                 </div>
               </div>
               {selectedVendor.phone && (
                 <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
-                  <Phone className="w-5 h-5 text-gray-400" />
-                  <div>
-                    <p className="text-xs text-gray-500">Phone</p>
-                    <p>{selectedVendor.phone}</p>
+                  <Phone className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] sm:text-xs text-gray-500">Phone</p>
+                    <p className="text-sm">{selectedVendor.phone}</p>
                   </div>
                 </div>
               )}
-              <div className="flex gap-2 pt-2">
-                <Button onClick={() => updateVendorStatus(selectedVendor.id, 'approved')} className="flex-1 bg-green text-white">
+              <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                <Button 
+                  onClick={() => updateVendorStatus(selectedVendor.id, 'approved')} 
+                  className="flex-1 bg-green text-white text-sm"
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
                   Approve Vendor
                 </Button>
-                <Button onClick={() => updateVendorStatus(selectedVendor.id, 'rejected')} variant="destructive" className="flex-1">
+                <Button 
+                  onClick={() => updateVendorStatus(selectedVendor.id, 'rejected')} 
+                  variant="destructive" 
+                  className="flex-1 text-sm"
+                >
+                  <XCircle className="w-4 h-4 mr-2" />
                   Reject Vendor
                 </Button>
               </div>

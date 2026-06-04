@@ -11,12 +11,13 @@ import {
   Eye,
   Clock,
   Banknote,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 
-export default function WithdrawalRequests({ drivers, onRefresh }) {
+export default function WithdrawalRequests({ drivers = [], onRefresh }) {
   const [requests, setRequests] = useState([]);
   const [processing, setProcessing] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
@@ -29,63 +30,66 @@ export default function WithdrawalRequests({ drivers, onRefresh }) {
   const fetchWithdrawals = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/admin/withdrawals');
-      setRequests(response.data || []);
+      // Use the existing driver payouts endpoint
+      const response = await api.get('/driver/admin/payouts');
+      const payouts = response.data || [];
+      
+      // Transform to match expected format and add driver names
+      const formattedRequests = payouts.map(payout => ({
+        id: payout.id,
+        driver_id: payout.driver_id,
+        driver_name: payout.driver_name || `Driver #${payout.driver_id}`,
+        amount: parseFloat(payout.amount) || 0,
+        status: payout.status || 'pending',
+        requested_at: payout.requested_at || payout.created_at,
+        bank_details: {
+          bank_name: payout.bank_name || 'Not provided',
+          account_number: payout.account_number || 'Not provided',
+          account_name: payout.account_holder || payout.driver_name || 'Not provided'
+        }
+      }));
+      
+      setRequests(formattedRequests);
     } catch (error) {
       console.error('Error fetching withdrawals:', error);
-      // Mock data for demo
-      setRequests([
-        { 
-          id: 1, 
-          driver_id: 1, 
-          driver_name: 'John Doe', 
-          amount: 250, 
-          status: 'pending', 
-          requested_at: new Date().toISOString(),
-          bank_details: { bank_name: 'FNB', account_number: '****1234', account_name: 'John Doe' }
-        },
-        { 
-          id: 2, 
-          driver_id: 2, 
-          driver_name: 'Jane Smith', 
-          amount: 180, 
-          status: 'pending', 
-          requested_at: new Date().toISOString(),
-          bank_details: { bank_name: 'Capitec', account_number: '****5678', account_name: 'Jane Smith' }
-        },
-        { 
-          id: 3, 
-          driver_id: 3, 
-          driver_name: 'Mike Johnson', 
-          amount: 95, 
-          status: 'pending', 
-          requested_at: new Date().toISOString(),
-          bank_details: { bank_name: 'Standard Bank', account_number: '****9012', account_name: 'Mike Johnson' }
-        },
-      ]);
+      setRequests([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const processWithdrawal = async (requestId, status) => {
+  const processWithdrawal = async (requestId, status, referenceNumber = null) => {
     setProcessing(true);
     try {
-      await api.put(`/admin/withdrawals/${requestId}`, { status });
+      await api.put(`/driver/admin/payouts/${requestId}/process`, {
+        status: status,
+        reference_number: referenceNumber,
+        payment_method: 'bank_transfer',
+        notes: status === 'paid' ? `Paid with reference: ${referenceNumber}` : 'Withdrawal rejected'
+      });
+      
       toast.success(`Withdrawal ${status === 'paid' ? 'marked as paid' : 'rejected'}`);
       fetchWithdrawals();
       if (onRefresh) onRefresh();
     } catch (error) {
       console.error('Error processing withdrawal:', error);
-      toast.error('Failed to process withdrawal');
+      toast.error(error.response?.data?.message || 'Failed to process withdrawal');
     } finally {
       setProcessing(false);
     }
   };
 
+  const handleMarkPaid = (requestId) => {
+    const ref = prompt('Enter payment reference number:');
+    if (ref && ref.trim()) {
+      processWithdrawal(requestId, 'paid', ref);
+    } else if (ref === '') {
+      toast.error('Reference number is required');
+    }
+  };
+
   const pendingRequests = requests.filter(r => r.status === 'pending');
   const completedRequests = requests.filter(r => r.status === 'paid');
-  const rejectedRequests = requests.filter(r => r.status === 'rejected');
   const totalPending = pendingRequests.reduce((sum, r) => sum + r.amount, 0);
 
   if (loading) {
@@ -98,6 +102,15 @@ export default function WithdrawalRequests({ drivers, onRefresh }) {
 
   return (
     <div className="space-y-4">
+      {/* Header with Refresh */}
+      <div className="flex justify-between items-center">
+        <h3 className="font-semibold text-sm">Driver Withdrawal Requests</h3>
+        <Button onClick={fetchWithdrawals} variant="outline" size="sm">
+          <RefreshCw className="w-3 h-3 mr-1" />
+          Refresh
+        </Button>
+      </div>
+
       {/* Stats Cards */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-yellow-50 p-3 rounded-lg text-center">
@@ -117,11 +130,11 @@ export default function WithdrawalRequests({ drivers, onRefresh }) {
       {/* Pending Withdrawals */}
       {pendingRequests.length > 0 ? (
         <div className="space-y-3">
-          <h3 className="font-semibold text-sm">Pending Withdrawal Requests ({pendingRequests.length})</h3>
+          <h3 className="font-semibold text-sm">Pending Requests ({pendingRequests.length})</h3>
           {pendingRequests.map(request => (
             <div key={request.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-4 border rounded-lg hover:shadow-md transition">
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <Banknote className="w-4 h-4 text-green" />
                   <p className="font-semibold text-green">R{request.amount.toFixed(2)}</p>
                   <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
@@ -130,9 +143,9 @@ export default function WithdrawalRequests({ drivers, onRefresh }) {
                 </div>
                 <p className="font-medium">{request.driver_name}</p>
                 <p className="text-xs text-gray-500">
-                  Requested: {format(new Date(request.requested_at), 'dd MMM yyyy, h:mm a')}
+                  Requested: {request.requested_at ? format(new Date(request.requested_at), 'dd MMM yyyy, h:mm a') : 'Unknown date'}
                 </p>
-                {request.bank_details && (
+                {request.bank_details?.bank_name && request.bank_details.bank_name !== 'Not provided' && (
                   <p className="text-xs text-gray-400 mt-1">
                     {request.bank_details.bank_name} • {request.bank_details.account_number}
                   </p>
@@ -148,7 +161,7 @@ export default function WithdrawalRequests({ drivers, onRefresh }) {
                 </Button>
                 <Button 
                   size="sm" 
-                  onClick={() => processWithdrawal(request.id, 'paid')}
+                  onClick={() => handleMarkPaid(request.id)}
                   className="bg-green text-white"
                   disabled={processing}
                 >
@@ -208,7 +221,7 @@ export default function WithdrawalRequests({ drivers, onRefresh }) {
                 <p className="text-xs text-gray-500">Amount</p>
                 <p className="text-xl font-bold text-green">R{selectedRequest.amount.toFixed(2)}</p>
               </div>
-              {selectedRequest.bank_details && (
+              {selectedRequest.bank_details && selectedRequest.bank_details.bank_name !== 'Not provided' && (
                 <div className="bg-gray-50 p-3 rounded-lg">
                   <p className="text-xs text-gray-500">Bank Details</p>
                   <p className="text-sm">Bank: {selectedRequest.bank_details.bank_name}</p>
@@ -217,8 +230,11 @@ export default function WithdrawalRequests({ drivers, onRefresh }) {
                 </div>
               )}
               <div className="flex gap-2 pt-2">
-                <Button onClick={() => processWithdrawal(selectedRequest.id, 'paid')} className="flex-1 bg-green text-white">
-                  Confirm Payment
+                <Button 
+                  onClick={() => handleMarkPaid(selectedRequest.id)} 
+                  className="flex-1 bg-green text-white"
+                >
+                  Mark as Paid
                 </Button>
                 <Button onClick={() => setSelectedRequest(null)} variant="outline" className="flex-1">
                   Close

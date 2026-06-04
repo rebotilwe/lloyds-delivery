@@ -4,13 +4,14 @@ import bcrypt from "bcryptjs";
 
 const router = express.Router();
 
-// GET all users - include balance fields
+// GET all users - include ALL balance fields
 router.get("/", async (req, res) => {
   try {
     const results = await db.query(
       `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, 
               total_deliveries, earnings, created_at,
               total_earnings, available_balance, pending_balance, withdrawn_total,
+              vendor_total_earnings, vendor_available_balance, vendor_withdrawn_total,
               id_copy, pdp, profile_photo, car_license,
               car_make, car_model, car_year, car_color, license_plate
        FROM users ORDER BY created_at DESC`
@@ -22,13 +23,14 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET user by ID - include balance fields
+// GET user by ID - include ALL balance fields
 router.get("/:id", async (req, res) => {
   try {
     const results = await db.query(
       `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, 
               total_deliveries, earnings, created_at,
               total_earnings, available_balance, pending_balance, withdrawn_total,
+              vendor_total_earnings, vendor_available_balance, vendor_withdrawn_total,
               id_copy, pdp, profile_photo, car_license,
               car_make, car_model, car_year, car_color, license_plate
        FROM users WHERE id = $1`,
@@ -44,12 +46,13 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// UPDATE user - support balance fields
+// UPDATE user - support both driver and vendor balance fields
 router.put("/:id", async (req, res) => {
   try {
     const { 
       name, email, phone, role, driver_status, vendor_status, is_available,
-      total_earnings, available_balance, pending_balance, withdrawn_total
+      total_earnings, available_balance, pending_balance, withdrawn_total,
+      vendor_total_earnings, vendor_available_balance, vendor_withdrawn_total
     } = req.body;
     
     const updateFields = [];
@@ -99,6 +102,19 @@ router.put("/:id", async (req, res) => {
     if (withdrawn_total !== undefined) {
       updateFields.push(`withdrawn_total = $${paramIndex++}`);
       updateValues.push(withdrawn_total);
+    }
+    // Vendor balance fields
+    if (vendor_total_earnings !== undefined) {
+      updateFields.push(`vendor_total_earnings = $${paramIndex++}`);
+      updateValues.push(vendor_total_earnings);
+    }
+    if (vendor_available_balance !== undefined) {
+      updateFields.push(`vendor_available_balance = $${paramIndex++}`);
+      updateValues.push(vendor_available_balance);
+    }
+    if (vendor_withdrawn_total !== undefined) {
+      updateFields.push(`vendor_withdrawn_total = $${paramIndex++}`);
+      updateValues.push(vendor_withdrawn_total);
     }
     
     if (updateFields.length === 0) {

@@ -38,8 +38,7 @@ export default function AdminVendorPayouts() {
     fetchVendors();
     fetchPayouts();
   }, []);
-
- const fetchVendors = async () => {
+const fetchVendors = async () => {
   try {
     const response = await api.get('/users');
     const allVendors = response.data?.filter(u => u.role === 'vendor') || [];
@@ -48,8 +47,7 @@ export default function AdminVendorPayouts() {
     
     const vendorsWithBalance = allVendors.map(vendor => ({
       ...vendor,
-      // Use the correct field names from your database
-      pending_balance: parseFloat(vendor.vendor_available_balance || vendor.available_balance || 0)
+      pending_balance: parseFloat(vendor.vendor_available_balance || 0)
     }));
     
     console.log('Vendors with balance:', vendorsWithBalance); // Debug log

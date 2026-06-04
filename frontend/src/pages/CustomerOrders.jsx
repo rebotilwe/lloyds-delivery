@@ -39,7 +39,8 @@ const getCurrentStep = (status) => {
 function cn(...classes) {
   return classes.filter(Boolean).join(' ');
 }
-// Add this function near the top
+
+// Helper function to mark orders as viewed
 const markOrdersAsViewed = (orderIds) => {
   const viewed = localStorage.getItem('viewed_orders');
   const viewedOrders = viewed ? JSON.parse(viewed) : [];
@@ -47,13 +48,6 @@ const markOrdersAsViewed = (orderIds) => {
   localStorage.setItem('viewed_orders', JSON.stringify(newViewed));
 };
 
-// When the page loads, mark all displayed orders as viewed
-useEffect(() => {
-  if (activeOrders.length > 0) {
-    const orderIds = activeOrders.map(o => o.id);
-    markOrdersAsViewed(orderIds);
-  }
-}, [activeOrders]);
 // Helper to format phone number for WhatsApp
 const formatWhatsAppNumber = (phone) => {
   if (!phone) return '#';
@@ -625,6 +619,15 @@ export default function CustomerOrders() {
   // Filter orders
   const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way'];
   const activeOrders = orders.filter(o => activeStatuses.includes(o.status));
+  
+  // ✅ FIXED: Move useEffect inside the component and after activeOrders is defined
+  // Mark active orders as viewed when they load
+  useEffect(() => {
+    if (activeOrders.length > 0) {
+      const orderIds = activeOrders.map(o => o.id);
+      markOrdersAsViewed(orderIds);
+    }
+  }, [activeOrders]);
   
   // Filter past orders by search term
   const pastOrders = orders.filter(o => !activeStatuses.includes(o.status));

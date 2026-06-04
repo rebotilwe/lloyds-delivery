@@ -109,14 +109,16 @@ export default function Signup() {
         }
       }
 
-      const roleMessage = {
-        customer: 'Account created successfully! Please login.',
-        driver: 'Driver application submitted. Await admin approval.',
-        vendor: 'Restaurant registered successfully! Please login.',
-      };
+      // In Signup.jsx - after successful signup
+const roleMessage = {
+  customer: 'Account created successfully! Please login.',
+  driver: 'Driver application submitted. Await admin approval. You will be notified once approved.',
+  vendor: 'Restaurant registered successfully! Please login.',
+};
 
-      toast.success(roleMessage[form.role] || 'Account created successfully! Please login.');
-      navigate('/login');
+toast.success(roleMessage[form.role] || 'Account created successfully!');
+// Always redirect to login, don't auto-login
+navigate('/login');
 
     } catch (err) {
       console.error(err);

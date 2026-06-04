@@ -55,6 +55,7 @@ router.post("/register", async (req, res) => {
 });
 
 // LOGIN
+// LOGIN - FIXED (don't block pending drivers)
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -85,7 +86,8 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    // Check if vendor is approved
+    // FIXED: Don't block pending drivers - they need to login to complete onboarding
+    // Just block vendors who aren't approved (they can't do anything without a restaurant)
     if (user.role === 'vendor' && user.vendor_status !== 'approved') {
       return res.status(403).json({ 
         message: "Your vendor account is pending approval. You'll receive an email once approved.",
@@ -93,13 +95,8 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // Check if driver is approved
-    if (user.role === 'driver' && user.driver_status !== 'approved') {
-      return res.status(403).json({ 
-        message: "Your driver account is pending approval. Please complete onboarding.",
-        status: user.driver_status
-      });
-    }
+    // Allow all drivers to login - the frontend guard will handle showing onboarding/pending pages
+    // based on driver_status
 
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role, name: user.name },
@@ -109,7 +106,7 @@ router.post("/login", async (req, res) => {
 
     const { password_hash, ...userWithoutPassword } = user;
 
-    console.log("✅ Login successful:", { email, role: user.role });
+    console.log("✅ Login successful:", { email, role: user.role, driver_status: user.driver_status });
 
     return res.json({
       message: "Login successful",

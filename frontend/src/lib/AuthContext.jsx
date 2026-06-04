@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { api } from '@/api/client';
 
 const AuthContext = createContext();
 
@@ -8,23 +9,6 @@ export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
-};
-
-// Helper to fix user IDs based on email
-const fixUserId = (user) => {
-  if (!user) return user;
-  
-  // Map emails to correct database IDs
-  if (user.email === 'admin@lloyds.com' && user.id !== 4) {
-    return { ...user, id: 4 };
-  }
-  if (user.email === 'driver@lloyds.com' && user.id !== 5) {
-    return { ...user, id: 5 };
-  }
-  if (user.email === 'customer@lloyds.com' && user.id !== 6) {
-    return { ...user, id: 6 };
-  }
-  return user;
 };
 
 export const AuthProvider = ({ children }) => {
@@ -35,12 +19,18 @@ export const AuthProvider = ({ children }) => {
   // RESTORE SESSION
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      const parsedUser = JSON.parse(storedUser);
-      const fixedUser = fixUserId(parsedUser);
-      setUser(fixedUser);
-      if (fixedUser !== parsedUser) {
-        localStorage.setItem('user', JSON.stringify(fixedUser));
+    const token = localStorage.getItem('token');
+    
+    if (storedUser && token) {
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        setUser(parsedUser);
+        // Set token in api client for all future requests
+        if (api.defaults) {
+          api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        }
+      } catch (err) {
+        console.error('Error restoring user:', err);
       }
     }
     setLoading(false);
@@ -64,30 +54,33 @@ export const AuthProvider = ({ children }) => {
         return null;
       }
 
-      // Fix the user ID before storing
-      const fixedUser = fixUserId(data.user);
+      // Store token
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+        // Set token in api client
+        if (api.defaults) {
+          api.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
+        }
+      }
       
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(fixedUser));
-
-      setUser(fixedUser);
-      toast.success(`Welcome back, ${fixedUser.name || fixedUser.email}!`);
-
-      return fixedUser;
+      // Get full user data from database (includes driver_status)
+      const userRes = await fetch(`https://lloyds-delivery.onrender.com/api/users/${data.user.id}`, {
+        headers: {
+          'Authorization': `Bearer ${data.token}`
+        }
+      });
+      const fullUserData = await userRes.json();
+      
+      localStorage.setItem("user", JSON.stringify(fullUserData));
+      setUser(fullUserData);
+      
+      toast.success(`Welcome back, ${fullUserData.name || fullUserData.full_name || email}!`);
+      return fullUserData;
+      
     } catch (err) {
+      console.error('Login error:', err);
       toast.error("Network error");
       return null;
-    }
-  };
-
-  // REGISTER
-  const register = async (userData) => {
-    try {
-      toast.success('Account created. Please login.');
-      navigate('/login');
-    } catch (err) {
-      toast.error('Registration failed');
-      throw err;
     }
   };
 
@@ -95,6 +88,9 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
+    if (api.defaults) {
+      delete api.defaults.headers.common['Authorization'];
+    }
     setUser(null);
     toast.success("Logged out");
     navigate("/login");
@@ -106,7 +102,6 @@ export const AuthProvider = ({ children }) => {
         user,
         setUser,
         login,
-        register,
         logout,
         loading,
         isAuthenticated: !!user,

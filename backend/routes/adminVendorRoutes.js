@@ -92,12 +92,14 @@ router.post("/vendor-payouts", async (req, res) => {
   }
 });
 
-// ==================== ADMIN: PROCESS VENDOR PAYOUT ====================
+// ==================== ADMIN: PROCESS VENDOR PAYOUT (FIXED) ====================
 router.put("/vendor-payouts/:id/process", async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, reference_number, notes, payment_method } = req.body;
+    const { status, reference_number, notes } = req.body;  // Remove payment_method for now
     const adminId = req.user.id;
+    
+    console.log("Processing vendor payout:", { id, status, reference_number, adminId });
     
     // Get payout details first
     const payoutResult = await db.query(
@@ -128,19 +130,14 @@ router.put("/vendor-payouts/:id/process", async (req, res) => {
       updateFields.push(`status = $${paramIndex++}`);
       queryParams.push(status);
       
-      if (reference_number !== undefined) {
+      if (reference_number !== undefined && reference_number !== null && reference_number !== '') {
         updateFields.push(`reference_number = $${paramIndex++}`);
         queryParams.push(reference_number);
       }
       
-      if (notes !== undefined) {
+      if (notes !== undefined && notes !== null) {
         updateFields.push(`notes = $${paramIndex++}`);
         queryParams.push(notes);
-      }
-      
-      if (payment_method !== undefined) {
-        updateFields.push(`payment_method = $${paramIndex++}`);
-        queryParams.push(payment_method);
       }
       
       updateFields.push(`processed_by = $${paramIndex++}`);
@@ -169,9 +166,14 @@ router.put("/vendor-payouts/:id/process", async (req, res) => {
                      WHERE id = $${paramIndex}
                      RETURNING id`;
       
+      console.log("Executing query:", query);
+      console.log("Query params:", queryParams);
+      
       const result = await db.query(query, queryParams);
       
       await db.query('COMMIT');
+      
+      console.log(`✅ Vendor payout ${id} updated to ${status}`);
       
       res.json({ 
         message: `Vendor payout ${status}`, 
@@ -180,6 +182,7 @@ router.put("/vendor-payouts/:id/process", async (req, res) => {
       });
     } catch (err) {
       await db.query('ROLLBACK');
+      console.error("Transaction error:", err);
       throw err;
     }
   } catch (err) {

@@ -111,23 +111,22 @@ const fetchVendors = async () => {
       toast.error(error.response?.data?.message || 'Failed to create payout');
     }
   };
-
-  const markAsPaid = async (payoutId, referenceNumber) => {
-    try {
-      await api.put(`/admin/vendor-payouts/${payoutId}/process`, {
-        status: 'paid',
-        reference_number: referenceNumber,
-        payment_method: 'bank_transfer',
-        notes: `Paid with reference: ${referenceNumber}`
-      });
-      toast.success('Payout marked as paid');
-      fetchPayouts();
-      fetchVendors();
-    } catch (error) {
-      console.error('Error marking payout:', error);
-      toast.error(error.response?.data?.message || 'Failed to update payout');
-    }
-  };
+const markAsPaid = async (payoutId, referenceNumber) => {
+  try {
+    await api.put(`/admin/vendor-payouts/${payoutId}/process`, {
+      status: 'paid',
+      reference_number: referenceNumber,
+      notes: `Paid with reference: ${referenceNumber}`
+      // Remove payment_method for now
+    });
+    toast.success('Payout marked as paid');
+    fetchPayouts();
+    fetchVendors();
+  } catch (error) {
+    console.error('Error marking payout:', error);
+    toast.error(error.response?.data?.message || 'Failed to update payout');
+  }
+};
 
   const filteredPayouts = payouts.filter(payout => {
     if (filterStatus !== 'all' && payout.status !== filterStatus) return false;

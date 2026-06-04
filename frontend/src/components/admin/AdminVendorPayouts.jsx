@@ -39,22 +39,27 @@ export default function AdminVendorPayouts() {
     fetchPayouts();
   }, []);
 
-  const fetchVendors = async () => {
-    try {
-      const response = await api.get('/users');
-      const allVendors = response.data?.filter(u => u.role === 'vendor') || [];
-      
-      const vendorsWithBalance = allVendors.map(vendor => ({
-        ...vendor,
-        pending_balance: parseFloat(vendor.vendor_available_balance || 0)
-      }));
-      
-      setVendors(vendorsWithBalance);
-    } catch (error) {
-      console.error('Error fetching vendors:', error);
-      setVendors([]);
-    }
-  };
+ const fetchVendors = async () => {
+  try {
+    const response = await api.get('/users');
+    const allVendors = response.data?.filter(u => u.role === 'vendor') || [];
+    
+    console.log('Raw vendors data:', allVendors); // Debug log
+    
+    const vendorsWithBalance = allVendors.map(vendor => ({
+      ...vendor,
+      // Use the correct field names from your database
+      pending_balance: parseFloat(vendor.vendor_available_balance || vendor.available_balance || 0)
+    }));
+    
+    console.log('Vendors with balance:', vendorsWithBalance); // Debug log
+    
+    setVendors(vendorsWithBalance);
+  } catch (error) {
+    console.error('Error fetching vendors:', error);
+    setVendors([]);
+  }
+};
 
   const fetchPayouts = async () => {
     setLoading(true);
@@ -312,7 +317,7 @@ export default function AdminVendorPayouts() {
                 <SelectContent>
                   {vendors.map(vendor => (
                     <SelectItem key={vendor.id} value={vendor.id?.toString() || ''}>
-                      {vendor.name} - R{formatCurrency(vendor.pending_balance)} available
+                    {vendor.name} - R{formatCurrency(vendor.pending_balance)} available
                     </SelectItem>
                   ))}
                 </SelectContent>

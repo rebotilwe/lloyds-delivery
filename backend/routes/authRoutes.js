@@ -6,7 +6,7 @@ import { sendPasswordResetEmail } from "../services/emailService.js";
 
 const router = express.Router();
 
-// REGISTER - with vendor_status for vendors
+// In authRoutes.js - update the register endpoint
 router.post("/register", async (req, res) => {
   try {
     const { full_name, email, password, role, phone } = req.body;
@@ -26,11 +26,11 @@ router.post("/register", async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     
     // Set status based on role
-    let driver_status = null;
+    let driver_status = null;  // ← FIXED: Set to null, not 'pending'
     let vendor_status = null;
     
     if (role === 'driver') {
-      driver_status = 'pending';  // Needs admin approval
+      driver_status = null;  // They need to complete onboarding first
     } else if (role === 'vendor') {
       vendor_status = 'pending';  // Needs admin approval
     }

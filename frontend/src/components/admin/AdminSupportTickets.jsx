@@ -38,6 +38,12 @@ const issueTypeLabels = {
   other: '📝 Other',
 };
 
+// Helper to safely format currency
+const formatCurrency = (value) => {
+  const num = typeof value === 'number' ? value : parseFloat(value);
+  return !isNaN(num) ? num.toFixed(2) : '0.00';
+};
+
 export default function AdminSupportTickets() {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -242,7 +248,9 @@ export default function AdminSupportTickets() {
                 </p>
                 <p className="text-sm">Order #{selectedTicket.order_id}</p>
                 <p className="text-xs text-gray-500">{selectedTicket.restaurant_name}</p>
-                <p className="text-xs text-gray-500">Total: R{selectedTicket.order_total?.toFixed(2)}</p>
+                <p className="text-xs text-gray-500">
+                  Total: R{formatCurrency(selectedTicket.order_total)}
+                </p>
               </div>
 
               {/* Issue Details */}

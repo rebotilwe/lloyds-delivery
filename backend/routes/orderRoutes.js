@@ -641,6 +641,9 @@ router.put("/assign/:id", async (req, res) => {
 /* =========================
    ADMIN: APPROVE PACKAGE DELIVERY
 ========================= */
+/* =========================
+   ADMIN: APPROVE PACKAGE DELIVERY (TEST MODE - ALL DRIVERS)
+========================= */
 router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { id } = req.params;
@@ -695,34 +698,30 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
       return res.status(404).json({ message: "Order not found" });
     }
 
-    let nearbyDrivers = [];
-    if (packageOrder.pickup_lat && packageOrder.pickup_lng) {
-      const driversResult = await db.query(
-        `SELECT id, name, email, phone, vehicle_type 
-         FROM users 
-         WHERE role = 'driver' 
-           AND driver_status = 'approved'
-           AND is_available = true
-           AND ST_DWithin(
-             ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
-             ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography,
-             10000
-           )`,
-        [packageOrder.pickup_lng, packageOrder.pickup_lat]
-      );
-      nearbyDrivers = driversResult.rows;
-    } else {
-      const driversResult = await db.query(
-        `SELECT id, name, email, phone, vehicle_type 
-         FROM users 
-         WHERE role = 'driver' 
-           AND driver_status = 'approved'
-           AND is_available = true`
-      );
-      nearbyDrivers = driversResult.rows;
-    }
+    // 🚀 FIX: Get ALL approved drivers regardless of distance for testing
+    const driversResult = await db.query(
+      `SELECT id, name, email, phone, vehicle_type, latitude, longitude
+       FROM users 
+       WHERE role = 'driver' 
+         AND driver_status = 'approved'
+         AND is_available = true`
+    );
+    
+    const allDrivers = driversResult.rows;
+    console.log(`📢 Found ${allDrivers.length} available drivers total`);
 
-    for (const driver of nearbyDrivers) {
+    // Calculate distance for display (but don't filter by it)
+    for (const driver of allDrivers) {
+      let distance = null;
+      if (packageOrder.pickup_lat && packageOrder.pickup_lng && driver.latitude && driver.longitude) {
+        distance = calculateDistance(
+          driver.latitude, driver.longitude,
+          packageOrder.pickup_lat, packageOrder.pickup_lng
+        );
+      }
+      
+      console.log(`🔔 Notifying driver ${driver.id} (${driver.name}) - Distance: ${distance ? distance.toFixed(1) : 'unknown'}km`);
+      
       io.to(`driver_${driver.id}`).emit("new-package-offer", {
         orderId: parseInt(id),
         pickupAddress: packageOrder.pickup_address,
@@ -731,18 +730,15 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
         packageWeight: packageOrder.package_weight,
         estimatedPay: packageOrder.delivery_fee,
         deadline: packageOrder.driver_acceptance_deadline,
-        distance: packageOrder.pickup_lat ? calculateDistance(
-          driver.latitude, driver.longitude,
-          packageOrder.pickup_lat, packageOrder.pickup_lng
-        ) : null,
+        distance: distance,
       });
     }
     
-    console.log(`📢 Notified ${nearbyDrivers.length} drivers about package #${id}`);
+    console.log(`✅ Notified ${allDrivers.length} drivers about package #${id}`);
 
     res.json({ 
       message: "Package delivery approved and sent to drivers",
-      driversNotified: nearbyDrivers.length
+      driversNotified: allDrivers.length
     });
   } catch (err) {
     console.error("Error approving package:", err);

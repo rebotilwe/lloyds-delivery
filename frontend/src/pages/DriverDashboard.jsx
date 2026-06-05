@@ -39,8 +39,8 @@ import { useSocket } from '@/context/SocketContext';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 
-// STATUS FLOW - maps current status to next status
-const STATUS_FLOW = {
+// STATUS FLOW - Food orders
+const FOOD_STATUS_FLOW = {
   pending: 'confirmed',
   confirmed: 'ready_for_pickup',
   ready_for_pickup: 'picked_up',
@@ -48,11 +48,25 @@ const STATUS_FLOW = {
   on_the_way: 'delivered',
 };
 
-// STATUS LABELS - maps current status to button text
-const STATUS_LABELS = {
+// STATUS FLOW - Package deliveries
+const PACKAGE_STATUS_FLOW = {
+  assigned: 'picked_up',
+  picked_up: 'on_the_way',
+  on_the_way: 'delivered',
+};
+
+// STATUS LABELS - Food orders
+const FOOD_STATUS_LABELS = {
   pending: 'Accept Order',
   confirmed: 'Mark Ready',
   ready_for_pickup: 'Pick Up Order',
+  picked_up: 'Start Delivery',
+  on_the_way: 'Mark Delivered',
+};
+
+// STATUS LABELS - Package deliveries
+const PACKAGE_STATUS_LABELS = {
+  assigned: 'Pick Up Package',
   picked_up: 'Start Delivery',
   on_the_way: 'Mark Delivered',
 };
@@ -321,58 +335,54 @@ export default function DriverDashboard() {
       console.error('Error fetching user:', err);
     }
   };
-const fetchOrders = useCallback(async () => {
-  if (!user?.id) {
-    console.log('No user ID available, skipping fetch');
-    return;
-  }
   
-  setRefreshing(true);
-  console.log('Fetching orders for driver:', user.id, 'Vehicle:', user.vehicle_type);
-  
-  try {
-    const res1 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/available?driver_id=${user.id}`);
-    let available = await res1.json();
-    console.log('Available orders API response:', available);
-    
-    // FIX: Check if available is an array before filtering
-    if (!Array.isArray(available)) {
-      console.error('Available orders is not an array:', available);
-      available = [];
+  const fetchOrders = useCallback(async () => {
+    if (!user?.id) {
+      console.log('No user ID available, skipping fetch');
+      return;
     }
     
-    // Only filter if available is an array
-    const filteredAvailable = available.filter(order => !declinedOrders.includes(order.id));
-    setAvailableOrders(filteredAvailable);
-
-    const res2 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/${user.id}`);
-    const mine = await res2.json();
-    console.log('My orders API response:', mine);
+    setRefreshing(true);
+    console.log('Fetching orders for driver:', user.id, 'Vehicle:', user.vehicle_type);
     
-    // FIX: Check if mine is an array
-    if (!Array.isArray(mine)) {
-      console.error('My orders is not an array:', mine);
-      setMyOrders([]);
-    } else {
-      if (mine.length > 0) {
-        console.log('Sample order customer_phone:', mine[0].customer_phone);
-        console.log('Sample order customer_name:', mine[0].customer_name);
+    try {
+      const res1 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/available?driver_id=${user.id}`);
+      let available = await res1.json();
+      console.log('Available orders API response:', available);
+      
+      if (!Array.isArray(available)) {
+        console.error('Available orders is not an array:', available);
+        available = [];
       }
-      setMyOrders(mine);
+      
+      const filteredAvailable = available.filter(order => !declinedOrders.includes(order.id));
+      setAvailableOrders(filteredAvailable);
+
+      const res2 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/${user.id}`);
+      const mine = await res2.json();
+      console.log('My orders API response:', mine);
+      
+      if (!Array.isArray(mine)) {
+        console.error('My orders is not an array:', mine);
+        setMyOrders([]);
+      } else {
+        if (mine.length > 0) {
+          console.log('Sample order:', mine[0]);
+        }
+        setMyOrders(mine);
+      }
+      
+      setDataLoaded(true);
+      
+    } catch (err) {
+      console.error('Error fetching orders:', err);
+      setAvailableOrders([]);
+      setMyOrders([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    
-    setDataLoaded(true);
-    
-  } catch (err) {
-    console.error('Error fetching orders:', err);
-    // Set empty arrays on error to prevent crashes
-    setAvailableOrders([]);
-    setMyOrders([]);
-  } finally {
-    setLoading(false);
-    setRefreshing(false);
-  }
-}, [user, declinedOrders]);
+  }, [user, declinedOrders]);
 
   // Accept package offer
   const acceptPackageOffer = async (orderId) => {
@@ -392,7 +402,7 @@ const fetchOrders = useCallback(async () => {
         throw new Error(data.message);
       }
 
-      toast.success('Package accepted! Check your active deliveries');
+      toast.success('Package accepted! Head to pickup location');
       setShowPackageOfferModal(false);
       setPackageOffer(null);
       fetchOrders();
@@ -590,8 +600,11 @@ const fetchOrders = useCallback(async () => {
     }
   };
 
-  const updateStatus = async (orderId, currentStatus) => {
-    const nextStatus = STATUS_FLOW[currentStatus];
+  const updateStatus = async (orderId, currentStatus, isPackage) => {
+    // Use different status flow for packages vs food
+    const statusFlow = isPackage ? PACKAGE_STATUS_FLOW : FOOD_STATUS_FLOW;
+    const nextStatus = statusFlow[currentStatus];
+    
     if (!nextStatus) {
       toast.error('Cannot update this order status');
       return;
@@ -606,7 +619,11 @@ const fetchOrders = useCallback(async () => {
 
       if (!response.ok) throw new Error('Failed to update status');
 
-      const statusMessages = {
+      const statusMessages = isPackage ? {
+        picked_up: 'Package picked up! Starting delivery',
+        on_the_way: 'Package en route to recipient!',
+        delivered: 'Package delivered! Payment received',
+      } : {
         ready_for_pickup: 'Restaurant notified! Ready for pickup soon',
         picked_up: 'Food collected! Starting delivery',
         on_the_way: 'On the way to customer!',
@@ -620,7 +637,7 @@ const fetchOrders = useCallback(async () => {
       if (nextStatus === 'delivered') {
         setTrackingOrder(null);
         setIsAvailable(true);
-        toast.success('You are now back online and can accept new orders');
+        toast.success('You are now back online and can accept new deliveries');
         fetchEarningsData();
       }
       
@@ -633,15 +650,23 @@ const fetchOrders = useCallback(async () => {
   };
 
   const getButtonText = (order) => {
+    const isPackage = order.delivery_type && order.delivery_type !== 'food';
+    
+    if (isPackage) {
+      return PACKAGE_STATUS_LABELS[order.status] || 'Update Status';
+    }
+    
     if (order.status === 'pending') return 'Accept Order';
-    return STATUS_LABELS[order.status] || 'Update Status';
+    return FOOD_STATUS_LABELS[order.status] || 'Update Status';
   };
 
   const handleOrderAction = (order) => {
-    if (order.status === 'pending') {
+    const isPackage = order.delivery_type && order.delivery_type !== 'food';
+    
+    if (order.status === 'pending' && !isPackage) {
       acceptOrder(order.id);
     } else {
-      updateStatus(order.id, order.status);
+      updateStatus(order.id, order.status, isPackage);
     }
   };
 
@@ -926,132 +951,194 @@ const fetchOrders = useCallback(async () => {
         <div className="mb-6 sm:mb-8">
           <h2 className="text-sm sm:text-base font-bold mb-3 sm:mb-4">Active Deliveries ({activeOrders.length})</h2>
           <div className="space-y-3 sm:space-y-4">
-            {activeOrders.map((order) => (
-              <Card key={order.id} className="overflow-hidden">
-                <CardContent className="p-3 sm:p-4 space-y-3">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-semibold text-sm sm:text-base truncate">
-                          {order.restaurant_name || (order.delivery_type === 'food' ? 'Restaurant' : 'Delivery')}
+            {activeOrders.map((order) => {
+              const isPackage = order.delivery_type && order.delivery_type !== 'food';
+              const pickupLocation = isPackage ? order.pickup_address : (order.restaurant_address || order.restaurant_name);
+              
+              return (
+                <Card key={order.id} className="overflow-hidden">
+                  <CardContent className="p-3 sm:p-4 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-sm sm:text-base truncate">
+                            {isPackage ? '📦 Package Delivery' : (order.restaurant_name || 'Restaurant')}
+                          </p>
+                          {order.delivery_type && order.delivery_type !== 'food' && (
+                            <Badge className={
+                              order.delivery_type === 'package' ? 'bg-purple-100 text-purple-800' :
+                              order.delivery_type === 'document' ? 'bg-blue-100 text-blue-800' :
+                              'bg-orange-100 text-orange-800'
+                            }>
+                              {order.delivery_type === 'package' && '📦 Package'}
+                              {order.delivery_type === 'document' && '📄 Document'}
+                              {order.delivery_type === 'other' && '🚚 Other'}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">Order #{order.id}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Status: <span className="font-medium">{formatOrderStatus(order.status)}</span>
                         </p>
-                        {order.delivery_type && order.delivery_type !== 'food' && (
-                          <Badge className={
-                            order.delivery_type === 'package' ? 'bg-purple-100 text-purple-800' :
-                            order.delivery_type === 'document' ? 'bg-blue-100 text-blue-800' :
-                            'bg-orange-100 text-orange-800'
-                          }>
-                            {order.delivery_type === 'package' && '📦 Package'}
-                            {order.delivery_type === 'document' && '📄 Document'}
-                            {order.delivery_type === 'other' && '🚚 Other'}
-                          </Badge>
-                        )}
                       </div>
-                      <p className="text-xs text-gray-500">Order #{order.id}</p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        Status: <span className="font-medium">{formatOrderStatus(order.status)}</span>
-                      </p>
-                    </div>
-                    <span className="text-base sm:text-lg font-bold text-green shrink-0 ml-2">
-                      R{Number(order.total).toFixed(2)}
-                    </span>
-                  </div>
-
-                  {order.customer_name && (
-                    <div className="flex items-center gap-2 bg-green-50 rounded-lg p-2 border border-green-100">
-                      <User className="w-4 h-4 text-green" />
-                      <span className="text-sm font-medium text-gray-700">
-                        Customer: {order.customer_name}
+                      <span className="text-base sm:text-lg font-bold text-green shrink-0 ml-2">
+                        R{Number(order.total).toFixed(2)}
                       </span>
                     </div>
-                  )}
 
-                  {order.customer_phone ? (
-                    <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-2">
-                      <div className="flex items-center gap-1">
-                        <Phone className="w-3 h-3 text-blue-500" />
-                        <a href={`tel:${order.customer_phone}`} className="text-xs text-blue-600 hover:underline">
-                          Call Customer
-                        </a>
+                    {/* Customer/Sender Info */}
+                    {order.customer_name && (
+                      <div className={`flex items-center gap-2 rounded-lg p-2 border ${isPackage ? 'bg-purple-50 border-purple-100' : 'bg-green-50 border-green-100'}`}>
+                        <User className={`w-4 h-4 ${isPackage ? 'text-purple-600' : 'text-green'}`} />
+                        <span className="text-sm font-medium text-gray-700">
+                          {isPackage ? 'Sender: ' : 'Customer: '}{order.customer_name}
+                        </span>
                       </div>
-                      <div className="w-px h-4 bg-gray-300" />
-                      <div className="flex items-center gap-1">
-                        <MessageCircle className="w-3 h-3 text-green-600" />
-                        <a href={`https://wa.me/${formatWhatsAppNumber(order.customer_phone)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:underline">
-                          WhatsApp
-                        </a>
+                    )}
+
+                    {/* Recipient info for package deliveries */}
+                    {isPackage && order.recipient_name && (
+                      <div className="flex items-center gap-2 bg-blue-50 rounded-lg p-2 border border-blue-100">
+                        <User className="w-4 h-4 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-700">
+                          Recipient: {order.recipient_name}
+                        </span>
+                        {order.recipient_phone && (
+                          <a href={`tel:${order.recipient_phone}`} className="text-xs text-blue-600 hover:underline ml-auto">
+                            Call
+                          </a>
+                        )}
                       </div>
-                    </div>
-                  ) : (
-                    order.customer_name && (
-                      <div className="bg-yellow-50 rounded-lg p-2 text-center">
-                        <p className="text-xs text-yellow-600">⚠️ No phone number available</p>
-                      </div>
-                    )
-                  )}
+                    )}
 
-                  {/* Pickup Address for Package Deliveries */}
-                  {order.delivery_type !== 'food' && order.pickup_address && (
-                    <div className="flex items-start gap-2 bg-gray-50 rounded-lg p-2">
-                      <MapPin className="w-3 h-3 text-purple-500 mt-0.5 shrink-0" />
-                      <div className="flex-1">
-                        <p className="text-xs font-medium text-gray-700">Pickup Location:</p>
-                        <p className="text-xs text-gray-600">{order.pickup_address}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg p-2">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />
-                      <p className="text-xs sm:text-sm text-gray-600 truncate">{formatAddress(order.delivery_address)}</p>
-                    </div>
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="h-7 sm:h-8 text-xs shrink-0"
-                      onClick={() => openGoogleMaps(order.delivery_address)}
-                    >
-                      <NavigateIcon className="w-3 h-3 mr-1" />
-                      Navigate
-                    </Button>
-                  </div>
-
-                  <Button
-                    className="w-full bg-green hover:bg-green/90 text-white text-sm h-9 sm:h-10"
-                    onClick={() => handleOrderAction(order)}
-                  >
-                    {getButtonText(order)}
-                  </Button>
-
-                  {order.delivery_type === 'food' && order.items && order.items.length > 0 && (
-                    <>
-                      <button
-                        onClick={() => toggleExpand(order.id)}
-                        className="flex items-center justify-between w-full text-xs text-gray-500 pt-2"
-                      >
-                        <span>{expandedOrders[order.id] ? 'Hide' : 'View'} order details</span>
-                        {expandedOrders[order.id] ? '▲' : '▼'}
-                      </button>
-                      {expandedOrders[order.id] && (
-                        <div className="space-y-1 pt-2 border-t">
-                          {order.items.map((item, idx) => (
-                            <div key={idx} className="flex justify-between text-xs">
-                              <span>{item.quantity}x {item.name}</span>
-                              <span>R{(item.price * item.quantity).toFixed(2)}</span>
-                            </div>
-                          ))}
-                          <div className="flex justify-between text-xs pt-1 border-t">
-                            <span>Delivery fee</span>
-                            <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
-                          </div>
+                    {/* Contact Customer/Sender */}
+                    {order.customer_phone ? (
+                      <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-2">
+                        <div className="flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-blue-500" />
+                          <a href={`tel:${order.customer_phone}`} className="text-xs text-blue-600 hover:underline">
+                            Call {isPackage ? 'Sender' : 'Customer'}
+                          </a>
                         </div>
-                      )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+                        <div className="w-px h-4 bg-gray-300" />
+                        <div className="flex items-center gap-1">
+                          <MessageCircle className="w-3 h-3 text-green-600" />
+                          <a href={`https://wa.me/${formatWhatsAppNumber(order.customer_phone)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:underline">
+                            WhatsApp
+                          </a>
+                        </div>
+                      </div>
+                    ) : (
+                      order.customer_name && (
+                        <div className="bg-yellow-50 rounded-lg p-2 text-center">
+                          <p className="text-xs text-yellow-600">⚠️ No phone number available</p>
+                        </div>
+                      )
+                    )}
+
+                    {/* Pickup Location - Different for packages vs food */}
+                    {pickupLocation && (
+                      <div className="flex items-start gap-2 bg-gray-50 rounded-lg p-2">
+                        <MapPin className={`w-3 h-3 ${isPackage ? 'text-purple-500' : 'text-orange-500'} mt-0.5 shrink-0`} />
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-gray-700">
+                            {isPackage ? 'Pickup Location:' : 'Restaurant:'}
+                          </p>
+                          <p className="text-xs text-gray-600">{pickupLocation}</p>
+                        </div>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="h-7 text-xs shrink-0"
+                          onClick={() => openGoogleMaps(pickupLocation)}
+                        >
+                          <NavigateIcon className="w-3 h-3 mr-1" />
+                          Navigate
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Delivery Location */}
+                    <div className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg p-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <MapPin className="w-3 h-3 text-red-500 shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-gray-700">Delivery Location:</p>
+                          <p className="text-xs text-gray-600 truncate">{order.delivery_address}</p>
+                        </div>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="h-7 text-xs shrink-0"
+                        onClick={() => openGoogleMaps(order.delivery_address)}
+                      >
+                        <NavigateIcon className="w-3 h-3 mr-1" />
+                        Navigate
+                      </Button>
+                    </div>
+
+                    {/* Package details if applicable */}
+                    {isPackage && (
+                      <div className="bg-purple-50 rounded-lg p-2">
+                        <p className="text-xs font-medium text-purple-700">Package Details:</p>
+                        <div className="flex flex-wrap gap-3 mt-1 text-xs">
+                          {order.package_weight && (
+                            <span>⚖️ Weight: {order.package_weight}kg</span>
+                          )}
+                          {order.package_dimensions && (
+                            <span>📏 Dimensions: {order.package_dimensions}</span>
+                          )}
+                          {order.requires_signature && (
+                            <span className="text-blue-600">📝 Signature Required</span>
+                          )}
+                          {order.is_fragile && (
+                            <span className="text-orange-600">⚠️ Fragile</span>
+                          )}
+                          {order.package_description && (
+                            <span className="text-gray-600 w-full">📝 {order.package_description}</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <Button
+                      className={`w-full text-white text-sm h-9 sm:h-10 ${isPackage ? 'bg-purple-600 hover:bg-purple-700' : 'bg-green hover:bg-green/90'}`}
+                      onClick={() => handleOrderAction(order)}
+                    >
+                      {getButtonText(order)}
+                    </Button>
+
+                    {/* Order items only for food */}
+                    {!isPackage && order.items && order.items.length > 0 && (
+                      <>
+                        <button
+                          onClick={() => toggleExpand(order.id)}
+                          className="flex items-center justify-between w-full text-xs text-gray-500 pt-2"
+                        >
+                          <span>{expandedOrders[order.id] ? 'Hide' : 'View'} order details</span>
+                          {expandedOrders[order.id] ? '▲' : '▼'}
+                        </button>
+                        {expandedOrders[order.id] && (
+                          <div className="space-y-1 pt-2 border-t">
+                            {order.items.map((item, idx) => (
+                              <div key={idx} className="flex justify-between text-xs">
+                                <span>{item.quantity}x {item.name}</span>
+                                <span>R{(item.price * item.quantity).toFixed(2)}</span>
+                              </div>
+                            ))}
+                            <div className="flex justify-between text-xs pt-1 border-t">
+                              <span>Delivery fee</span>
+                              <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1089,6 +1176,7 @@ const fetchOrders = useCallback(async () => {
               const distance = restaurantDistances[order.id];
               const estimatedTime = distance ? estimateDeliveryTime(distance) : null;
               const requiredVehicle = order.required_vehicle_type || 'bike';
+              const isPackage = order.delivery_type && order.delivery_type !== 'food';
               
               return (
                 <Card key={order.id} className="hover:shadow-md transition">
@@ -1096,17 +1184,13 @@ const fetchOrders = useCallback(async () => {
                     <div className="flex flex-col sm:flex-row justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-semibold text-sm sm:text-base truncate">{order.restaurant_name || 'Delivery'}</p>
+                          <p className="font-semibold text-sm sm:text-base truncate">
+                            {isPackage ? '📦 Package Delivery' : (order.restaurant_name || 'Delivery')}
+                          </p>
                           {requiredVehicle === 'car' && (
                             <Badge className="bg-blue-100 text-blue-700 text-[10px]">
                               <Car className="w-2.5 h-2.5 mr-1" />
                               Car Required
-                            </Badge>
-                          )}
-                          {requiredVehicle === 'bike' && (
-                            <Badge className="bg-green-100 text-green-700 text-[10px]">
-                              <Bike className="w-2.5 h-2.5 mr-1" />
-                              Any Vehicle
                             </Badge>
                           )}
                           {order.delivery_type && order.delivery_type !== 'food' && (
@@ -1122,11 +1206,22 @@ const fetchOrders = useCallback(async () => {
                           )}
                         </div>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          Order #{order.id} • {order.customer_name || 'Customer'} • {getItemCountText(order)}
+                          Order #{order.id} • {order.customer_name || 'Customer'}
                         </p>
-                        <div className="flex items-start gap-1 mt-2">
+                        
+                        {/* Show pickup address for packages, delivery address for food */}
+                        {isPackage && order.pickup_address && (
+                          <div className="flex items-start gap-1 mt-2">
+                            <MapPin className="w-3 h-3 text-purple-500 mt-0.5 shrink-0" />
+                            <p className="text-xs text-gray-500 truncate">Pickup: {formatAddress(order.pickup_address)}</p>
+                          </div>
+                        )}
+                        
+                        <div className="flex items-start gap-1 mt-1">
                           <MapPin className="w-3 h-3 text-gray-400 mt-0.5 shrink-0" />
-                          <p className="text-xs text-gray-500 truncate">{formatAddress(order.delivery_address)}</p>
+                          <p className="text-xs text-gray-500 truncate">
+                            {isPackage ? 'Delivery: ' : ''}{formatAddress(order.delivery_address)}
+                          </p>
                         </div>
                         
                         {distance && (
@@ -1152,7 +1247,7 @@ const fetchOrders = useCallback(async () => {
                           <Button 
                             onClick={() => acceptOrder(order.id)}
                             disabled={hasActiveOrder || (requiredVehicle === 'car' && user?.vehicle_type === 'bike')}
-                            className={`bg-green hover:bg-green/90 text-white text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 ${
+                            className={`text-white text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 ${isPackage ? 'bg-purple-600 hover:bg-purple-700' : 'bg-green hover:bg-green/90'} ${
                               requiredVehicle === 'car' && user?.vehicle_type === 'bike' ? 'opacity-50 cursor-not-allowed' : ''
                             }`}
                             title={requiredVehicle === 'car' && user?.vehicle_type === 'bike' ? 'This order requires a car' : ''}
@@ -1160,7 +1255,7 @@ const fetchOrders = useCallback(async () => {
                             Accept
                           </Button>
                           <Button 
-                            onClick={() => declineOrder(order.id, order.restaurant_name)}
+                            onClick={() => declineOrder(order.id, order.restaurant_name || 'Package')}
                             variant="outline"
                             className="border-red-300 text-red-500 hover:bg-red-50 text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4"
                           >
@@ -1217,28 +1312,36 @@ const fetchOrders = useCallback(async () => {
 
           {showHistory && (
             <div className="space-y-2">
-              {completedOrders.map((order) => (
-                <Card key={order.id} className="bg-gray-50">
-                  <CardContent className="p-3 sm:p-4">
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm truncate">{order.restaurant_name || 'Delivery'}</p>
-                        <p className="text-xs text-gray-500">Order #{order.id}</p>
-                        <p className="text-xs text-gray-400">
-                          Delivered {new Date(order.created_at).toLocaleDateString()}
-                        </p>
-                        {order.driver_rating && (
-                          <p className="text-xs text-yellow-600 mt-1">Rating: {order.driver_rating}★</p>
-                        )}
+              {completedOrders.map((order) => {
+                const isPackage = order.delivery_type && order.delivery_type !== 'food';
+                return (
+                  <Card key={order.id} className="bg-gray-50">
+                    <CardContent className="p-3 sm:p-4">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm truncate">
+                            {isPackage ? '📦 Package Delivery' : (order.restaurant_name || 'Delivery')}
+                          </p>
+                          <p className="text-xs text-gray-500">Order #{order.id}</p>
+                          <p className="text-xs text-gray-400">
+                            Delivered {new Date(order.created_at).toLocaleDateString()}
+                          </p>
+                          {order.driver_rating && (
+                            <p className="text-xs text-yellow-600 mt-1">Rating: {order.driver_rating}★</p>
+                          )}
+                          {isPackage && order.recipient_name && (
+                            <p className="text-xs text-purple-600 mt-1">Recipient: {order.recipient_name}</p>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-green text-sm">R{Number(order.total).toFixed(2)}</p>
+                          <p className="text-xs text-gray-500">Earned: R{Number(order.driver_earning || 0).toFixed(2)}</p>
+                        </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="font-bold text-green text-sm">R{Number(order.total).toFixed(2)}</p>
-                        <p className="text-xs text-gray-500">Earned: R{Number(order.driver_earning || 0).toFixed(2)}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </div>
@@ -1359,7 +1462,7 @@ const fetchOrders = useCallback(async () => {
                 <Button 
                   onClick={() => acceptPackageOffer(packageOffer.orderId)}
                   disabled={acceptingPackage}
-                  className="flex-1 bg-green text-white"
+                  className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
                 >
                   {acceptingPackage ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
                   Accept Delivery

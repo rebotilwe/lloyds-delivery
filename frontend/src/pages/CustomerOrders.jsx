@@ -23,8 +23,8 @@ import ReportIssueModal from '@/components/ReportIssueModal';
 import TicketResponseModal from '@/components/TicketResponseModal';
 import { formatOrderStatus } from '@/lib/utils';
 
-// Order status steps for tracker
-const STATUS_STEPS = [
+// Order status steps for tracker (different for food vs package)
+const FOOD_STATUS_STEPS = [
   { key: 'pending', label: 'Placed', step: 1 },
   { key: 'confirmed', label: 'Confirmed', step: 2 },
   { key: 'preparing', label: 'Preparing', step: 3 },
@@ -34,8 +34,23 @@ const STATUS_STEPS = [
   { key: 'delivered', label: 'Delivered', step: 7 },
 ];
 
-const getCurrentStep = (status) => {
-  const step = STATUS_STEPS.find(s => s.key === status);
+const PACKAGE_STATUS_STEPS = [
+  { key: 'pending_approval', label: 'Pending', step: 1 },
+  { key: 'pending_driver', label: 'Driver Search', step: 2 },
+  { key: 'assigned', label: 'Driver Assigned', step: 3 },
+  { key: 'picked_up', label: 'Picked Up', step: 4 },
+  { key: 'on_the_way', label: 'On Way', step: 5 },
+  { key: 'delivered', label: 'Delivered', step: 6 },
+];
+
+const getStatusSteps = (order) => {
+  const isPackage = order.delivery_type && order.delivery_type !== 'food';
+  return isPackage ? PACKAGE_STATUS_STEPS : FOOD_STATUS_STEPS;
+};
+
+const getCurrentStep = (order) => {
+  const steps = getStatusSteps(order);
+  const step = steps.find(s => s.key === order.status);
   return step ? step.step : 0;
 };
 
@@ -83,7 +98,7 @@ const statusColors = {
 };
 
 // Driver Info Card Component
-function DriverInfoCard({ driver }) {
+function DriverInfoCard({ driver, isPackage }) {
   if (!driver || !driver.id) return null;
 
   return (
@@ -98,7 +113,7 @@ function DriverInfoCard({ driver }) {
             <p className="font-semibold text-sm">{driver.name || 'Driver'}</p>
             <Badge className="bg-green-100 text-green-700 text-[10px]">
               <Truck className="w-2.5 h-2.5 mr-1" />
-              Your Driver
+              {isPackage ? 'Your Courier' : 'Your Driver'}
             </Badge>
           </div>
           
@@ -227,34 +242,66 @@ function LiveMap({ driverLocation, orderStatus }) {
   );
 }
 
-// Active order card component
+// Active order card component (supports both food and packages)
 function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLocation }) {
   const [expanded, setExpanded] = useState(false);
-  const currentStep = getCurrentStep(order.status);
+  const currentStep = getCurrentStep(order);
+  const steps = getStatusSteps(order);
+  const isPackage = order.delivery_type && order.delivery_type !== 'food';
 
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
   const itemCount = items.length;
-  const canCancel = order.status === 'pending' || order.status === 'confirmed';
+  const canCancel = order.status === 'pending' || order.status === 'confirmed' || order.status === 'pending_approval';
   const showMap = order.status === 'on_the_way';
 
-  const estimatedDeliveryTime = () => {
+  const getEstimatedTime = () => {
+    if (isPackage) {
+      if (order.status === 'assigned') return 'Driver assigned to pickup';
+      if (order.status === 'picked_up') return 'Package picked up, en route';
+      if (order.status === 'on_the_way') return 'Arriving soon';
+      return 'Waiting for driver assignment';
+    }
+    // Food estimates
     if (order.status === 'on_the_way') return 'Arriving soon';
     if (order.status === 'confirmed') return 'Preparing (15-25 min)';
     if (order.status === 'preparing') return 'Almost ready (10-15 min)';
     return 'Estimated 25-35 min';
   };
 
+  const getStatusMessage = () => {
+    if (isPackage) {
+      if (order.status === 'pending_approval') return '⏳ Awaiting admin approval';
+      if (order.status === 'pending_driver') return '🔍 Looking for a driver';
+      if (order.status === 'assigned') return '✅ Driver assigned to your package';
+      if (order.status === 'picked_up') return '📦 Package picked up';
+      if (order.status === 'on_the_way') return '🚚 Package en route';
+      if (order.status === 'delivered') return '✅ Package delivered';
+      return '';
+    }
+    // Food status messages
+    if (order.status === 'confirmed') return '⏱️ Restaurant is preparing your order';
+    if (order.status === 'ready_for_pickup') return '🍔 Order ready! Driver assigned';
+    if (order.status === 'picked_up') return '🚚 Driver has picked up your order';
+    return '';
+  };
+
   return (
     <Card className="overflow-hidden border-2 border-green/20 shadow-md">
-      <div className="bg-gradient-to-r from-green to-green/80 px-3 sm:px-4 py-2 flex items-center justify-between">
+      <div className={`${isPackage ? 'bg-gradient-to-r from-purple-600 to-purple-500' : 'bg-gradient-to-r from-green to-green/80'} px-3 sm:px-4 py-2 flex items-center justify-between`}>
         <div className="flex items-center gap-1 sm:gap-2">
-          <Truck className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
-          <span className="text-white text-xs sm:text-sm font-semibold">Live Order</span>
+          {isPackage ? (
+            <Package className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
+          ) : (
+            <Truck className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
+          )}
+          <span className="text-white text-xs sm:text-sm font-semibold">
+            {isPackage ? 'Package Delivery' : 'Live Order'}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <ClockIcon className="w-3 h-3 text-white" />
           <span className="text-white/80 text-[10px] sm:text-xs">
-            {estimatedDeliveryTime()}
+            {getEstimatedTime()}
           </span>
         </div>
       </div>
@@ -263,7 +310,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
         {/* Order Tracker */}
         <div className="relative overflow-x-auto pb-2 -mx-1 px-1">
           <div className="flex justify-between min-w-[500px] sm:min-w-0">
-            {STATUS_STEPS.map((step) => (
+            {steps.map((step) => (
               <div key={step.key} className="flex flex-col items-center flex-1">
                 <div className={cn(
                   "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold transition-all",
@@ -288,6 +335,15 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
           </div>
         </div>
 
+        {/* Status Message */}
+        {getStatusMessage() && (
+          <div className={`${isPackage ? 'bg-purple-50' : 'bg-blue-50'} p-2 rounded-lg text-center`}>
+            <p className={`text-[10px] sm:text-xs ${isPackage ? 'text-purple-700' : 'text-blue-700'}`}>
+              {getStatusMessage()}
+            </p>
+          </div>
+        )}
+
         {/* Driver Info Card */}
         {(order.driver_id || order.driver_name) && (
           <DriverInfoCard driver={{
@@ -295,7 +351,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             name: order.driver_name,
             phone: order.driver_phone,
             vehicle_type: order.driver_vehicle_type
-          }} />
+          }} isPackage={isPackage} />
         )}
 
         {/* Order Details */}
@@ -305,19 +361,17 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             <p className="font-bold text-green text-sm sm:text-lg">R{Number(order.total).toFixed(2)}</p>
           </div>
           <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
-            <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">Items</p>
-            <p className="font-semibold text-xs sm:text-sm">{itemCount} item(s)</p>
+            <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">
+              {isPackage ? 'Package ID' : 'Items'}
+            </p>
+            <p className="font-semibold text-xs sm:text-sm">
+              {isPackage ? `#${order.id}` : `${itemCount} item(s)`}
+            </p>
           </div>
         </div>
 
-        {/* Delivery Address */}
-        <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
-          <MapPin className="w-3 h-3 sm:w-4 sm:h-4 mt-0.5 shrink-0" />
-          <span className="text-xs sm:text-sm break-words flex-1">{order.delivery_address || 'No address provided'}</span>
-        </div>
-
         {/* Package Details - For Non-Food Deliveries */}
-        {order.delivery_type && order.delivery_type !== 'food' && (
+        {isPackage && (
           <div className="bg-purple-50 rounded-lg p-3">
             <p className="text-xs font-semibold text-purple-800 mb-2 flex items-center gap-1">
               <Package className="w-3 h-3" />
@@ -332,6 +386,15 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
                   <p className="text-[10px] text-gray-500">Pickup Address</p>
                   <p className="text-xs font-medium">{order.pickup_address}</p>
                 </div>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="h-6 text-xs ml-auto shrink-0"
+                  onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.pickup_address)}`, '_blank')}
+                >
+                  <Navigation className="w-2.5 h-2.5 mr-1" />
+                  Navigate
+                </Button>
               </div>
             )}
             
@@ -387,38 +450,41 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
           </div>
         )}
 
-        {/* Status Messages */}
-        {order.status === 'confirmed' && (
-          <div className="bg-blue-50 p-2 rounded-lg text-center">
-            <p className="text-[10px] sm:text-xs text-blue-700">⏱️ Restaurant is preparing your order</p>
+        {/* Delivery Address */}
+        <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
+          <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <p className="text-[10px] text-gray-500">
+              {isPackage ? 'Delivery Address' : 'Delivery Address'}
+            </p>
+            <span className="text-xs sm:text-sm break-words">{order.delivery_address || 'No address provided'}</span>
           </div>
-        )}
-        {order.status === 'ready_for_pickup' && (
-          <div className="bg-purple-50 p-2 rounded-lg text-center">
-            <p className="text-[10px] sm:text-xs text-purple-700">🍔 Order ready! Driver assigned</p>
-          </div>
-        )}
-        {order.status === 'picked_up' && (
-          <div className="bg-indigo-50 p-2 rounded-lg text-center">
-            <p className="text-[10px] sm:text-xs text-indigo-700">🚚 Driver has picked up your order</p>
-          </div>
-        )}
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="h-7 text-xs shrink-0"
+            onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
+          >
+            <Navigation className="w-3 h-3 mr-1" />
+            Navigate
+          </Button>
+        </div>
 
-        {/* Live Map */}
-        {showMap && driverLocation && (
+        {/* Live Map - only for food deliveries on the way */}
+        {showMap && !isPackage && driverLocation && (
           <LiveMap driverLocation={driverLocation} orderStatus={order.status} />
         )}
 
         {/* Action Buttons */}
         <div className="flex gap-2">
-          {canCancel && (
+          {canCancel && order.status !== 'delivered' && (
             <Button
               variant="outline"
               size="sm"
               className="flex-1 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-9"
               onClick={() => onCancel(order.id)}
             >
-              Cancel Order
+              Cancel {isPackage ? 'Delivery' : 'Order'}
             </Button>
           )}
           <Button
@@ -428,22 +494,24 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             onClick={() => onReorder(order)}
           >
             <RotateCcw className="w-3 h-3 mr-1" />
-            Order Again
+            {isPackage ? 'Book Again' : 'Order Again'}
           </Button>
-          {/* Report Issue Button */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs sm:text-sm h-8 sm:h-9"
-            onClick={() => onReportIssue(order)}
-          >
-            <AlertCircle className="w-3 h-3 mr-1" />
-            Report Issue
-          </Button>
+          {/* Report Issue Button - only for delivered orders */}
+          {order.status === 'delivered' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs sm:text-sm h-8 sm:h-9"
+              onClick={() => onReportIssue(order)}
+            >
+              <AlertCircle className="w-3 h-3 mr-1" />
+              Report Issue
+            </Button>
+          )}
         </div>
 
-        {/* Order Items Expandable */}
-        {items.length > 0 && (
+        {/* Order Items Expandable - only for food */}
+        {!isPackage && items.length > 0 && (
           <button
             onClick={() => setExpanded(!expanded)}
             className="flex items-center justify-between w-full text-xs sm:text-sm text-gray-500 hover:text-gray-700"
@@ -453,7 +521,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
           </button>
         )}
 
-        {expanded && items.length > 0 && (
+        {!isPackage && expanded && items.length > 0 && (
           <div className="space-y-2 pt-2 border-t">
             {items.map((item, i) => (
               <div key={i} className="flex justify-between text-xs sm:text-sm">
@@ -478,9 +546,10 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
   );
 }
 
-// Order history card component
+// Order history card component (supports both food and packages)
 function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
   const [expanded, setExpanded] = useState(false);
+  const isPackage = order.delivery_type && order.delivery_type !== 'food';
   
   const getStatusColor = (status) => {
     switch(status) {
@@ -500,12 +569,16 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-primary/10 rounded-lg flex items-center justify-center shrink-0">
-              <Package className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
+            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center shrink-0 ${isPackage ? 'bg-purple-100' : 'bg-primary/10'}`}>
+              {isPackage ? (
+                <Package className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
+              ) : (
+                <Package className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-gray-900 text-sm sm:text-base truncate">
-                {order.restaurant_name || 'Restaurant'}
+                {isPackage ? 'Package Delivery' : (order.restaurant_name || 'Restaurant')}
               </h3>
               <div className="flex items-center gap-2 mt-0.5">
                 <p className="text-[10px] sm:text-xs text-gray-500">
@@ -529,14 +602,49 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
       
       {expanded && (
         <CardContent className="pt-0 space-y-3 border-t px-3 sm:px-4">
-          <div className="space-y-1 pt-3">
-            {items.map((item, i) => (
-              <div key={i} className="flex justify-between text-xs sm:text-sm">
-                <span className="text-gray-600">{item.quantity}x {item.name}</span>
-                <span>R{(item.price * item.quantity).toFixed(2)}</span>
+          {/* Package details in history */}
+          {isPackage && (
+            <div className="space-y-2 pt-3">
+              {order.pickup_address && (
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-3 h-3 text-green mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-[10px] text-gray-500">Pickup Address</p>
+                    <p className="text-xs">{order.pickup_address}</p>
+                  </div>
+                </div>
+              )}
+              {order.recipient_name && (
+                <div className="flex items-center gap-2">
+                  <User className="w-3 h-3 text-gray-500" />
+                  <span className="text-xs">Recipient: {order.recipient_name}</span>
+                  {order.recipient_phone && (
+                    <a href={`tel:${order.recipient_phone}`} className="text-xs text-blue-600">
+                      Call
+                    </a>
+                  )}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2 text-xs">
+                {order.package_weight && <span>⚖️ {order.package_weight}kg</span>}
+                {order.requires_signature && <span className="text-blue-600">📝 Signature</span>}
+                {order.is_fragile && <span className="text-orange-600">⚠️ Fragile</span>}
               </div>
-            ))}
-          </div>
+            </div>
+          )}
+
+          {/* Food items in history */}
+          {!isPackage && (
+            <div className="space-y-1 pt-3">
+              {items.map((item, i) => (
+                <div key={i} className="flex justify-between text-xs sm:text-sm">
+                  <span className="text-gray-600">{item.quantity}x {item.name}</span>
+                  <span>R{(item.price * item.quantity).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          
           <div className="flex justify-between text-xs sm:text-sm pt-2 border-t">
             <span className="text-gray-500">Delivery fee</span>
             <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
@@ -558,7 +666,7 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
           {order.driver_name && (
             <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
               <Truck className="w-3 h-3" />
-              <span>Delivered by: {order.driver_name}</span>
+              <span>{isPackage ? 'Delivered by courier:' : 'Delivered by driver:'} {order.driver_name}</span>
               {order.driver_phone && (
                 <a 
                   href={`tel:${order.driver_phone}`}
@@ -570,15 +678,8 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
             </div>
           )}
           
-          {/* Package delivery history note */}
-          {order.delivery_type && order.delivery_type !== 'food' && (
-            <div className="text-xs text-purple-600 bg-purple-50 p-2 rounded-lg">
-              📦 Package Delivery
-            </div>
-          )}
-          
           <div className="flex gap-2 pt-2">
-            {order.status === 'delivered' && !order.reviewed && (
+            {order.status === 'delivered' && !order.reviewed && !isPackage && (
               <Button
                 size="sm"
                 variant="outline"
@@ -595,7 +696,7 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
               onClick={() => onReorder(order)}
             >
               <RotateCcw className="w-3 h-3 mr-1" />
-              Order Again
+              {isPackage ? 'Book Again' : 'Order Again'}
             </Button>
           </div>
         </CardContent>
@@ -703,19 +804,28 @@ export default function CustomerOrders() {
 
   // Handle reorder
   const handleReorder = (order) => {
-    const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+    const isPackage = order.delivery_type && order.delivery_type !== 'food';
     
-    if (window.confirm(`Add items from ${order.restaurant_name} to your cart? This will replace your current cart.`)) {
-      items.forEach(item => {
-        addToCart({
-          id: item.id || item.menu_item_id,
-          name: item.name,
-          price: item.price,
-          image: item.image_url
-        }, order.restaurant_id, order.restaurant_name);
-      });
-      toast.success(`${items.length} items added to cart from ${order.restaurant_name}`);
-      navigate('/cart');
+    if (isPackage) {
+      // For packages, navigate to package delivery page
+      navigate('/package-delivery');
+      toast.info('Fill in the package delivery form to book again');
+    } else {
+      // For food, add items to cart
+      const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+      
+      if (window.confirm(`Add items from ${order.restaurant_name} to your cart? This will replace your current cart.`)) {
+        items.forEach(item => {
+          addToCart({
+            id: item.id || item.menu_item_id,
+            name: item.name,
+            price: item.price,
+            image: item.image_url
+          }, order.restaurant_id, order.restaurant_name);
+        });
+        toast.success(`${items.length} items added to cart from ${order.restaurant_name}`);
+        navigate('/cart');
+      }
     }
   };
 
@@ -752,7 +862,7 @@ export default function CustomerOrders() {
   }, [socket, user, orders, online, refetch]);
 
   // Filter orders
-  const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way'];
+  const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'pending_approval', 'pending_driver', 'assigned'];
   const activeOrders = orders.filter(o => activeStatuses.includes(o.status));
   
   // Mark active orders as viewed when they load
@@ -766,8 +876,9 @@ export default function CustomerOrders() {
   // Filter past orders by search term
   const pastOrders = orders.filter(o => !activeStatuses.includes(o.status));
   const filteredPastOrders = pastOrders.filter(order => 
-    order.restaurant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.id?.toString().includes(searchTerm)
+    (order.restaurant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+     order.id?.toString().includes(searchTerm) ||
+     (order.delivery_type === 'package' && 'package'.includes(searchTerm.toLowerCase())))
   );
   
   // Pagination
@@ -829,10 +940,16 @@ export default function CustomerOrders() {
         <div className="text-center py-8 sm:py-12 bg-white rounded-xl border">
           <Package className="w-12 h-12 sm:w-16 sm:h-16 text-gray-300 mx-auto mb-3 sm:mb-4" />
           <p className="text-sm sm:text-base text-gray-500">No orders yet</p>
-          <p className="text-xs sm:text-sm text-gray-400 mt-1">Browse restaurants and place your first order</p>
-          <Button onClick={() => navigate('/')} className="mt-4 bg-green text-white">
-            Browse Restaurants
-          </Button>
+          <p className="text-xs sm:text-sm text-gray-400 mt-1">Browse restaurants or book a package delivery</p>
+          <div className="flex flex-col sm:flex-row gap-2 justify-center mt-4">
+            <Button onClick={() => navigate('/')} className="bg-green text-white">
+              Browse Restaurants
+            </Button>
+            <Button onClick={() => navigate('/package-delivery')} variant="outline" className="border-purple-500 text-purple-600">
+              <Package className="w-4 h-4 mr-2" />
+              Book Package Delivery
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="space-y-6 sm:space-y-8">
@@ -867,7 +984,7 @@ export default function CustomerOrders() {
                 <div className="relative w-full sm:w-64">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400" />
                   <Input
-                    placeholder="Search by restaurant..."
+                    placeholder="Search by restaurant or package..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-8 h-8 text-sm"
@@ -947,7 +1064,7 @@ export default function CustomerOrders() {
               <div className="text-center py-8">
                 <MessageCircle className="w-12 h-12 text-gray-300 mx-auto mb-2" />
                 <p className="text-sm text-gray-500">No support tickets</p>
-                <p className="text-xs text-gray-400">Report an issue from an active order</p>
+                <p className="text-xs text-gray-400">Report an issue from a delivered order</p>
               </div>
             ) : (
               userTickets.map((ticket) => (

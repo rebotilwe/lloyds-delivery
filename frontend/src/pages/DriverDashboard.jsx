@@ -39,10 +39,8 @@ import { useSocket } from '@/context/SocketContext';
 import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 
-// STATUS FLOW - Food orders
+// STATUS FLOW - Food orders (Driver only sees ready_for_pickup and beyond)
 const FOOD_STATUS_FLOW = {
-  pending: 'confirmed',
-  confirmed: 'ready_for_pickup',
   ready_for_pickup: 'picked_up',
   picked_up: 'on_the_way',
   on_the_way: 'delivered',
@@ -57,9 +55,7 @@ const PACKAGE_STATUS_FLOW = {
 
 // STATUS LABELS - Food orders
 const FOOD_STATUS_LABELS = {
-  pending: 'Accept Order',
-  confirmed: 'Mark Ready',
-  ready_for_pickup: 'Pick Up Order',
+  ready_for_pickup: 'Accept & Pick Up',
   picked_up: 'Start Delivery',
   on_the_way: 'Mark Delivered',
 };
@@ -258,6 +254,15 @@ export default function DriverDashboard() {
       socket.emit('join-driver', user.id);
       console.log('Driver joined socket room:', user.id);
 
+      // Listen for ready orders (vendor marked as ready)
+      socket.on('order-ready', (data) => {
+        if (declinedOrders.includes(data.orderId)) return;
+        console.log('Order ready for pickup:', data);
+        toast.info(`🍔 Order #${data.orderId} is ready for pickup!`);
+        fetchOrders();
+      });
+
+      // Listen for order offered (admin assigned)
       socket.on('order-offered', (data) => {
         if (declinedOrders.includes(data.orderId)) return;
         
@@ -290,7 +295,7 @@ export default function DriverDashboard() {
           duration: 30000,
           action: {
             label: "Accept",
-            onClick: () => acceptPackageOffer(data.orderId)
+            onClick: () => acceptPackageOrder(data.orderId)
           }
         });
       });
@@ -310,6 +315,7 @@ export default function DriverDashboard() {
       });
 
       return () => {
+        socket.off('order-ready');
         socket.off('order-offered');
         socket.off('new-package-offer');
         socket.off('package-offer-taken');
@@ -346,6 +352,7 @@ export default function DriverDashboard() {
     console.log('Fetching orders for driver:', user.id, 'Vehicle:', user.vehicle_type);
     
     try {
+      // Fetch available orders - only ready_for_pickup for food, pending_driver for packages
       const res1 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/available?driver_id=${user.id}`);
       let available = await res1.json();
       console.log('Available orders API response:', available);
@@ -355,9 +362,18 @@ export default function DriverDashboard() {
         available = [];
       }
       
-      const filteredAvailable = available.filter(order => !declinedOrders.includes(order.id));
+      // Filter out declined orders and ensure only ready_for_pickup food orders are shown
+      const filteredAvailable = available.filter(order => {
+        if (declinedOrders.includes(order.id)) return false;
+        // For food orders, only show if status is ready_for_pickup
+        if (order.delivery_type === 'food' && order.status !== 'ready_for_pickup') return false;
+        // For package orders, show if status is pending_driver
+        if (order.delivery_type !== 'food' && order.status !== 'pending_driver') return false;
+        return true;
+      });
       setAvailableOrders(filteredAvailable);
 
+      // Fetch my assigned orders
       const res2 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/${user.id}`);
       const mine = await res2.json();
       console.log('My orders API response:', mine);
@@ -384,8 +400,8 @@ export default function DriverDashboard() {
     }
   }, [user, declinedOrders]);
 
-  // Accept package offer
-  const acceptPackageOffer = async (orderId) => {
+  // Accept package order (for non-food deliveries)
+  const acceptPackageOrder = async (orderId) => {
     setAcceptingPackage(true);
     try {
       const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/accept-package/${orderId}`, {
@@ -414,6 +430,189 @@ export default function DriverDashboard() {
     } finally {
       setAcceptingPackage(false);
     }
+  };
+
+  // Accept food order (ready_for_pickup)
+  const acceptFoodOrder = async (orderId) => {
+    if (hasActiveOrder) {
+      toast.error('Complete your current delivery first');
+      return;
+    }
+    
+    try {
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/accept/${orderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driver_id: user.id }),
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        if (data.message && data.message.includes('requires a car')) {
+          toast.error('This order requires a car. Only car drivers can accept it.');
+        } else {
+          toast.error(data.message || 'Failed to accept order');
+        }
+        return;
+      }
+
+      toast.success('Order accepted! Pick up food from restaurant');
+      fetchOrders();
+      setTrackingOrder(orderId);
+      setIsAvailable(false);
+      
+    } catch (err) {
+      console.error(err);
+      toast.error('Error accepting order');
+    }
+  };
+
+  const declineOrder = (orderId, orderName) => {
+    if (window.confirm(`Decline order #${orderId} from ${orderName}? You won't see this order again.`)) {
+      setDeclinedOrders(prev => [...prev, orderId]);
+      setAvailableOrders(prev => prev.filter(o => o.id !== orderId));
+      toast.info(`Order #${orderId} declined`);
+    }
+  };
+
+  const clearDeclinedOrders = () => {
+    if (window.confirm('Clear all declined orders? They may reappear if offered again.')) {
+      setDeclinedOrders([]);
+      toast.success('Declined orders cleared');
+      fetchOrders();
+    }
+  };
+
+  const updateStatus = async (orderId, currentStatus, isPackage) => {
+    // Use different status flow for packages vs food
+    const statusFlow = isPackage ? PACKAGE_STATUS_FLOW : FOOD_STATUS_FLOW;
+    const nextStatus = statusFlow[currentStatus];
+    
+    if (!nextStatus) {
+      toast.error('Cannot update this order status');
+      return;
+    }
+
+    try {
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/status/${orderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+
+      if (!response.ok) throw new Error('Failed to update status');
+
+      const statusMessages = isPackage ? {
+        picked_up: 'Package picked up! Starting delivery',
+        on_the_way: 'Package en route to recipient!',
+        delivered: 'Package delivered! Payment received',
+      } : {
+        picked_up: 'Food picked up from restaurant! Starting delivery',
+        on_the_way: 'On the way to customer!',
+        delivered: 'Order delivered! Payment received',
+      };
+      
+      toast.success(statusMessages[nextStatus] || 'Status updated');
+      
+      if (nextStatus === 'on_the_way') setTrackingOrder(orderId);
+      
+      if (nextStatus === 'delivered') {
+        setTrackingOrder(null);
+        setIsAvailable(true);
+        toast.success('You are now back online and can accept new deliveries');
+        fetchEarningsData();
+      }
+      
+      fetchOrders();
+      if (nextStatus === 'delivered') await fetchUserData();
+    } catch (err) {
+      console.error(err);
+      toast.error('Error updating status');
+    }
+  };
+
+  const getButtonText = (order) => {
+    const isPackage = order.delivery_type && order.delivery_type !== 'food';
+    
+    if (isPackage) {
+      return PACKAGE_STATUS_LABELS[order.status] || 'Update Status';
+    }
+    
+    // For food orders
+    return FOOD_STATUS_LABELS[order.status] || 'Update Status';
+  };
+
+  const handleOrderAction = (order) => {
+    const isPackage = order.delivery_type && order.delivery_type !== 'food';
+    
+    if (isPackage) {
+      if (order.status === 'assigned') {
+        acceptPackageOrder(order.id);
+      } else {
+        updateStatus(order.id, order.status, isPackage);
+      }
+    } else {
+      // Food orders - accept when ready_for_pickup
+      if (order.status === 'ready_for_pickup') {
+        acceptFoodOrder(order.id);
+      } else {
+        updateStatus(order.id, order.status, isPackage);
+      }
+    }
+  };
+
+  const toggleExpand = (orderId) => {
+    setExpandedOrders(prev => ({ ...prev, [orderId]: !prev[orderId] }));
+  };
+
+  const formatAddress = (address) => {
+    if (!address) return 'No address provided';
+    if (address.length > 40) return address.substring(0, 40) + '...';
+    return address;
+  };
+
+  // Active orders - only orders that are picked_up or on_the_way
+  const activeOrders = useMemo(
+    () => myOrders.filter((o) =>
+      ['picked_up', 'on_the_way', 'assigned'].includes(o.status)
+    ),
+    [myOrders]
+  );
+
+  const completedOrders = useMemo(
+    () => myOrders.filter((o) => o.status === 'delivered'),
+    [myOrders]
+  );
+
+  const totalEarnings = useMemo(() => {
+    return completedOrders.reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
+  }, [completedOrders]);
+
+  const weeklyEarnings = useMemo(() => {
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    return completedOrders
+      .filter(order => new Date(order.created_at) > oneWeekAgo)
+      .reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
+  }, [completedOrders]);
+
+  const averageRating = useMemo(() => {
+    const ratedOrders = completedOrders.filter(o => o.driver_rating);
+    if (ratedOrders.length === 0) return 0;
+    const sum = ratedOrders.reduce((acc, o) => acc + (o.driver_rating || 0), 0);
+    return (sum / ratedOrders.length).toFixed(1);
+  }, [completedOrders]);
+
+  const hasActiveOrder = useMemo(() => {
+    return myOrders.some(order => 
+      ['picked_up', 'on_the_way', 'assigned'].includes(order.status)
+    );
+  }, [myOrders]);
+
+  const openGoogleMaps = (address) => {
+    const encodedAddress = encodeURIComponent(address);
+    window.open(`https://maps.google.com/?q=${encodedAddress}`, '_blank');
   };
 
   const fetchEarningsData = async () => {
@@ -540,180 +739,6 @@ export default function DriverDashboard() {
     } finally {
       setLoadingWithdraw(false);
     }
-  };
-
-  // Check for active orders and prevent accepting new ones
-  const hasActiveOrder = useMemo(() => {
-    return myOrders.some(order => 
-      ['picked_up', 'on_the_way', 'assigned'].includes(order.status)
-    );
-  }, [myOrders]);
-
-  const acceptOrder = async (orderId) => {
-    if (hasActiveOrder) {
-      toast.error('Complete your current delivery first');
-      return;
-    }
-    
-    try {
-      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/accept/${orderId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ driver_id: user.id }),
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok) {
-        if (data.message && data.message.includes('requires a car')) {
-          toast.error('This order requires a car. Only car drivers can accept it.');
-        } else {
-          toast.error(data.message || 'Failed to accept order');
-        }
-        return;
-      }
-
-      toast.success('Order accepted! Head to the restaurant');
-      fetchOrders();
-      setTrackingOrder(orderId);
-      setIsAvailable(false);
-      
-    } catch (err) {
-      console.error(err);
-      toast.error('Error accepting order');
-    }
-  };
-
-  const declineOrder = (orderId, orderName) => {
-    if (window.confirm(`Decline order #${orderId} from ${orderName}? You won't see this order again.`)) {
-      setDeclinedOrders(prev => [...prev, orderId]);
-      setAvailableOrders(prev => prev.filter(o => o.id !== orderId));
-      toast.info(`Order #${orderId} declined`);
-    }
-  };
-
-  const clearDeclinedOrders = () => {
-    if (window.confirm('Clear all declined orders? They may reappear if offered again.')) {
-      setDeclinedOrders([]);
-      toast.success('Declined orders cleared');
-      fetchOrders();
-    }
-  };
-
-  const updateStatus = async (orderId, currentStatus, isPackage) => {
-    // Use different status flow for packages vs food
-    const statusFlow = isPackage ? PACKAGE_STATUS_FLOW : FOOD_STATUS_FLOW;
-    const nextStatus = statusFlow[currentStatus];
-    
-    if (!nextStatus) {
-      toast.error('Cannot update this order status');
-      return;
-    }
-
-    try {
-      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/status/${orderId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: nextStatus }),
-      });
-
-      if (!response.ok) throw new Error('Failed to update status');
-
-      const statusMessages = isPackage ? {
-        picked_up: 'Package picked up! Starting delivery',
-        on_the_way: 'Package en route to recipient!',
-        delivered: 'Package delivered! Payment received',
-      } : {
-        ready_for_pickup: 'Restaurant notified! Ready for pickup soon',
-        picked_up: 'Food collected! Starting delivery',
-        on_the_way: 'On the way to customer!',
-        delivered: 'Order delivered! Payment received',
-      };
-      
-      toast.success(statusMessages[nextStatus] || 'Status updated');
-      
-      if (nextStatus === 'on_the_way') setTrackingOrder(orderId);
-      
-      if (nextStatus === 'delivered') {
-        setTrackingOrder(null);
-        setIsAvailable(true);
-        toast.success('You are now back online and can accept new deliveries');
-        fetchEarningsData();
-      }
-      
-      fetchOrders();
-      if (nextStatus === 'delivered') await fetchUserData();
-    } catch (err) {
-      console.error(err);
-      toast.error('Error updating status');
-    }
-  };
-
-  const getButtonText = (order) => {
-    const isPackage = order.delivery_type && order.delivery_type !== 'food';
-    
-    if (isPackage) {
-      return PACKAGE_STATUS_LABELS[order.status] || 'Update Status';
-    }
-    
-    if (order.status === 'pending') return 'Accept Order';
-    return FOOD_STATUS_LABELS[order.status] || 'Update Status';
-  };
-
-  const handleOrderAction = (order) => {
-    const isPackage = order.delivery_type && order.delivery_type !== 'food';
-    
-    if (order.status === 'pending' && !isPackage) {
-      acceptOrder(order.id);
-    } else {
-      updateStatus(order.id, order.status, isPackage);
-    }
-  };
-
-  const toggleExpand = (orderId) => {
-    setExpandedOrders(prev => ({ ...prev, [orderId]: !prev[orderId] }));
-  };
-
-  const formatAddress = (address) => {
-    if (!address) return 'No address provided';
-    if (address.length > 40) return address.substring(0, 40) + '...';
-    return address;
-  };
-
-  const activeOrders = useMemo(
-    () => myOrders.filter((o) =>
-      ['confirmed', 'ready_for_pickup', 'picked_up', 'on_the_way', 'assigned'].includes(o.status)
-    ),
-    [myOrders]
-  );
-
-  const completedOrders = useMemo(
-    () => myOrders.filter((o) => o.status === 'delivered'),
-    [myOrders]
-  );
-
-  const totalEarnings = useMemo(() => {
-    return completedOrders.reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
-  }, [completedOrders]);
-
-  const weeklyEarnings = useMemo(() => {
-    const oneWeekAgo = new Date();
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-    return completedOrders
-      .filter(order => new Date(order.created_at) > oneWeekAgo)
-      .reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
-  }, [completedOrders]);
-
-  const averageRating = useMemo(() => {
-    const ratedOrders = completedOrders.filter(o => o.driver_rating);
-    if (ratedOrders.length === 0) return 0;
-    const sum = ratedOrders.reduce((acc, o) => acc + (o.driver_rating || 0), 0);
-    return (sum / ratedOrders.length).toFixed(1);
-  }, [completedOrders]);
-
-  const openGoogleMaps = (address) => {
-    const encodedAddress = encodeURIComponent(address);
-    window.open(`https://maps.google.com/?q=${encodedAddress}`, '_blank');
   };
 
   // Show loading skeleton while data is being fetched
@@ -1143,7 +1168,7 @@ export default function DriverDashboard() {
         </div>
       )}
 
-      {/* Available Orders */}
+      {/* Available Orders - Only ready_for_pickup food orders and pending_driver packages */}
       <div className="mb-6 sm:mb-8">
         <div className="flex justify-between items-center mb-3 sm:mb-4">
           <h2 className="text-sm sm:text-base font-bold">Available Orders ({availableOrders.length})</h2>
@@ -1193,6 +1218,12 @@ export default function DriverDashboard() {
                               Car Required
                             </Badge>
                           )}
+                          {requiredVehicle === 'bike' && !isPackage && (
+                            <Badge className="bg-green-100 text-green-700 text-[10px]">
+                              <Bike className="w-2.5 h-2.5 mr-1" />
+                              Any Vehicle
+                            </Badge>
+                          )}
                           {order.delivery_type && order.delivery_type !== 'food' && (
                             <Badge className={
                               order.delivery_type === 'package' ? 'bg-purple-100 text-purple-800' :
@@ -1204,12 +1235,19 @@ export default function DriverDashboard() {
                               {order.delivery_type === 'other' && '🚚 Other'}
                             </Badge>
                           )}
+                          {/* Ready for pickup badge for food */}
+                          {!isPackage && order.status === 'ready_for_pickup' && (
+                            <Badge className="bg-green-100 text-green-800">
+                              <CheckCircle2 className="w-2.5 h-2.5 mr-1" />
+                              Ready for Pickup
+                            </Badge>
+                          )}
                         </div>
                         <p className="text-xs text-gray-500 mt-0.5">
                           Order #{order.id} • {order.customer_name || 'Customer'}
                         </p>
                         
-                        {/* Show pickup address for packages, delivery address for food */}
+                        {/* Show pickup address for packages */}
                         {isPackage && order.pickup_address && (
                           <div className="flex items-start gap-1 mt-2">
                             <MapPin className="w-3 h-3 text-purple-500 mt-0.5 shrink-0" />
@@ -1245,17 +1283,17 @@ export default function DriverDashboard() {
                         <p className="font-bold text-green text-base sm:text-lg">R{Number(order.total).toFixed(2)}</p>
                         <div className="flex gap-2">
                           <Button 
-                            onClick={() => acceptOrder(order.id)}
+                            onClick={() => handleOrderAction(order)}
                             disabled={hasActiveOrder || (requiredVehicle === 'car' && user?.vehicle_type === 'bike')}
                             className={`text-white text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 ${isPackage ? 'bg-purple-600 hover:bg-purple-700' : 'bg-green hover:bg-green/90'} ${
                               requiredVehicle === 'car' && user?.vehicle_type === 'bike' ? 'opacity-50 cursor-not-allowed' : ''
                             }`}
                             title={requiredVehicle === 'car' && user?.vehicle_type === 'bike' ? 'This order requires a car' : ''}
                           >
-                            Accept
+                            {isPackage ? 'Accept Package' : 'Accept & Pick Up'}
                           </Button>
                           <Button 
-                            onClick={() => declineOrder(order.id, order.restaurant_name || 'Package')}
+                            onClick={() => declineOrder(order.id, isPackage ? 'Package' : (order.restaurant_name || 'Order'))}
                             variant="outline"
                             className="border-red-300 text-red-500 hover:bg-red-50 text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4"
                           >
@@ -1460,7 +1498,7 @@ export default function DriverDashboard() {
 
               <div className="flex gap-3 pt-2">
                 <Button 
-                  onClick={() => acceptPackageOffer(packageOffer.orderId)}
+                  onClick={() => acceptPackageOrder(packageOffer.orderId)}
                   disabled={acceptingPackage}
                   className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
                 >
@@ -1498,9 +1536,4 @@ function StatCard({ label, value, icon: Icon, color }) {
       </CardContent>
     </Card>
   );
-}
-
-function getItemCountText(order) {
-  const count = order.items?.length || order.items_count || 0;
-  return `${count} ${count === 1 ? 'item' : 'items'}`;
 }

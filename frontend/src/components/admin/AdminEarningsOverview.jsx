@@ -1,3 +1,4 @@
+// src/components/admin/AdminEarningsOverview.jsx
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,7 +17,6 @@ import {
   Users, 
   TrendingUp, 
   Wallet, 
-  CheckCircle, 
   Loader2,
   Phone,
   Mail,
@@ -47,7 +47,6 @@ export default function AdminEarningsOverview() {
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      // Fetch all users and filter by role
       const usersResponse = await api.get('/users');
       const allUsers = usersResponse.data || [];
       
@@ -117,13 +116,13 @@ export default function AdminEarningsOverview() {
           <p className="text-sm text-gray-500">View all driver and vendor earnings</p>
         </div>
         <div className="flex gap-2">
-          <Link to="/admin/payouts/drivers">
+          <Link to="/admin/driver-payouts">
             <Button variant="outline" className="border-green-500 text-green-600">
               <Truck className="w-4 h-4 mr-2" />
               Driver Payouts
             </Button>
           </Link>
-          <Link to="/admin/payouts/vendors">
+          <Link to="/admin/vendor-payouts">
             <Button variant="outline" className="border-purple-500 text-purple-600">
               <Building2 className="w-4 h-4 mr-2" />
               Vendor Payouts

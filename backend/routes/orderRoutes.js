@@ -767,11 +767,16 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
 /* =========================
    DRIVER: ACCEPT PACKAGE DELIVERY
 ========================= */
+/* =========================
+   DRIVER: ACCEPT PACKAGE DELIVERY
+========================= */
 router.put("/driver/accept-package/:id", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const { id } = req.params;
     const driverId = req.user.id;
     const io = req.app.get("io");
+
+    console.log(`📦 Driver ${driverId} accepting package #${id}`);
 
     const orderCheck = await db.query(
       `SELECT id, status, driver_id, driver_acceptance_deadline, delivery_type,
@@ -799,16 +804,18 @@ router.put("/driver/accept-package/:id", verifyToken, authorizeRoles("driver"), 
     
     const driver = driverResult.rows[0];
 
+    // REMOVED "assigned_at" column since it doesn't exist
     await db.query(
       `UPDATE orders 
        SET driver_id = $1,
            driver_name = $2,
            driver_phone = $3,
-           status = 'assigned',
-           assigned_at = NOW()
+           status = 'assigned'
        WHERE id = $4`,
       [driverId, driver.name, driver.phone, id]
     );
+
+    console.log(`✅ Driver ${driver.name} accepted package #${id}, status now: assigned`);
 
     io.emit("package-offer-taken", { orderId: parseInt(id) });
 
@@ -840,7 +847,6 @@ router.put("/driver/accept-package/:id", verifyToken, authorizeRoles("driver"), 
     res.status(500).json({ message: "Server error: " + err.message });
   }
 });
-
 // ==================== GET ROUTES (ORDER MATTERS - SPECIFIC BEFORE DYNAMIC!) ====================
 
 /* =========================

@@ -5,7 +5,7 @@ import { sendOrderConfirmation, sendOrderStatusUpdate } from "../services/emailS
 const router = express.Router();
 
 /* =========================
-   CREATE ORDER (UPDATED with vehicle_type)
+   CREATE ORDER (UPDATED with delivery_type and package support)
 ========================= */
 router.post("/create", async (req, res) => {
   try {
@@ -25,19 +25,36 @@ router.post("/create", async (req, res) => {
       payment_transaction_id,
       promo_code,
       discount_applied,
-      required_vehicle_type
+      required_vehicle_type,
+      delivery_type,
+      pickup_address,
+      recipient_name,
+      recipient_phone,
+      package_description,
+      package_weight,
+      package_dimensions,
+      requires_signature,
+      is_fragile
     } = req.body;
 
     console.log("Creating order with data:", { 
       customer_id, restaurant_id, total, delivery_address, 
       itemsCount: items?.length,
       payment_status,
-      required_vehicle_type
+      required_vehicle_type,
+      delivery_type
     });
 
-    if (!customer_id || !restaurant_id || !total || !delivery_address) {
+    // For food deliveries, restaurant_id is required
+    if (delivery_type === 'food' && !restaurant_id) {
       return res.status(400).json({ 
-        message: "Missing required fields: customer_id, restaurant_id, total, delivery_address" 
+        message: "Restaurant ID is required for food deliveries" 
+      });
+    }
+
+    if (!customer_id || !total || !delivery_address) {
+      return res.status(400).json({ 
+        message: "Missing required fields: customer_id, total, delivery_address" 
       });
     }
 
@@ -45,20 +62,46 @@ router.post("/create", async (req, res) => {
       `INSERT INTO orders 
        (customer_id, customer_name, restaurant_id, restaurant_name, status, total, 
         original_total, delivery_address, delivery_fee, notes, payment_status, 
-        payment_transaction_id, promo_code, discount_applied, required_vehicle_type, reviewed, created_at) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW()) RETURNING id`,
-      [customer_id, customer_name || 'Customer', restaurant_id, restaurant_name, 
-       status || 'pending', total, original_total || total, delivery_address, 
-       delivery_fee || 0, notes || null, payment_status || 'pending', 
-       payment_transaction_id || null, promo_code || null, discount_applied || 0,
-       required_vehicle_type || 'bike', false]
+        payment_transaction_id, promo_code, discount_applied, required_vehicle_type, 
+        delivery_type, pickup_address, recipient_name, recipient_phone, 
+        package_description, package_weight, package_dimensions, 
+        requires_signature, is_fragile, reviewed, created_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 
+               $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, NOW()) RETURNING id`,
+      [
+        customer_id, 
+        customer_name || 'Customer', 
+        restaurant_id || null, 
+        restaurant_name, 
+        status || 'pending', 
+        total, 
+        original_total || total, 
+        delivery_address, 
+        delivery_fee || 0, 
+        notes || null, 
+        payment_status || 'pending', 
+        payment_transaction_id || null, 
+        promo_code || null, 
+        discount_applied || 0,
+        required_vehicle_type || 'bike',
+        delivery_type || 'food',
+        pickup_address || null,
+        recipient_name || null,
+        recipient_phone || null,
+        package_description || null,
+        package_weight ? parseFloat(package_weight) : null,
+        package_dimensions || null,
+        requires_signature || false,
+        is_fragile || false,
+        false
+      ]
     );
 
     const orderId = result.rows[0].id;
-    console.log(`✅ Order created with ID: ${orderId}, Vehicle Required: ${required_vehicle_type || 'bike'}`);
+    console.log(`✅ Order created with ID: ${orderId}, Type: ${delivery_type || 'food'}`);
 
-    // Insert order items
-    if (items && Array.isArray(items) && items.length > 0) {
+    // Insert order items (only for food deliveries)
+    if (delivery_type === 'food' && items && Array.isArray(items) && items.length > 0) {
       for (const item of items) {
         const menuItemId = item.id || item.menu_item_id;
         const itemName = item.name;
@@ -85,26 +128,28 @@ router.post("/create", async (req, res) => {
       }
     }
 
-    // Notify vendor about new order
-    const io = req.app.get("io");
-    try {
-      const restaurant = await db.query(
-        "SELECT owner_id FROM restaurants WHERE id = $1",
-        [restaurant_id]
-      );
+    // Notify vendor about new order (only for food deliveries)
+    if (delivery_type === 'food' && restaurant_id) {
+      const io = req.app.get("io");
+      try {
+        const restaurant = await db.query(
+          "SELECT owner_id FROM restaurants WHERE id = $1",
+          [restaurant_id]
+        );
 
-      if (restaurant.rows[0]?.owner_id && io) {
-        io.to(`vendor_${restaurant.rows[0].owner_id}`).emit("new-order", {
-          orderId: orderId,
-          orderTotal: total,
-          customerName: customer_name,
-          itemsCount: items?.length || 0,
-          timestamp: new Date(),
-        });
-        console.log(`🔔 Notified vendor ${restaurant.rows[0].owner_id} about order ${orderId}`);
+        if (restaurant.rows[0]?.owner_id && io) {
+          io.to(`vendor_${restaurant.rows[0].owner_id}`).emit("new-order", {
+            orderId: orderId,
+            orderTotal: total,
+            customerName: customer_name,
+            itemsCount: items?.length || 0,
+            timestamp: new Date(),
+          });
+          console.log(`🔔 Notified vendor ${restaurant.rows[0].owner_id} about order ${orderId}`);
+        }
+      } catch (notifyErr) {
+        console.error("Failed to notify vendor:", notifyErr.message);
       }
-    } catch (notifyErr) {
-      console.error("Failed to notify vendor:", notifyErr.message);
     }
 
     // Send email confirmation
@@ -192,7 +237,7 @@ router.get("/customer/:customer_id", async (req, res) => {
 });
 
 /* =========================
-   AVAILABLE ORDERS FOR DRIVERS (UPDATED with vehicle filtering)
+   AVAILABLE ORDERS FOR DRIVERS (UPDATED with delivery_type)
 ========================= */
 router.get("/available", async (req, res) => {
   try {
@@ -210,7 +255,7 @@ router.get("/available", async (req, res) => {
       LEFT JOIN users u ON o.customer_id = u.id
       LEFT JOIN restaurants r ON o.restaurant_id = r.id
       WHERE (o.driver_id IS NULL OR o.driver_id = 0) 
-        AND o.status = 'ready_for_pickup'
+        AND (o.status = 'ready_for_pickup' OR o.status = 'pending')
     `;
     
     const values = [];
@@ -242,7 +287,7 @@ router.get("/available", async (req, res) => {
 });
 
 /* =========================
-   DRIVER ORDERS (assigned/accepted) - includes customer phone
+   DRIVER ORDERS (assigned/accepted) - includes package details
 ========================= */
 router.get("/driver/:id", async (req, res) => {
   try {
@@ -303,10 +348,10 @@ router.put("/accept/:id", async (req, res) => {
     // Check order details including required vehicle type
     const orderCheck = await db.query(
       `SELECT o.*, r.name as restaurant_name, r.owner_id,
-              o.required_vehicle_type
+              o.required_vehicle_type, o.delivery_type
        FROM orders o
        LEFT JOIN restaurants r ON o.restaurant_id = r.id
-       WHERE o.id = $1 AND (o.driver_id IS NULL OR o.driver_id = 0) AND o.status = 'ready_for_pickup'`,
+       WHERE o.id = $1 AND (o.driver_id IS NULL OR o.driver_id = 0) AND (o.status = 'ready_for_pickup' OR o.status = 'pending')`,
       [orderId]
     );
     
@@ -341,8 +386,8 @@ router.put("/accept/:id", async (req, res) => {
       message: "Driver is on the way to pickup your order",
     });
 
-    // Notify vendor that driver accepted the order
-    if (order.owner_id) {
+    // Notify vendor that driver accepted the order (only for food deliveries)
+    if (order.delivery_type === 'food' && order.owner_id) {
       io.to(`vendor_${order.owner_id}`).emit("order-accepted-by-driver", {
         orderId: parseInt(orderId),
         driverId: driver_id,
@@ -463,6 +508,7 @@ router.put("/status/:id", async (req, res) => {
     const previousStatus = prevOrder.rows[0]?.status;
     const driverId = prevOrder.rows[0]?.driver_id;
     const vendorId = prevOrder.rows[0]?.owner_id;
+    const deliveryType = prevOrder.rows[0]?.delivery_type;
 
     await db.query("UPDATE orders SET status = $1 WHERE id = $2", [status, orderId]);
 
@@ -472,7 +518,8 @@ router.put("/status/:id", async (req, res) => {
       timestamp: new Date(),
     });
 
-    if (status === "delivered" && vendorId && io) {
+    // Notify vendor when order is delivered (only for food)
+    if (status === "delivered" && deliveryType === 'food' && vendorId && io) {
       io.to(`vendor_${vendorId}`).emit("order-delivered", {
         orderId: parseInt(orderId),
         timestamp: new Date(),
@@ -480,7 +527,7 @@ router.put("/status/:id", async (req, res) => {
       console.log(`📢 Notified vendor ${vendorId}: Order #${orderId} has been delivered`);
     }
 
-    if (status !== previousStatus && status !== 'pending') {
+    if (status !== previousStatus && status !== 'pending' && deliveryType === 'food') {
       (async () => {
         try {
           const orderData = await db.query(
@@ -501,7 +548,7 @@ router.put("/status/:id", async (req, res) => {
       })();
     }
 
-    if (status === "delivered") {
+    if (status === "delivered" && deliveryType === 'food') {
       const orders = await db.query(
         "SELECT total, delivery_fee FROM orders WHERE id = $1",
         [orderId]
@@ -739,6 +786,15 @@ router.get("/:id", async (req, res) => {
       discount_applied: order.discount_applied,
       item_count: order.item_count,
       required_vehicle_type: order.required_vehicle_type,
+      delivery_type: order.delivery_type,
+      pickup_address: order.pickup_address,
+      recipient_name: order.recipient_name,
+      recipient_phone: order.recipient_phone,
+      package_description: order.package_description,
+      package_weight: order.package_weight,
+      package_dimensions: order.package_dimensions,
+      requires_signature: order.requires_signature,
+      is_fragile: order.is_fragile,
       items: items.rows.map(item => ({
         id: item.id,
         name: item.name,
@@ -794,11 +850,18 @@ router.post("/checkout", async (req, res) => {
 
     console.log(`💰 Creating Yoco checkout for order #${orderId}, amount: R${amount}`);
 
+    const secretKey = process.env.YOCO_SECRET_KEY;
+    
+    if (!secretKey) {
+      console.error("❌ YOCO_SECRET_KEY is not set in environment variables");
+      return res.status(500).json({ message: "Payment service not configured" });
+    }
+
     const response = await fetch("https://payments.yoco.com/api/checkouts", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.YOCO_SECRET_KEY}`,
+        "Authorization": `Bearer ${secretKey}`,
       },
       body: JSON.stringify({
         amount: Math.round(amount * 100),

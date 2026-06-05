@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { Search, MapPin } from 'lucide-react';
+import { Search, MapPin, Package, FileText, Truck, ShoppingBag } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Card, CardContent } from '@/components/ui/card';
 import RestaurantCard from '@/components/restaurants/RestaurantCard';
 
 const cuisineFilters = [
@@ -12,11 +14,21 @@ const cuisineFilters = [
   'Chinese', 'Indian', 'Mexican', 'Italian', 'Healthy', 'Desserts'
 ];
 
+// Delivery Type Options
+const deliveryTypes = [
+  { id: 'food', label: '🍔 Food Delivery', icon: ShoppingBag, description: 'Restaurant food delivery', color: 'bg-green' },
+  { id: 'package', label: '📦 Package Delivery', icon: Package, description: 'Parcels, gifts, small packages', color: 'bg-blue-500' },
+  { id: 'document', label: '📄 Document Delivery', icon: FileText, description: 'Letters, contracts, documents', color: 'bg-purple-500' },
+  { id: 'other', label: '🚚 Other', icon: Truck, description: 'Anything else you need delivered', color: 'bg-orange-500' },
+];
+
 export default function Home() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeCuisine, setActiveCuisine] = useState('All');
   const [showAllFilters, setShowAllFilters] = useState(false);
+  const [selectedDeliveryType, setSelectedDeliveryType] = useState('food');
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -41,6 +53,14 @@ export default function Home() {
 
   const visibleFilters = showAllFilters ? cuisineFilters : cuisineFilters.slice(0, 6);
 
+  const handleDeliveryTypeSelect = (type) => {
+    setSelectedDeliveryType(type);
+    if (type !== 'food') {
+      // Navigate to package delivery page
+      navigate('/package-delivery', { state: { deliveryType: type } });
+    }
+  };
+
   if (error) {
     return (
       <div className="text-center py-20 px-4">
@@ -61,11 +81,11 @@ export default function Home() {
         <div className="relative max-w-7xl mx-auto px-4 py-12 md:py-24">
           <div className="max-w-2xl">
             <h1 className="text-3xl md:text-5xl lg:text-6xl font-black text-white leading-tight">
-              Food delivered
-              <span className="text-green block md:inline"> to your door</span>
+              Fast delivery
+              <span className="text-green block md:inline"> for everything</span>
             </h1>
             <p className="mt-3 md:mt-4 text-sm md:text-lg text-white/70">
-              Order from the best restaurants near you. Fast, reliable delivery by Lloyd's.
+              Food, packages, documents - we deliver it all. Fast, reliable, and affordable.
             </p>
             <div className="mt-6 md:mt-8 flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
@@ -86,70 +106,127 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Cuisine Filters - Mobile Friendly */}
+      {/* Delivery Type Cards - New Section */}
       <section className="max-w-7xl mx-auto px-4 pt-6 md:pt-8">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm md:text-base font-semibold">Browse by Cuisine</h2>
-          <button
-            onClick={() => setShowAllFilters(!showAllFilters)}
-            className="text-xs text-green md:hidden"
-          >
-            {showAllFilters ? 'Show Less' : `+${cuisineFilters.length - 6} more`}
-          </button>
+        <h2 className="text-sm md:text-base font-semibold mb-3">What would you like to deliver?</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {deliveryTypes.map((type) => {
+            const Icon = type.icon;
+            return (
+              <Card 
+                key={type.id}
+                className={`cursor-pointer transition-all hover:shadow-md ${
+                  selectedDeliveryType === type.id ? 'ring-2 ring-green shadow-md' : ''
+                }`}
+                onClick={() => handleDeliveryTypeSelect(type.id)}
+              >
+                <CardContent className="p-3 text-center">
+                  <div className={`w-10 h-10 mx-auto rounded-full ${type.color} flex items-center justify-center mb-2`}>
+                    <Icon className="w-5 h-5 text-white" />
+                  </div>
+                  <p className="font-semibold text-xs sm:text-sm">{type.label}</p>
+                  <p className="text-[10px] text-gray-500 mt-1 hidden sm:block">{type.description}</p>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {visibleFilters.map(c => (
-            <Button
-              key={c}
-              variant={activeCuisine === c ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setActiveCuisine(c)}
-              className={`rounded-full text-xs md:text-sm px-3 md:px-4 py-1 h-auto ${
-                activeCuisine === c
-                  ? 'bg-primary text-white'
-                  : 'bg-white text-gray-600 hover:bg-gray-50'
-              }`}
+      </section>
+
+      {/* Cuisine Filters - Only show for food delivery */}
+      {selectedDeliveryType === 'food' && (
+        <section className="max-w-7xl mx-auto px-4 pt-6 md:pt-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm md:text-base font-semibold">Browse by Cuisine</h2>
+            <button
+              onClick={() => setShowAllFilters(!showAllFilters)}
+              className="text-xs text-green md:hidden"
             >
-              {c}
-            </Button>
-          ))}
-        </div>
-      </section>
+              {showAllFilters ? 'Show Less' : `+${cuisineFilters.length - 6} more`}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {visibleFilters.map(c => (
+              <Button
+                key={c}
+                variant={activeCuisine === c ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setActiveCuisine(c)}
+                className={`rounded-full text-xs md:text-sm px-3 md:px-4 py-1 h-auto ${
+                  activeCuisine === c
+                    ? 'bg-primary text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                {c}
+              </Button>
+            ))}
+          </div>
+        </section>
+      )}
 
-      {/* Restaurants Grid - Responsive */}
-      <section className="max-w-7xl mx-auto px-4 py-6 md:py-8">
-        <div className="flex items-center justify-between mb-4 md:mb-6">
-          <h2 className="text-lg md:text-2xl font-bold text-gray-900">
-            {activeCuisine === 'All' ? 'All Restaurants' : activeCuisine}
-          </h2>
-          <span className="text-xs md:text-sm text-gray-500">{filtered.length} places</span>
-        </div>
+      {/* Restaurants Grid - Only show for food delivery */}
+      {selectedDeliveryType === 'food' && (
+        <section className="max-w-7xl mx-auto px-4 py-6 md:py-8">
+          <div className="flex items-center justify-between mb-4 md:mb-6">
+            <h2 className="text-lg md:text-2xl font-bold text-gray-900">
+              {activeCuisine === 'All' ? 'All Restaurants' : activeCuisine}
+            </h2>
+            <span className="text-xs md:text-sm text-gray-500">{filtered.length} places</span>
+          </div>
 
-        {isLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-            {Array(6).fill(0).map((_, i) => (
-              <div key={i} className="rounded-xl overflow-hidden">
-                <Skeleton className="aspect-[16/10] w-full" />
-                <div className="p-3 md:p-4 space-y-2">
-                  <Skeleton className="h-4 md:h-5 w-3/4" />
-                  <Skeleton className="h-3 md:h-4 w-1/2" />
+          {isLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+              {Array(6).fill(0).map((_, i) => (
+                <div key={i} className="rounded-xl overflow-hidden">
+                  <Skeleton className="aspect-[16/10] w-full" />
+                  <div className="p-3 md:p-4 space-y-2">
+                    <Skeleton className="h-4 md:h-5 w-3/4" />
+                    <Skeleton className="h-3 md:h-4 w-1/2" />
+                  </div>
                 </div>
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-12 md:py-20">
+              <p className="text-base md:text-lg font-semibold">No restaurants found</p>
+              <p className="text-xs md:text-sm text-gray-500 mt-1">Try adjusting your search</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+              {filtered.map(r => (
+                <RestaurantCard key={r.id} restaurant={r} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Package Delivery Info - Show when non-food is selected */}
+      {selectedDeliveryType !== 'food' && (
+        <section className="max-w-7xl mx-auto px-4 py-12">
+          <Card className="bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
+            <CardContent className="p-6 text-center">
+              <div className="w-16 h-16 mx-auto rounded-full bg-green/20 flex items-center justify-center mb-4">
+                <Truck className="w-8 h-8 text-green" />
               </div>
-            ))}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center py-12 md:py-20">
-            <p className="text-base md:text-lg font-semibold">No restaurants found</p>
-            <p className="text-xs md:text-sm text-gray-500 mt-1">Try adjusting your search</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-            {filtered.map(r => (
-              <RestaurantCard key={r.id} restaurant={r} />
-            ))}
-          </div>
-        )}
-      </section>
+              <h3 className="text-xl font-bold mb-2">
+                {deliveryTypes.find(t => t.id === selectedDeliveryType)?.label}
+              </h3>
+              <p className="text-gray-600 mb-4">
+                Fast and reliable delivery for all your needs. 
+                Get a quote in seconds and track your delivery in real-time.
+              </p>
+              <Button 
+                onClick={() => navigate('/package-delivery', { state: { deliveryType: selectedDeliveryType } })}
+                className="bg-green text-white"
+              >
+                Continue to Quote
+              </Button>
+            </CardContent>
+          </Card>
+        </section>
+      )}
     </div>
   );
 }

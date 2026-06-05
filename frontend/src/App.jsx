@@ -47,6 +47,8 @@ import DisputeManagement from '@/components/admin/DisputeManagement';
 import DriverPayouts from '@/components/admin/DriverPayouts';
 import AdminVendorPayouts from '@/components/admin/AdminVendorPayouts';
 import AdminSupportTickets from '@/components/admin/AdminSupportTickets';
+import PackageDelivery from '@/pages/PackageDelivery';
+
 
 import AdminDriversPage from '@/components/admin/AdminDriversPage';
 import AdminFinancePage from '@/components/admin/AdminFinancePage';
@@ -254,6 +256,7 @@ function App() {
                     <Route path="/faq" element={<FAQ />} />
                     <Route path="/privacy" element={<Privacy />} />
                     <Route path="/reset-password" element={<ResetPassword />} />
+                    <Route path="/package-delivery" element={<PackageDelivery />} />
                   </Route>
 
                   {/* CART */}

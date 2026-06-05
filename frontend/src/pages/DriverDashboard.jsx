@@ -849,7 +849,7 @@ export default function DriverDashboard() {
         </div>
       </div>
 
-      {/* Active Deliveries */}
+      {/* Active Deliveries - UPDATED with non-food support */}
       {activeOrders.length > 0 && (
         <div className="mb-6 sm:mb-8">
           <h2 className="text-sm sm:text-base font-bold mb-3 sm:mb-4">Active Deliveries ({activeOrders.length})</h2>
@@ -859,7 +859,23 @@ export default function DriverDashboard() {
                 <CardContent className="p-3 sm:p-4 space-y-3">
                   <div className="flex justify-between items-start">
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm sm:text-base truncate">{order.restaurant_name || 'Restaurant'}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-sm sm:text-base truncate">
+                          {order.restaurant_name || (order.delivery_type === 'food' ? 'Restaurant' : 'Delivery')}
+                        </p>
+                        {/* Delivery Type Badge for Non-Food */}
+                        {order.delivery_type && order.delivery_type !== 'food' && (
+                          <Badge className={
+                            order.delivery_type === 'package' ? 'bg-purple-100 text-purple-800' :
+                            order.delivery_type === 'document' ? 'bg-blue-100 text-blue-800' :
+                            'bg-orange-100 text-orange-800'
+                          }>
+                            {order.delivery_type === 'package' && '📦 Package'}
+                            {order.delivery_type === 'document' && '📄 Document'}
+                            {order.delivery_type === 'other' && '🚚 Other'}
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-gray-500">Order #{order.id}</p>
                       <p className="text-xs text-gray-400 mt-1">
                         Status: <span className="font-medium">{formatOrderStatus(order.status)}</span>
@@ -870,7 +886,7 @@ export default function DriverDashboard() {
                     </span>
                   </div>
 
-                  {/* Customer Name Card - Prominently Displayed */}
+                  {/* Customer Name Card */}
                   {order.customer_name && (
                     <div className="flex items-center gap-2 bg-green-50 rounded-lg p-2 border border-green-100">
                       <User className="w-4 h-4 text-green" />
@@ -913,6 +929,19 @@ export default function DriverDashboard() {
                     )
                   )}
 
+                  {/* Pickup Address for Package Deliveries */}
+                  {order.delivery_type !== 'food' && order.notes?.includes('Pickup:') && (
+                    <div className="flex items-start gap-2 bg-gray-50 rounded-lg p-2">
+                      <MapPin className="w-3 h-3 text-purple-500 mt-0.5 shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-gray-700">Pickup Location:</p>
+                        <p className="text-xs text-gray-600">
+                          {order.notes.match(/Pickup: ([^\n]+)/)?.[1] || 'Not specified'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Delivery Address */}
                   <div className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg p-2">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -930,6 +959,34 @@ export default function DriverDashboard() {
                     </Button>
                   </div>
 
+                  {/* Package Details for Non-Food Deliveries */}
+                  {order.delivery_type !== 'food' && order.notes && (
+                    <div className="bg-gray-50 rounded-lg p-2">
+                      <p className="text-xs font-semibold text-gray-700 mb-1">📋 Package Details</p>
+                      {order.notes.match(/Recipient: ([^\n]+)/) && (
+                        <p className="text-xs text-gray-600">
+                          👤 Recipient: {order.notes.match(/Recipient: ([^\n]+)/)[1]}
+                        </p>
+                      )}
+                      {order.notes.match(/Description: ([^\n]+)/) && (
+                        <p className="text-xs text-gray-600">
+                          📦 Item: {order.notes.match(/Description: ([^\n]+)/)[1]}
+                        </p>
+                      )}
+                      {order.notes.match(/Weight: ([^\n]+)/) && (
+                        <p className="text-xs text-gray-600">
+                          ⚖️ Weight: {order.notes.match(/Weight: ([^\n]+)/)[1]}
+                        </p>
+                      )}
+                      {order.notes.includes('requires_signature') && (
+                        <p className="text-xs text-blue-600">📝 Signature required on delivery</p>
+                      )}
+                      {order.notes.includes('is_fragile') && (
+                        <p className="text-xs text-orange-600">⚠️ Fragile - Handle with care</p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Action Button */}
                   <Button
                     className="w-full bg-green hover:bg-green/90 text-white text-sm h-9 sm:h-10"
@@ -938,8 +995,8 @@ export default function DriverDashboard() {
                     {getButtonText(order)}
                   </Button>
 
-                  {/* Order Items Expandable */}
-                  {order.items && order.items.length > 0 && (
+                  {/* Order Items Expandable (Food only) */}
+                  {order.delivery_type === 'food' && order.items && order.items.length > 0 && (
                     <>
                       <button
                         onClick={() => toggleExpand(order.id)}
@@ -971,7 +1028,7 @@ export default function DriverDashboard() {
         </div>
       )}
 
-      {/* Available Orders */}
+      {/* Available Orders - UPDATED with delivery type badges */}
       <div className="mb-6 sm:mb-8">
         <div className="flex justify-between items-center mb-3 sm:mb-4">
           <h2 className="text-sm sm:text-base font-bold">Available Orders ({availableOrders.length})</h2>
@@ -1011,7 +1068,7 @@ export default function DriverDashboard() {
                     <div className="flex flex-col sm:flex-row justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-semibold text-sm sm:text-base truncate">{order.restaurant_name || 'Restaurant'}</p>
+                          <p className="font-semibold text-sm sm:text-base truncate">{order.restaurant_name || 'Delivery'}</p>
                           {requiredVehicle === 'car' && (
                             <Badge className="bg-blue-100 text-blue-700 text-[10px]">
                               <Car className="w-2.5 h-2.5 mr-1" />
@@ -1022,6 +1079,18 @@ export default function DriverDashboard() {
                             <Badge className="bg-green-100 text-green-700 text-[10px]">
                               <Bike className="w-2.5 h-2.5 mr-1" />
                               Any Vehicle
+                            </Badge>
+                          )}
+                          {/* Delivery Type Badge for Non-Food */}
+                          {order.delivery_type && order.delivery_type !== 'food' && (
+                            <Badge className={
+                              order.delivery_type === 'package' ? 'bg-purple-100 text-purple-800' :
+                              order.delivery_type === 'document' ? 'bg-blue-100 text-blue-800' :
+                              'bg-orange-100 text-orange-800'
+                            }>
+                              {order.delivery_type === 'package' && '📦 Package'}
+                              {order.delivery_type === 'document' && '📄 Document'}
+                              {order.delivery_type === 'other' && '🚚 Other'}
                             </Badge>
                           )}
                         </div>
@@ -1126,7 +1195,7 @@ export default function DriverDashboard() {
                   <CardContent className="p-3 sm:p-4">
                     <div className="flex justify-between items-start gap-2">
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm truncate">{order.restaurant_name}</p>
+                        <p className="font-semibold text-sm truncate">{order.restaurant_name || (order.delivery_type === 'food' ? 'Restaurant' : 'Delivery')}</p>
                         <p className="text-xs text-gray-500">Order #{order.id}</p>
                         <p className="text-xs text-gray-400">
                           Delivered {new Date(order.created_at).toLocaleDateString()}

@@ -1,9 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Shield, Eye, Database, Cookie, Mail, Phone, MapPin, Lock, FileText, Users, CreditCard, Bell } from 'lucide-react';
+import { Shield, Eye, Database, Cookie, Mail, Phone, MapPin, Lock, FileText, Users, CreditCard, Bell, Package, Truck } from 'lucide-react';
 
 export default function Privacy() {
-  const lastUpdated = "23 May 2026";
+  const lastUpdated = "05 June 2026";
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12">
@@ -26,7 +26,9 @@ export default function Privacy() {
           </h2>
           <p className="text-gray-600 text-sm leading-relaxed">
             Welcome to Lloyd's Delivery. We are committed to protecting your personal information and your right to privacy. 
-            This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our delivery service.
+            This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our 
+            <span className="font-medium text-green"> food delivery</span> and 
+            <span className="font-medium text-purple-600"> package delivery</span> services.
           </p>
           <p className="text-gray-600 text-sm leading-relaxed mt-3">
             Please read this privacy policy carefully. If you do not agree with the terms of this privacy policy, please do not access the site or use our services.
@@ -39,7 +41,7 @@ export default function Privacy() {
             <Database className="w-5 h-5 text-green" />
             Information We Collect
           </h2>
-          <div className="space-y-3">
+          <div className="space-y-4">
             <div>
               <h3 className="font-semibold text-gray-800 mb-2">Personal Information</h3>
               <ul className="list-disc list-inside text-gray-600 text-sm space-y-1 ml-2">
@@ -48,6 +50,16 @@ export default function Privacy() {
                 <li>Payment information (processed securely through our payment partners)</li>
                 <li>Order history and preferences</li>
                 <li>Delivery instructions and special requests</li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-2">Package Delivery Specific Information</h3>
+              <ul className="list-disc list-inside text-gray-600 text-sm space-y-1 ml-2">
+                <li>Pickup and delivery addresses</li>
+                <li>Recipient name and contact information</li>
+                <li>Package description, weight, and dimensions</li>
+                <li>Fragile item declarations</li>
+                <li>Signature requirements and proof of delivery</li>
               </ul>
             </div>
             <div>
@@ -70,8 +82,12 @@ export default function Privacy() {
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="bg-gray-50 rounded-lg p-3">
-              <h3 className="font-semibold text-gray-800 mb-2 text-sm">Order Processing</h3>
-              <p className="text-gray-600 text-xs">Process and deliver your orders, communicate order status updates</p>
+              <h3 className="font-semibold text-gray-800 mb-2 text-sm">🍔 Food Order Processing</h3>
+              <p className="text-gray-600 text-xs">Process and deliver your food orders, communicate order status updates</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <h3 className="font-semibold text-gray-800 mb-2 text-sm">📦 Package Delivery</h3>
+              <p className="text-gray-600 text-xs">Coordinate pickup and delivery, provide tracking information, notify recipients</p>
             </div>
             <div className="bg-gray-50 rounded-lg p-3">
               <h3 className="font-semibold text-gray-800 mb-2 text-sm">Account Management</h3>
@@ -79,11 +95,7 @@ export default function Privacy() {
             </div>
             <div className="bg-gray-50 rounded-lg p-3">
               <h3 className="font-semibold text-gray-800 mb-2 text-sm">Service Improvement</h3>
-              <p className="text-gray-600 text-xs">Analyze usage patterns to improve our service</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <h3 className="font-semibold text-gray-800 mb-2 text-sm">Communication</h3>
-              <p className="text-gray-600 text-xs">Send order confirmations, delivery updates, and promotional offers</p>
+              <p className="text-gray-600 text-xs">Analyze usage patterns to improve both food and package delivery services</p>
             </div>
           </div>
         </section>
@@ -98,10 +110,11 @@ export default function Privacy() {
             We do not sell your personal information. We may share your information with:
           </p>
           <ul className="list-disc list-inside text-gray-600 text-sm space-y-1 ml-2">
-            <li><span className="font-medium">Restaurants:</span> To prepare your orders (name, order details, special instructions)</li>
-            <li><span className="font-medium">Delivery Drivers:</span> To deliver your order (name, address, contact number)</li>
+            <li><span className="font-medium">Restaurants:</span> To prepare your food orders (name, order details, special instructions)</li>
+            <li><span className="font-medium">Delivery Drivers:</span> To deliver food or packages (name, pickup/delivery addresses, contact numbers)</li>
             <li><span className="font-medium">Payment Processors:</span> To securely process payments</li>
             <li><span className="font-medium">Service Providers:</span> Who assist in operating our platform</li>
+            <li><span className="font-medium">Recipients:</span> For package deliveries, we share tracking information with the intended recipient</li>
             <li><span className="font-medium">Legal Authorities:</span> When required by law</li>
           </ul>
         </section>
@@ -128,6 +141,24 @@ export default function Privacy() {
           </div>
         </section>
 
+        {/* Package Delivery Specific */}
+        <section className="bg-white rounded-xl border p-5 sm:p-6">
+          <h2 className="text-lg sm:text-xl font-semibold text-navy mb-3 flex items-center gap-2">
+            <Package className="w-5 h-5 text-purple-600" />
+            Package Delivery Privacy
+          </h2>
+          <p className="text-gray-600 text-sm leading-relaxed mb-3">
+            When using our package delivery service, please note:
+          </p>
+          <ul className="list-disc list-inside text-gray-600 text-sm space-y-1 ml-2">
+            <li>Package contents are only described as requested by you (e.g., "Documents", "Gift", "Merchandise")</li>
+            <li>Drivers do not have access to package contents beyond your description</li>
+            <li>Recipient information is only shared with the assigned driver for delivery purposes</li>
+            <li>Signature and proof of delivery images are stored for delivery verification</li>
+            <li>You may request recipient notification preferences (SMS, email, or phone call)</li>
+          </ul>
+        </section>
+
         {/* Cookies */}
         <section className="bg-white rounded-xl border p-5 sm:p-6">
           <h2 className="text-lg sm:text-xl font-semibold text-navy mb-3 flex items-center gap-2">
@@ -142,6 +173,7 @@ export default function Privacy() {
             <span className="text-xs bg-gray-100 px-2 py-1 rounded">Essential Cookies</span>
             <span className="text-xs bg-gray-100 px-2 py-1 rounded">Functional Cookies</span>
             <span className="text-xs bg-gray-100 px-2 py-1 rounded">Analytics Cookies</span>
+            <span className="text-xs bg-gray-100 px-2 py-1 rounded">Preference Cookies</span>
           </div>
         </section>
 
@@ -182,7 +214,7 @@ export default function Privacy() {
         </section>
 
         {/* Contact Us */}
-        <section className="bg-gradient-to-r from-green-50 to-blue-50 rounded-xl p-5 sm:p-6">
+        <section className="bg-gradient-to-r from-green-50 to-purple-50 rounded-xl p-5 sm:p-6">
           <h2 className="text-lg sm:text-xl font-semibold text-navy mb-3 flex items-center gap-2">
             <Mail className="w-5 h-5 text-green" />
             Contact Us
@@ -209,6 +241,14 @@ export default function Privacy() {
             </div>
           </div>
         </section>
+
+        {/* Service Toggle Note */}
+        <div className="text-center bg-gray-50 rounded-lg p-3">
+          <p className="text-xs text-gray-500">
+            This privacy policy applies to both <span className="text-green font-medium">Lloyd's Food Delivery</span> and 
+            <span className="text-purple-600 font-medium"> Lloyd's Package Delivery</span> services.
+          </p>
+        </div>
 
         {/* Back to Home */}
         <div className="text-center pt-4">

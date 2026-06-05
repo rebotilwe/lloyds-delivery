@@ -260,7 +260,7 @@ router.put("/orders/:id/status", async (req, res) => {
 });
 
 /* =========================
-   GET VENDOR MENU
+   GET VENDOR MENU (WITH APPROVAL STATUS)
 ========================= */
 router.get("/menu", async (req, res) => {
   try {
@@ -270,9 +270,15 @@ router.get("/menu", async (req, res) => {
     }
 
     const menuItems = await db.query(
-      `SELECT * FROM menu_items 
-       WHERE restaurant_id = $1 
-       ORDER BY category, name`,
+      `SELECT m.*, 
+              u.name as approved_by_name
+       FROM menu_items m
+       LEFT JOIN users u ON m.approved_by = u.id
+       WHERE m.restaurant_id = $1 
+       ORDER BY m.approval_status = 'pending' DESC, 
+                m.approval_status = 'rejected' DESC,
+                m.category, 
+                m.name`,
       [restaurant.id]
     );
 
@@ -284,7 +290,7 @@ router.get("/menu", async (req, res) => {
 });
 
 /* =========================
-   ADD MENU ITEM
+   ADD MENU ITEM (PENDING APPROVAL)
 ========================= */
 router.post("/menu", async (req, res) => {
   try {
@@ -295,17 +301,37 @@ router.post("/menu", async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found" });
     }
 
+    if (!name || !price) {
+      return res.status(400).json({ message: "Name and price are required" });
+    }
+
+    // Add with pending approval status
     const result = await db.query(
       `INSERT INTO menu_items 
-       (restaurant_id, name, description, price, category, image_url) 
-       VALUES ($1, $2, $3, $4, $5, $6) 
-       RETURNING id`,
+       (restaurant_id, name, description, price, category, image_url, 
+        approval_status, submitted_at, vendor_price, customer_price) 
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), $4, $4 * 1.125) 
+       RETURNING id, name, approval_status`,
       [restaurant.id, name, description, price, category, image_url]
     );
 
+    // Notify admin about new menu item pending approval
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("admin-notification", {
+        type: "menu_item_pending",
+        itemId: result.rows[0].id,
+        itemName: name,
+        restaurantId: restaurant.id,
+        restaurantName: restaurant.name,
+        timestamp: new Date(),
+      });
+    }
+
     res.status(201).json({ 
       id: result.rows[0].id,
-      message: "Menu item added successfully"
+      approval_status: 'pending',
+      message: "Menu item submitted for admin approval"
     });
   } catch (error) {
     console.error("Error adding menu item:", error);
@@ -314,7 +340,7 @@ router.post("/menu", async (req, res) => {
 });
 
 /* =========================
-   UPDATE MENU ITEM
+   UPDATE MENU ITEM (REQUIRES RE-APPROVAL)
 ========================= */
 router.put("/menu/:id", async (req, res) => {
   try {
@@ -326,14 +352,56 @@ router.put("/menu/:id", async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found" });
     }
 
-    await db.query(
+    // Check current approval status
+    const currentItem = await db.query(
+      "SELECT approval_status FROM menu_items WHERE id = $1 AND restaurant_id = $2",
+      [menuItemId, restaurant.id]
+    );
+
+    if (currentItem.rows.length === 0) {
+      return res.status(404).json({ message: "Menu item not found" });
+    }
+
+    // Update and set status back to pending for re-approval
+    const result = await db.query(
       `UPDATE menu_items 
-       SET name = $1, description = $2, price = $3, category = $4, image_url = $5
-       WHERE id = $6 AND restaurant_id = $7`,
+       SET name = COALESCE($1, name),
+           description = COALESCE($2, description),
+           price = COALESCE($3, price),
+           category = COALESCE($4, category),
+           image_url = COALESCE($5, image_url),
+           approval_status = 'pending',
+           rejection_reason = NULL,
+           approved_at = NULL,
+           approved_by = NULL,
+           submitted_at = NOW(),
+           customer_price = COALESCE($3, price) * 1.125
+       WHERE id = $6 AND restaurant_id = $7
+       RETURNING id, name, approval_status`,
       [name, description, price, category, image_url, menuItemId, restaurant.id]
     );
 
-    res.json({ message: "Menu item updated successfully" });
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Menu item not found" });
+    }
+
+    // Notify admin about update pending approval
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("admin-notification", {
+        type: "menu_item_update_pending",
+        itemId: menuItemId,
+        itemName: name || currentItem.rows[0].name,
+        restaurantId: restaurant.id,
+        restaurantName: restaurant.name,
+        timestamp: new Date(),
+      });
+    }
+
+    res.json({ 
+      message: "Menu item updated and submitted for re-approval",
+      approval_status: 'pending'
+    });
   } catch (error) {
     console.error("Error updating menu item:", error);
     res.status(500).json({ message: "Server error" });
@@ -341,7 +409,7 @@ router.put("/menu/:id", async (req, res) => {
 });
 
 /* =========================
-   DELETE MENU ITEM
+   DELETE MENU ITEM (Only if not approved or pending)
 ========================= */
 router.delete("/menu/:id", async (req, res) => {
   try {
@@ -350,6 +418,21 @@ router.delete("/menu/:id", async (req, res) => {
     const restaurant = await getVendorRestaurant(req.user.id);
     if (!restaurant) {
       return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    const item = await db.query(
+      "SELECT approval_status FROM menu_items WHERE id = $1 AND restaurant_id = $2",
+      [menuItemId, restaurant.id]
+    );
+
+    if (item.rows.length === 0) {
+      return res.status(404).json({ message: "Menu item not found" });
+    }
+
+    if (item.rows[0].approval_status === 'approved') {
+      return res.status(400).json({ 
+        message: "Cannot delete approved items. Contact admin for removal." 
+      });
     }
 
     await db.query(
@@ -523,134 +606,6 @@ router.post("/request-withdrawal", async (req, res) => {
   } catch (err) {
     console.error("Withdrawal request error:", err);
     res.status(500).json({ message: "Server error" });
-  }
-});
-// ==================== ADMIN: GET ALL VENDOR PAYOUTS ====================
-router.get("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, res) => {
-  try {
-    const results = await db.query(
-      `SELECT vp.*, u.name as vendor_name, u.email as vendor_email,
-              a.name as processed_by_name
-       FROM vendor_payouts vp
-       LEFT JOIN users u ON vp.vendor_id = u.id
-       LEFT JOIN users a ON vp.processed_by = a.id
-       ORDER BY vp.created_at DESC`
-    );
-    res.json(results.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// ==================== ADMIN: CREATE VENDOR PAYOUT ====================
-router.post("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, res) => {
-  try {
-    const { vendor_id, amount, period_start, period_end, notes } = req.body;
-    const adminId = req.user.id;
-    
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ message: "Invalid amount" });
-    }
-    
-    const vendorResult = await db.query(
-      "SELECT vendor_available_balance FROM users WHERE id = $1 AND role = 'vendor'",
-      [vendor_id]
-    );
-    
-    if (vendorResult.rows.length === 0) {
-      return res.status(404).json({ message: "Vendor not found" });
-    }
-    
-    const availableBalance = parseFloat(vendorResult.rows[0].vendor_available_balance || 0);
-    
-    if (amount > availableBalance) {
-      return res.status(400).json({ 
-        message: `Amount exceeds vendor's available balance of R${availableBalance.toFixed(2)}` 
-      });
-    }
-    
-    const result = await db.query(
-      `INSERT INTO vendor_payouts 
-       (vendor_id, amount, period_start, period_end, notes, processed_by, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
-       RETURNING id`,
-      [vendor_id, amount, period_start, period_end, notes || null, adminId]
-    );
-    
-    res.json({ 
-      success: true, 
-      payoutId: result.rows[0].id,
-      message: "Vendor payout created successfully" 
-    });
-  } catch (err) {
-    console.error("Create vendor payout error:", err);
-    res.status(500).json({ message: "Server error: " + err.message });
-  }
-});
-
-// ==================== ADMIN: PROCESS VENDOR PAYOUT ====================
-router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, reference_number, notes } = req.body;
-    const adminId = req.user.id;
-    
-    let updateFields = [];
-    let queryParams = [];
-    let paramIndex = 1;
-    
-    updateFields.push(`status = $${paramIndex++}`);
-    queryParams.push(status);
-    
-    if (reference_number !== undefined) {
-      updateFields.push(`reference_number = $${paramIndex++}`);
-      queryParams.push(reference_number);
-    }
-    
-    if (notes !== undefined) {
-      updateFields.push(`notes = $${paramIndex++}`);
-      queryParams.push(notes);
-    }
-    
-    updateFields.push(`processed_by = $${paramIndex++}`);
-    queryParams.push(adminId);
-    
-    if (status === 'paid') {
-      updateFields.push(`paid_at = NOW()`);
-      
-      // Get the payout amount and vendor_id to update vendor's withdrawn total
-      const payoutResult = await db.query(
-        "SELECT vendor_id, amount FROM vendor_payouts WHERE id = $1",
-        [id]
-      );
-      
-      if (payoutResult.rows.length > 0) {
-        const { vendor_id, amount } = payoutResult.rows[0];
-        await db.query(
-          "UPDATE users SET vendor_withdrawn_total = COALESCE(vendor_withdrawn_total, 0) + $1 WHERE id = $2",
-          [amount, vendor_id]
-        );
-      }
-    }
-    
-    queryParams.push(id);
-    
-    const query = `UPDATE vendor_payouts 
-                   SET ${updateFields.join(", ")} 
-                   WHERE id = $${paramIndex}
-                   RETURNING id`;
-    
-    const result = await db.query(query, queryParams);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: "Payout not found" });
-    }
-    
-    res.json({ message: `Vendor payout ${status}`, payoutId: id });
-  } catch (err) {
-    console.error("Process vendor payout error:", err);
-    res.status(500).json({ message: "Server error: " + err.message });
   }
 });
 

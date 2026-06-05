@@ -22,6 +22,7 @@ const navItems = [
   { path: '/admin/orders',        label: 'Orders',            icon: ShoppingBag },
   { path: '/admin/restaurants',   label: 'Restaurants',       icon: Store },
   { path: '/admin/menu',          label: 'Menu',              icon: UtensilsCrossed },
+  { path: '/admin/menu-approvals', label: 'Menu Approvals', icon: UtensilsCrossed, color: 'text-orange-500' },
   { path: '/admin/vendors',       label: 'Vendors',           icon: UserCheck },
   { path: '/admin/drivers',       label: 'Drivers',           icon: Truck },
   { path: '/admin/users',         label: 'Users',             icon: Users },

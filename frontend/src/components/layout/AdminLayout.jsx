@@ -7,7 +7,7 @@ import {
   Settings, LogOut, Bell, Menu, X, ChevronDown,
   UtensilsCrossed, DollarSign, AlertCircle, UserCheck,
   Package, CheckCircle, Clock, XCircle, Eye, Home, User,
-  CreditCard, Banknote
+  CreditCard, Banknote, MessageCircle  // ← Add MessageCircle here
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {

@@ -7,6 +7,7 @@ import {
   AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
   Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car
 } from 'lucide-react';
+//                                    ↑ Make sure it's MessageCircle (not MessageCircle or MessageCircle)
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

@@ -46,12 +46,14 @@ const FOOD_STATUS_FLOW = {
   on_the_way: 'delivered',
 };
 
-// STATUS FLOW - Package deliveries
+// STATUS FLOW - Package deliveries (UPDATED)
 const PACKAGE_STATUS_FLOW = {
+  pending_driver: 'assigned',  // When driver accepts from available orders
   assigned: 'picked_up',
   picked_up: 'on_the_way',
   on_the_way: 'delivered',
 };
+
 
 // STATUS LABELS - Food orders
 const FOOD_STATUS_LABELS = {
@@ -60,8 +62,9 @@ const FOOD_STATUS_LABELS = {
   on_the_way: 'Mark Delivered',
 };
 
-// STATUS LABELS - Package deliveries
+// STATUS LABELS - Package deliveries (UPDATED)
 const PACKAGE_STATUS_LABELS = {
+  pending_driver: 'Accept Package',  // For available orders
   assigned: 'Pick Up Package',
   picked_up: 'Start Delivery',
   on_the_way: 'Mark Delivered',
@@ -542,25 +545,27 @@ export default function DriverDashboard() {
     // For food orders
     return FOOD_STATUS_LABELS[order.status] || 'Update Status';
   };
-
-  const handleOrderAction = (order) => {
-    const isPackage = order.delivery_type && order.delivery_type !== 'food';
-    
-    if (isPackage) {
-      if (order.status === 'assigned') {
-        acceptPackageOrder(order.id);
-      } else {
-        updateStatus(order.id, order.status, isPackage);
-      }
-    } else {
-      // Food orders - accept when ready_for_pickup
-      if (order.status === 'ready_for_pickup') {
-        acceptFoodOrder(order.id);
-      } else {
-        updateStatus(order.id, order.status, isPackage);
-      }
+const handleOrderAction = (order) => {
+  const isPackage = order.delivery_type && order.delivery_type !== 'food';
+  
+  if (isPackage) {
+    // For packages in available orders (pending_driver)
+    if (order.status === 'pending_driver') {
+      acceptPackageOrder(order.id);
+    } 
+    // For packages in active deliveries
+    else {
+      updateStatus(order.id, order.status, isPackage);
     }
-  };
+  } else {
+    // Food orders - accept when ready_for_pickup
+    if (order.status === 'ready_for_pickup') {
+      acceptFoodOrder(order.id);
+    } else {
+      updateStatus(order.id, order.status, isPackage);
+    }
+  }
+};
 
   const toggleExpand = (orderId) => {
     setExpandedOrders(prev => ({ ...prev, [orderId]: !prev[orderId] }));

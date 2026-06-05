@@ -46,6 +46,7 @@ import VendorManagement from '@/components/admin/VendorManagement';
 import DisputeManagement from '@/components/admin/DisputeManagement';
 import DriverPayouts from '@/components/admin/DriverPayouts';
 import AdminVendorPayouts from '@/components/admin/AdminVendorPayouts';
+import AdminSupportTickets from '@/components/admin/AdminSupportTickets';
 
 import AdminDriversPage from '@/components/admin/AdminDriversPage';
 import AdminFinancePage from '@/components/admin/AdminFinancePage';
@@ -296,6 +297,7 @@ function App() {
                     <Route path="driver-payouts" element={<DriverPayouts />} />
                     <Route path="vendor-payouts" element={<AdminVendorPayouts />} />
                     <Route path="settings"       element={<AdminSettingsPage />} />
+                    <Route path="support" element={<AdminSupportTickets />} />
                   </Route>
 
                   {/* 404 */}

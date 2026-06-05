@@ -18,6 +18,7 @@ import { useCart } from '@/lib/cartStore';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import ReviewModal from '@/components/ReviewModal';
+import ReportIssueModal from '@/components/ReportIssueModal';
 import { formatOrderStatus } from '@/lib/utils';
 
 // Order status steps for tracker
@@ -207,7 +208,7 @@ function LiveMap({ driverLocation, orderStatus }) {
 }
 
 // Active order card component
-function ActiveOrderCard({ order, onCancel, onReorder, driverLocation }) {
+function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLocation }) {
   const [expanded, setExpanded] = useState(false);
   const currentStep = getCurrentStep(order.status);
 
@@ -337,6 +338,16 @@ function ActiveOrderCard({ order, onCancel, onReorder, driverLocation }) {
           >
             <RotateCcw className="w-3 h-3 mr-1" />
             Order Again
+          </Button>
+          {/* Report Issue Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs sm:text-sm h-8 sm:h-9"
+            onClick={() => onReportIssue(order)}
+          >
+            <AlertCircle className="w-3 h-3 mr-1" />
+            Report Issue
           </Button>
         </div>
 
@@ -507,6 +518,8 @@ export default function CustomerOrders() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [visibleCount, setVisibleCount] = useState(10);
+  const [showIssueModal, setShowIssueModal] = useState(false);
+  const [selectedOrderForIssue, setSelectedOrderForIssue] = useState(null);
 
   // Listen for driver location updates
   useEffect(() => {
@@ -594,6 +607,11 @@ export default function CustomerOrders() {
     setShowReviewModal(true);
   };
 
+  const handleReportIssue = (order) => {
+    setSelectedOrderForIssue(order);
+    setShowIssueModal(true);
+  };
+
   // Socket connection for real-time updates
   useEffect(() => {
     if (socket && user?.id && online && orders.length > 0) {
@@ -620,7 +638,6 @@ export default function CustomerOrders() {
   const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way'];
   const activeOrders = orders.filter(o => activeStatuses.includes(o.status));
   
-  // ✅ FIXED: Move useEffect inside the component and after activeOrders is defined
   // Mark active orders as viewed when they load
   useEffect(() => {
     if (activeOrders.length > 0) {
@@ -704,6 +721,7 @@ export default function CustomerOrders() {
                     order={liveUpdates[order.id] ? { ...order, status: liveUpdates[order.id] } : order}
                     onCancel={handleCancelOrder}
                     onReorder={handleReorder}
+                    onReportIssue={handleReportIssue}
                     driverLocation={driverLocation}
                   />
                 ))}
@@ -770,6 +788,22 @@ export default function CustomerOrders() {
           onSubmitted={() => {
             refetch();
             setShowReviewModal(false);
+          }}
+        />
+      )}
+
+      {/* Report Issue Modal */}
+      {showIssueModal && selectedOrderForIssue && (
+        <ReportIssueModal
+          order={selectedOrderForIssue}
+          isOpen={showIssueModal}
+          onClose={() => {
+            setShowIssueModal(false);
+            setSelectedOrderForIssue(null);
+          }}
+          onSubmitted={() => {
+            refetch();
+            toast.info('Support ticket created. We\'ll respond within 24 hours.');
           }}
         />
       )}

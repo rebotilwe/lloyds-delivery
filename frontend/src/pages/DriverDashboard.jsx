@@ -321,43 +321,58 @@ export default function DriverDashboard() {
       console.error('Error fetching user:', err);
     }
   };
-
-  const fetchOrders = useCallback(async () => {
-    if (!user?.id) {
-      console.log('No user ID available, skipping fetch');
-      return;
+const fetchOrders = useCallback(async () => {
+  if (!user?.id) {
+    console.log('No user ID available, skipping fetch');
+    return;
+  }
+  
+  setRefreshing(true);
+  console.log('Fetching orders for driver:', user.id, 'Vehicle:', user.vehicle_type);
+  
+  try {
+    const res1 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/available?driver_id=${user.id}`);
+    let available = await res1.json();
+    console.log('Available orders API response:', available);
+    
+    // FIX: Check if available is an array before filtering
+    if (!Array.isArray(available)) {
+      console.error('Available orders is not an array:', available);
+      available = [];
     }
     
-    setRefreshing(true);
-    console.log('Fetching orders for driver:', user.id, 'Vehicle:', user.vehicle_type);
-    
-    try {
-      const res1 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/available?driver_id=${user.id}`);
-      let available = await res1.json();
-      console.log('Available orders API response:', available);
-      
-      available = available.filter(order => !declinedOrders.includes(order.id));
-      setAvailableOrders(Array.isArray(available) ? available : []);
+    // Only filter if available is an array
+    const filteredAvailable = available.filter(order => !declinedOrders.includes(order.id));
+    setAvailableOrders(filteredAvailable);
 
-      const res2 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/${user.id}`);
-      const mine = await res2.json();
-      console.log('My orders API response:', mine);
-      
+    const res2 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/${user.id}`);
+    const mine = await res2.json();
+    console.log('My orders API response:', mine);
+    
+    // FIX: Check if mine is an array
+    if (!Array.isArray(mine)) {
+      console.error('My orders is not an array:', mine);
+      setMyOrders([]);
+    } else {
       if (mine.length > 0) {
         console.log('Sample order customer_phone:', mine[0].customer_phone);
         console.log('Sample order customer_name:', mine[0].customer_name);
       }
-      
-      setMyOrders(Array.isArray(mine) ? mine : []);
-      setDataLoaded(true);
-      
-    } catch (err) {
-      console.error('Error fetching orders:', err);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setMyOrders(mine);
     }
-  }, [user, declinedOrders]);
+    
+    setDataLoaded(true);
+    
+  } catch (err) {
+    console.error('Error fetching orders:', err);
+    // Set empty arrays on error to prevent crashes
+    setAvailableOrders([]);
+    setMyOrders([]);
+  } finally {
+    setLoading(false);
+    setRefreshing(false);
+  }
+}, [user, declinedOrders]);
 
   // Accept package offer
   const acceptPackageOffer = async (orderId) => {

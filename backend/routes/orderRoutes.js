@@ -953,6 +953,9 @@ router.get("/customer/:customer_id", async (req, res) => {
 /* =========================
    AVAILABLE ORDERS FOR DRIVERS
 ========================= */
+/* =========================
+   AVAILABLE ORDERS FOR DRIVERS
+========================= */
 router.get("/available", async (req, res) => {
   try {
     const { driver_id } = req.query;
@@ -980,23 +983,29 @@ router.get("/available", async (req, res) => {
         [driver_id]
       );
       
-      const driverVehicle = driverResult.rows[0]?.vehicle_type || 'bike';
-      
-      if (driverVehicle === 'bike') {
-        query += ` AND (o.required_vehicle_type = 'bike' OR o.required_vehicle_type IS NULL)`;
+      if (driverResult.rows.length > 0) {
+        const driverVehicle = driverResult.rows[0]?.vehicle_type || 'bike';
+        
+        if (driverVehicle === 'bike') {
+          query += ` AND (o.required_vehicle_type = 'bike' OR o.required_vehicle_type IS NULL OR o.required_vehicle_type = '')`;
+        }
       }
     }
     
     query += ` ORDER BY o.created_at ASC`;
     
     const results = await db.query(query, values);
-    res.json(results.rows || []);
+    
+    // Always return an array, even if empty
+    const orders = results.rows || [];
+    res.json(orders);
+    
   } catch (err) {
     console.error("Error fetching available orders:", err);
-    res.json([]);
+    // Return empty array on error, not an error object
+    res.status(200).json([]);  // Use 200 with empty array to prevent frontend errors
   }
 });
-
 /* =========================
    DRIVER ORDERS (assigned/accepted)
 ========================= */

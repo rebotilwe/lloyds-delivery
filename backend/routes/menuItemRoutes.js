@@ -38,6 +38,7 @@ router.get("/", async (req, res) => {
 });
 
 // GET menu items by restaurant (shows customer price)
+// GET menu items by restaurant (public - only approved)
 router.get("/restaurant/:restaurant_id", async (req, res) => {
   try {
     const results = await db.query(
@@ -47,8 +48,8 @@ router.get("/restaurant/:restaurant_id", async (req, res) => {
        FROM menu_items mi
        LEFT JOIN restaurants r ON mi.restaurant_id = r.id
        WHERE mi.restaurant_id = $1 
+         AND mi.approval_status = 'approved'
        ORDER BY mi.name`,
-      [req.params.restaurant_id]
     );
     
     const menuItems = results.rows.map(item => ({

@@ -17,6 +17,7 @@ import menuItemRoutes from "./routes/menuItemRoutes.js";
 import vendorRoutes from "./routes/vendorRoutes.js";
 import vendorMenuRoutes from "./routes/vendorMenuRoutes.js";
 import adminVendorRoutes from "./routes/adminVendorRoutes.js";
+import adminMenuRoutes from "./routes/adminMenuRoutes.js";  // ← ADD THIS
 import supportRoutes from "./routes/supportRoutes.js";
 import fs from "fs";
 import path from "path";
@@ -192,6 +193,7 @@ app.use("/api/menu-items", menuItemRoutes);
 app.use("/api/vendor", vendorRoutes);
 app.use("/api/vendor/menu", vendorMenuRoutes);
 app.use("/api/admin", adminVendorRoutes);
+app.use("/api/admin", adminMenuRoutes);  // ← ADD THIS LINE - mounts admin menu routes
 app.use("/api/support", supportRoutes);
 
 // Socket.io connection handling

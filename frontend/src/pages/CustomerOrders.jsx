@@ -7,12 +7,12 @@ import {
   AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
   Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car
 } from 'lucide-react';
-//                                    ↑ Make sure it's MessageCircle (not MessageCircle or MessageCircle)
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useSocket } from '@/context/SocketContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useCart } from '@/lib/cartStore';
@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import ReviewModal from '@/components/ReviewModal';
 import ReportIssueModal from '@/components/ReportIssueModal';
+import TicketResponseModal from '@/components/TicketResponseModal';
 import { formatOrderStatus } from '@/lib/utils';
 
 // Order status steps for tracker
@@ -61,6 +62,24 @@ const formatWhatsAppNumber = (phone) => {
     cleaned = '27' + cleaned;
   }
   return cleaned;
+};
+
+// Issue type labels for tickets
+const issueTypeLabels = {
+  late_delivery: '⏰ Late Delivery',
+  wrong_item: '❌ Wrong Item',
+  missing_item: '📦 Missing Item',
+  damaged_item: '💔 Damaged Item',
+  driver_issue: '🚚 Driver Issue',
+  payment_issue: '💰 Payment Issue',
+  other: '📝 Other',
+};
+
+const statusColors = {
+  open: 'bg-red-100 text-red-800',
+  in_progress: 'bg-yellow-100 text-yellow-800',
+  resolved: 'bg-green-100 text-green-800',
+  closed: 'bg-gray-100 text-gray-800',
 };
 
 // Driver Info Card Component
@@ -521,6 +540,9 @@ export default function CustomerOrders() {
   const [visibleCount, setVisibleCount] = useState(10);
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [selectedOrderForIssue, setSelectedOrderForIssue] = useState(null);
+  const [showTicketsModal, setShowTicketsModal] = useState(false);
+  const [userTickets, setUserTickets] = useState([]);
+  const [selectedTicket, setSelectedTicket] = useState(null);
 
   // Listen for driver location updates
   useEffect(() => {
@@ -559,6 +581,22 @@ export default function CustomerOrders() {
     enabled: !!user?.id,
     refetchInterval: 30000,
   });
+
+  // Fetch user tickets when modal opens
+  const fetchUserTickets = async () => {
+    try {
+      const response = await api.get('/support/my-tickets');
+      setUserTickets(response.data || []);
+    } catch (err) {
+      console.error('Error fetching tickets:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (showTicketsModal) {
+      fetchUserTickets();
+    }
+  }, [showTicketsModal]);
 
   // Handle order cancellation
   const handleCancelOrder = async (orderId) => {
@@ -691,11 +729,22 @@ export default function CustomerOrders() {
     <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0 mb-4 sm:mb-6">
         <h1 className="text-xl sm:text-2xl font-bold">My Orders</h1>
-        {online && (
-          <span className="text-[10px] sm:text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
-            🟢 Live updates active
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowTicketsModal(true)}
+            className="text-xs"
+          >
+            <MessageCircle className="w-3 h-3 mr-1" />
+            My Tickets
+          </Button>
+          {online && (
+            <span className="text-[10px] sm:text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+              🟢 Live updates active
+            </span>
+          )}
+        </div>
       </div>
 
       {orders.length === 0 ? (
@@ -806,6 +855,61 @@ export default function CustomerOrders() {
             refetch();
             toast.info('Support ticket created. We\'ll respond within 24 hours.');
           }}
+        />
+      )}
+
+      {/* Tickets Modal */}
+      <Dialog open={showTicketsModal} onOpenChange={setShowTicketsModal}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>My Support Tickets</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {userTickets.length === 0 ? (
+              <div className="text-center py-8">
+                <MessageCircle className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                <p className="text-sm text-gray-500">No support tickets</p>
+                <p className="text-xs text-gray-400">Report an issue from an active order</p>
+              </div>
+            ) : (
+              userTickets.map((ticket) => (
+                <Card key={ticket.id} className="cursor-pointer hover:shadow-md transition" onClick={() => setSelectedTicket(ticket)}>
+                  <CardContent className="p-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-semibold text-sm">#{ticket.id}</p>
+                        <p className="text-xs text-gray-500">{issueTypeLabels[ticket.issue_type] || ticket.issue_type}</p>
+                      </div>
+                      <Badge className={statusColors[ticket.status]}>
+                        {ticket.status?.toUpperCase()}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-2 line-clamp-2">{ticket.description}</p>
+                    {ticket.admin_response && (
+                      <div className="mt-2 pt-2 border-t">
+                        <p className="text-xs text-green-600 font-medium">📨 Response received</p>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-gray-400 mt-2">
+                      {format(new Date(ticket.created_at), 'dd MMM yyyy')}
+                    </p>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+          <Button onClick={() => setShowTicketsModal(false)} variant="outline" className="mt-4">
+            Close
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Ticket Response Modal */}
+      {selectedTicket && (
+        <TicketResponseModal
+          isOpen={!!selectedTicket}
+          onClose={() => setSelectedTicket(null)}
+          ticket={selectedTicket}
         />
       )}
     </div>

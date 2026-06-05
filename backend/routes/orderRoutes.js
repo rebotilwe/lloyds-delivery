@@ -72,6 +72,9 @@ router.post("/create", async (req, res) => {
       });
     }
 
+    // For package deliveries, status should be pending_approval
+    const initialStatus = delivery_type === 'food' ? (status || 'pending') : 'pending_approval';
+
     const result = await db.query(
       `INSERT INTO orders 
        (customer_id, customer_name, restaurant_id, restaurant_name, status, total, 
@@ -86,8 +89,8 @@ router.post("/create", async (req, res) => {
         customer_id, 
         customer_name || 'Customer', 
         restaurant_id || null, 
-        restaurant_name, 
-        status || 'pending', 
+        restaurant_name || (delivery_type !== 'food' ? 'Package Delivery' : null), 
+        initialStatus,
         total, 
         original_total || total, 
         delivery_address, 
@@ -112,7 +115,7 @@ router.post("/create", async (req, res) => {
     );
 
     const orderId = result.rows[0].id;
-    console.log(`✅ Order created with ID: ${orderId}, Type: ${delivery_type || 'food'}`);
+    console.log(`✅ Order created with ID: ${orderId}, Type: ${delivery_type || 'food'}, Status: ${initialStatus}`);
 
     // Insert order items (only for food deliveries)
     if (delivery_type === 'food' && items && Array.isArray(items) && items.length > 0) {
@@ -139,6 +142,20 @@ router.post("/create", async (req, res) => {
            VALUES ($1, $2, $3, $4, $5)`,
           [orderId, finalMenuItemId, itemName, quantity, price]
         );
+      }
+    }
+
+    // Notify admin about new package delivery
+    if (delivery_type !== 'food') {
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("admin-notification", {
+          type: "new_package_request",
+          orderId: orderId,
+          customerName: customer_name,
+          timestamp: new Date(),
+        });
+        console.log(`🔔 Notified admin about new package request #${orderId}`);
       }
     }
 
@@ -455,13 +472,13 @@ router.put("/cancel/:id", async (req, res) => {
     const io = req.app.get("io");
 
     const orders = await db.query(
-      "SELECT * FROM orders WHERE id = $1 AND customer_id = $2 AND status IN ('pending', 'confirmed')",
+      "SELECT * FROM orders WHERE id = $1 AND customer_id = $2 AND status IN ('pending', 'confirmed', 'pending_approval')",
       [orderId, customer_id]
     );
 
     if (orders.rows.length === 0) {
       return res.status(400).json({ 
-        message: "Order cannot be cancelled. Only pending or confirmed orders can be cancelled." 
+        message: "Order cannot be cancelled. Only pending, confirmed, or pending_approval orders can be cancelled." 
       });
     }
 
@@ -481,7 +498,7 @@ router.put("/cancel/:id", async (req, res) => {
 });
 
 /* =========================
-   DRIVER ACCEPTS ORDER (UPDATED with vehicle check)
+   DRIVER ACCEPTS FOOD ORDER
 ========================= */
 router.put("/accept/:id", async (req, res) => {
   try {
@@ -489,7 +506,7 @@ router.put("/accept/:id", async (req, res) => {
     const orderId = req.params.id;
     const io = req.app.get("io");
 
-    console.log(`🚚 Driver ${driver_id} accepting order ${orderId}`);
+    console.log(`🚚 Driver ${driver_id} accepting food order ${orderId}`);
 
     if (!driver_id) {
       return res.status(400).json({ message: "driver_id is required" });
@@ -512,12 +529,12 @@ router.put("/accept/:id", async (req, res) => {
               o.required_vehicle_type, o.delivery_type
        FROM orders o
        LEFT JOIN restaurants r ON o.restaurant_id = r.id
-       WHERE o.id = $1 AND (o.driver_id IS NULL OR o.driver_id = 0) AND (o.status = 'ready_for_pickup' OR o.status = 'pending')`,
+       WHERE o.id = $1 AND (o.driver_id IS NULL OR o.driver_id = 0) AND o.status = 'ready_for_pickup' AND o.delivery_type = 'food'`,
       [orderId]
     );
     
     if (orderCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Order not found or already taken" });
+      return res.status(404).json({ message: "Order not found, already taken, or not ready for pickup" });
     }
 
     const order = orderCheck.rows[0];
@@ -544,7 +561,7 @@ router.put("/accept/:id", async (req, res) => {
       message: "Driver is on the way to pickup your order",
     });
 
-    if (order.delivery_type === 'food' && order.owner_id) {
+    if (order.owner_id) {
       io.to(`vendor_${order.owner_id}`).emit("order-accepted-by-driver", {
         orderId: parseInt(orderId),
         driverId: driver_id,
@@ -554,7 +571,7 @@ router.put("/accept/:id", async (req, res) => {
         status: "picked_up",
         timestamp: new Date(),
       });
-      console.log(`📢 Notified vendor ${order.owner_id}: Driver ${driver.name} (${driverVehicle}) accepted order #${orderId}`);
+      console.log(`📢 Notified vendor ${order.owner_id}: Driver ${driver.name} accepted order #${orderId}`);
     }
 
     res.json({ 
@@ -639,7 +656,7 @@ router.put("/assign/:id", async (req, res) => {
 });
 
 /* =========================
-   ADMIN: APPROVE PACKAGE DELIVERY (TEST MODE - ALL DRIVERS)
+   ADMIN: APPROVE PACKAGE DELIVERY (UPDATED - NO DISTANCE FILTER)
 ========================= */
 router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
@@ -650,6 +667,20 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
 
     console.log(`📦 Admin ${action} package delivery #${id}`);
 
+    // First, check if order exists and is a package
+    const orderCheck = await db.query(
+      `SELECT id, status, delivery_type, pickup_address, delivery_address, delivery_fee, package_weight
+       FROM orders 
+       WHERE id = $1 AND delivery_type != 'food'`,
+      [id]
+    );
+
+    if (orderCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Package order not found" });
+    }
+
+    const packageOrder = orderCheck.rows[0];
+
     if (action === 'reject') {
       await db.query(
         `UPDATE orders 
@@ -657,20 +688,23 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
              admin_rejection_reason = $1,
              admin_approved_by = $2,
              admin_approved_at = NOW()
-         WHERE id = $3 AND delivery_type != 'food'`,
-        [rejection_reason, adminId, id]
+         WHERE id = $3`,
+        [rejection_reason || "No reason provided", adminId, id]
       );
       
-      io.to(`order_${id}`).emit("order-status-update", {
-        orderId: parseInt(id),
-        status: "cancelled",
-        reason: rejection_reason,
-        message: "Your package delivery request was not approved"
-      });
+      if (io) {
+        io.to(`order_${id}`).emit("order-status-update", {
+          orderId: parseInt(id),
+          status: "cancelled",
+          reason: rejection_reason,
+          message: "Your package delivery request was not approved"
+        });
+      }
       
       return res.json({ message: "Package delivery request rejected" });
     }
 
+    // Approve the package - update status to pending_driver
     await db.query(
       `UPDATE orders 
        SET status = 'pending_driver',
@@ -681,23 +715,11 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
       [adminId, id]
     );
 
-    const order = await db.query(
-      `SELECT o.*, u.latitude, u.longitude 
-       FROM orders o
-       LEFT JOIN users u ON o.customer_id = u.id
-       WHERE o.id = $1`,
-      [id]
-    );
+    console.log(`✅ Package #${id} approved, status: pending_driver`);
 
-    const packageOrder = order.rows[0];
-    
-    if (!packageOrder) {
-      return res.status(404).json({ message: "Order not found" });
-    }
-
-    // Get ALL approved drivers regardless of distance for testing
+    // Get ALL approved, available drivers (no distance filter for testing)
     const driversResult = await db.query(
-      `SELECT id, name, email, phone, vehicle_type, latitude, longitude
+      `SELECT id, name, email, phone, vehicle_type
        FROM users 
        WHERE role = 'driver' 
          AND driver_status = 'approved'
@@ -705,41 +727,40 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
     );
     
     const allDrivers = driversResult.rows;
-    console.log(`📢 Found ${allDrivers.length} available drivers total`);
+    console.log(`📢 Found ${allDrivers.length} available drivers`);
 
-    // Calculate distance for display (but don't filter by it)
+    // Notify all drivers
+    let notifiedCount = 0;
     for (const driver of allDrivers) {
-      let distance = null;
-      if (packageOrder.pickup_lat && packageOrder.pickup_lng && driver.latitude && driver.longitude) {
-        distance = calculateDistance(
-          driver.latitude, driver.longitude,
-          packageOrder.pickup_lat, packageOrder.pickup_lng
-        );
+      console.log(`🔔 Notifying driver ${driver.id} (${driver.name}) about package #${id}`);
+      
+      if (io) {
+        io.to(`driver_${driver.id}`).emit("new-package-offer", {
+          orderId: parseInt(id),
+          pickupAddress: packageOrder.pickup_address,
+          deliveryAddress: packageOrder.delivery_address,
+          packageType: "Package Delivery",
+          packageWeight: packageOrder.package_weight,
+          estimatedPay: parseFloat(packageOrder.delivery_fee || 0),
+          deadline: new Date(Date.now() + 3600000).toISOString(),
+        });
+        notifiedCount++;
       }
-      
-      console.log(`🔔 Notifying driver ${driver.id} (${driver.name}) - Distance: ${distance ? distance.toFixed(1) : 'unknown'}km`);
-      
-      io.to(`driver_${driver.id}`).emit("new-package-offer", {
-        orderId: parseInt(id),
-        pickupAddress: packageOrder.pickup_address,
-        deliveryAddress: packageOrder.delivery_address,
-        packageType: packageOrder.restaurant_name,
-        packageWeight: packageOrder.package_weight,
-        estimatedPay: packageOrder.delivery_fee,
-        deadline: packageOrder.driver_acceptance_deadline,
-        distance: distance,
-      });
     }
     
-    console.log(`✅ Notified ${allDrivers.length} drivers about package #${id}`);
+    console.log(`✅ Notified ${notifiedCount} drivers about package #${id}`);
 
     res.json({ 
+      success: true,
       message: "Package delivery approved and sent to drivers",
-      driversNotified: allDrivers.length
+      driversNotified: notifiedCount
     });
+    
   } catch (err) {
     console.error("Error approving package:", err);
-    res.status(500).json({ message: "Server error: " + err.message });
+    res.status(500).json({ 
+      message: "Server error: " + err.message 
+    });
   }
 });
 
@@ -823,7 +844,7 @@ router.put("/driver/accept-package/:id", verifyToken, authorizeRoles("driver"), 
 // ==================== GET ROUTES (ORDER MATTERS - SPECIFIC BEFORE DYNAMIC!) ====================
 
 /* =========================
-   AVAILABLE ORDERS FOR DRIVERS - MUST BE FIRST!
+   AVAILABLE ORDERS FOR DRIVERS - UPDATED FOR PACKAGES
 ========================= */
 router.get("/available", async (req, res) => {
   try {
@@ -842,8 +863,14 @@ router.get("/available", async (req, res) => {
       FROM orders o
       LEFT JOIN users u ON o.customer_id = u.id
       LEFT JOIN restaurants r ON o.restaurant_id = r.id
-      WHERE (o.driver_id IS NULL OR o.driver_id = 0) 
-        AND (o.status = 'ready_for_pickup' OR o.status = 'pending')
+      WHERE (o.driver_id IS NULL OR o.driver_id = 0)
+        AND (
+          -- Food orders: only ready_for_pickup
+          (o.delivery_type = 'food' AND o.status = 'ready_for_pickup')
+          OR
+          -- Package/Non-food orders: only pending_driver
+          (o.delivery_type != 'food' AND o.status = 'pending_driver')
+        )
     `;
     
     const values = [];
@@ -867,7 +894,7 @@ router.get("/available", async (req, res) => {
     
     const results = await db.query(query, values);
     const orders = results.rows || [];
-    console.log(`📋 Found ${orders.length} available orders`);
+    console.log(`📋 Found ${orders.length} available orders (${orders.filter(o => o.delivery_type === 'food').length} food, ${orders.filter(o => o.delivery_type !== 'food').length} packages)`);
     res.json(orders);
     
   } catch (err) {

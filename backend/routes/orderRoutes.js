@@ -639,9 +639,6 @@ router.put("/assign/:id", async (req, res) => {
 });
 
 /* =========================
-   ADMIN: APPROVE PACKAGE DELIVERY
-========================= */
-/* =========================
    ADMIN: APPROVE PACKAGE DELIVERY (TEST MODE - ALL DRIVERS)
 ========================= */
 router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), async (req, res) => {
@@ -698,7 +695,7 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
       return res.status(404).json({ message: "Order not found" });
     }
 
-    // 🚀 FIX: Get ALL approved drivers regardless of distance for testing
+    // Get ALL approved drivers regardless of distance for testing
     const driversResult = await db.query(
       `SELECT id, name, email, phone, vehicle_type, latitude, longitude
        FROM users 
@@ -823,13 +820,157 @@ router.put("/driver/accept-package/:id", verifyToken, authorizeRoles("driver"), 
   }
 });
 
-// ==================== GET ROUTES (ORDER MATTERS!) ====================
+// ==================== GET ROUTES (ORDER MATTERS - SPECIFIC BEFORE DYNAMIC!) ====================
 
 /* =========================
-   GET SINGLE ORDER (by ID) - MUST BE BEFORE /customer/:customer_id
+   AVAILABLE ORDERS FOR DRIVERS - MUST BE FIRST!
+========================= */
+router.get("/available", async (req, res) => {
+  try {
+    const { driver_id } = req.query;
+    console.log("📋 Fetching available orders for driver:", driver_id);
+    
+    let query = `
+      SELECT o.*, 
+             u.name as customer_name,
+             u.phone as customer_phone,
+             r.name as restaurant_name,
+             r.address as restaurant_address,
+             r.latitude as restaurant_lat,
+             r.longitude as restaurant_lng,
+             (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
+      FROM orders o
+      LEFT JOIN users u ON o.customer_id = u.id
+      LEFT JOIN restaurants r ON o.restaurant_id = r.id
+      WHERE (o.driver_id IS NULL OR o.driver_id = 0) 
+        AND (o.status = 'ready_for_pickup' OR o.status = 'pending')
+    `;
+    
+    const values = [];
+    
+    if (driver_id) {
+      const driverResult = await db.query(
+        `SELECT vehicle_type FROM users WHERE id = $1 AND role = 'driver'`,
+        [driver_id]
+      );
+      
+      if (driverResult.rows.length > 0) {
+        const driverVehicle = driverResult.rows[0]?.vehicle_type || 'bike';
+        
+        if (driverVehicle === 'bike') {
+          query += ` AND (o.required_vehicle_type = 'bike' OR o.required_vehicle_type IS NULL OR o.required_vehicle_type = '')`;
+        }
+      }
+    }
+    
+    query += ` ORDER BY o.created_at ASC`;
+    
+    const results = await db.query(query, values);
+    const orders = results.rows || [];
+    console.log(`📋 Found ${orders.length} available orders`);
+    res.json(orders);
+    
+  } catch (err) {
+    console.error("Error fetching available orders:", err);
+    res.json([]);
+  }
+});
+
+/* =========================
+   GET PENDING PACKAGE APPROVALS (ADMIN)
+========================= */
+router.get("/admin/pending-packages", verifyToken, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const results = await db.query(
+      `SELECT o.*, u.name as customer_name, u.email as customer_email, u.phone as customer_phone
+       FROM orders o
+       LEFT JOIN users u ON o.customer_id = u.id
+       WHERE o.delivery_type IN ('package', 'document', 'other')
+         AND o.status = 'pending_approval'
+       ORDER BY o.created_at ASC`
+    );
+    res.json(results.rows);
+  } catch (err) {
+    console.error("Error fetching pending packages:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =========================
+   DRIVER ORDERS (assigned/accepted)
+========================= */
+router.get("/driver/:id", async (req, res) => {
+  try {
+    const results = await db.query(
+      `SELECT o.*, 
+              u.name as customer_name,
+              u.phone as customer_phone,
+              r.name as restaurant_name,
+              (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
+       FROM orders o
+       LEFT JOIN users u ON o.customer_id = u.id
+       LEFT JOIN restaurants r ON o.restaurant_id = r.id
+       WHERE o.driver_id = $1 
+       ORDER BY o.created_at DESC`,
+      [req.params.id]
+    );
+    
+    const ordersWithItems = await Promise.all(results.rows.map(async (order) => {
+      const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [order.id]);
+      return { ...order, items: items.rows };
+    }));
+    
+    res.json(ordersWithItems || []);
+  } catch (err) {
+    console.error("Error fetching driver orders:", err);
+    res.json([]);
+  }
+});
+
+/* =========================
+   CUSTOMER ORDERS (UPDATED with driver details)
+========================= */
+router.get("/customer/:customer_id", async (req, res) => {
+  try {
+    const results = await db.query(
+      `SELECT o.*, 
+              r.name as restaurant_name,
+              d.name as driver_name,
+              d.phone as driver_phone,
+              d.vehicle_type as driver_vehicle_type,
+              (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
+       FROM orders o
+       LEFT JOIN restaurants r ON o.restaurant_id = r.id
+       LEFT JOIN users d ON o.driver_id = d.id
+       WHERE o.customer_id = $1 
+       ORDER BY o.created_at DESC`,
+      [req.params.customer_id]
+    );
+    
+    const ordersWithItems = await Promise.all(results.rows.map(async (order) => {
+      const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [order.id]);
+      return { ...order, items: items.rows };
+    }));
+    
+    res.json(ordersWithItems || []);
+  } catch (err) {
+    console.error("Error fetching customer orders:", err);
+    res.status(500).json({ message: "Error fetching customer orders" });
+  }
+});
+
+/* =========================
+   GET SINGLE ORDER (by ID) - MUST BE AFTER SPECIFIC ROUTES!
 ========================= */
 router.get("/:id", async (req, res) => {
   try {
+    const orderId = parseInt(req.params.id);
+    
+    // Check if it's a valid number
+    if (isNaN(orderId)) {
+      return res.status(400).json({ message: "Invalid order ID" });
+    }
+    
     const orders = await db.query(
       `SELECT o.*, 
               u.name as customer_name,
@@ -840,7 +981,7 @@ router.get("/:id", async (req, res) => {
        LEFT JOIN users u ON o.customer_id = u.id
        LEFT JOIN restaurants r ON o.restaurant_id = r.id
        WHERE o.id = $1`,
-      [req.params.id]
+      [orderId]
     );
     
     if (orders.rows.length === 0) {
@@ -848,7 +989,7 @@ router.get("/:id", async (req, res) => {
     }
     
     const order = orders.rows[0];
-    const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [req.params.id]);
+    const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [orderId]);
     
     res.json({
       id: order.id,
@@ -915,145 +1056,6 @@ router.get("/", async (req, res) => {
   } catch (err) {
     console.error("Error fetching orders:", err);
     res.status(500).json({ message: "Error fetching orders", error: err.message });
-  }
-});
-
-/* =========================
-   CUSTOMER ORDERS (UPDATED with driver details)
-========================= */
-router.get("/customer/:customer_id", async (req, res) => {
-  try {
-    const results = await db.query(
-      `SELECT o.*, 
-              r.name as restaurant_name,
-              d.name as driver_name,
-              d.phone as driver_phone,
-              d.vehicle_type as driver_vehicle_type,
-              (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
-       FROM orders o
-       LEFT JOIN restaurants r ON o.restaurant_id = r.id
-       LEFT JOIN users d ON o.driver_id = d.id
-       WHERE o.customer_id = $1 
-       ORDER BY o.created_at DESC`,
-      [req.params.customer_id]
-    );
-    
-    const ordersWithItems = await Promise.all(results.rows.map(async (order) => {
-      const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [order.id]);
-      return { ...order, items: items.rows };
-    }));
-    
-    res.json(ordersWithItems || []);
-  } catch (err) {
-    console.error("Error fetching customer orders:", err);
-    res.status(500).json({ message: "Error fetching customer orders" });
-  }
-});
-
-/* =========================
-   AVAILABLE ORDERS FOR DRIVERS
-========================= */
-/* =========================
-   AVAILABLE ORDERS FOR DRIVERS
-========================= */
-router.get("/available", async (req, res) => {
-  try {
-    const { driver_id } = req.query;
-    let query = `
-      SELECT o.*, 
-             u.name as customer_name,
-             u.phone as customer_phone,
-             r.name as restaurant_name,
-             r.address as restaurant_address,
-             r.latitude as restaurant_lat,
-             r.longitude as restaurant_lng,
-             (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
-      FROM orders o
-      LEFT JOIN users u ON o.customer_id = u.id
-      LEFT JOIN restaurants r ON o.restaurant_id = r.id
-      WHERE (o.driver_id IS NULL OR o.driver_id = 0) 
-        AND (o.status = 'ready_for_pickup' OR o.status = 'pending')
-    `;
-    
-    const values = [];
-    
-    if (driver_id) {
-      const driverResult = await db.query(
-        `SELECT vehicle_type FROM users WHERE id = $1 AND role = 'driver'`,
-        [driver_id]
-      );
-      
-      if (driverResult.rows.length > 0) {
-        const driverVehicle = driverResult.rows[0]?.vehicle_type || 'bike';
-        
-        if (driverVehicle === 'bike') {
-          query += ` AND (o.required_vehicle_type = 'bike' OR o.required_vehicle_type IS NULL OR o.required_vehicle_type = '')`;
-        }
-      }
-    }
-    
-    query += ` ORDER BY o.created_at ASC`;
-    
-    const results = await db.query(query, values);
-    
-    // Always return an array, even if empty
-    const orders = results.rows || [];
-    res.json(orders);
-    
-  } catch (err) {
-    console.error("Error fetching available orders:", err);
-    // Return empty array on error, not an error object
-    res.status(200).json([]);  // Use 200 with empty array to prevent frontend errors
-  }
-});
-/* =========================
-   DRIVER ORDERS (assigned/accepted)
-========================= */
-router.get("/driver/:id", async (req, res) => {
-  try {
-    const results = await db.query(
-      `SELECT o.*, 
-              u.name as customer_name,
-              u.phone as customer_phone,
-              r.name as restaurant_name,
-              (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) as item_count
-       FROM orders o
-       LEFT JOIN users u ON o.customer_id = u.id
-       LEFT JOIN restaurants r ON o.restaurant_id = r.id
-       WHERE o.driver_id = $1 
-       ORDER BY o.created_at DESC`,
-      [req.params.id]
-    );
-    
-    const ordersWithItems = await Promise.all(results.rows.map(async (order) => {
-      const items = await db.query("SELECT * FROM order_items WHERE order_id = $1", [order.id]);
-      return { ...order, items: items.rows };
-    }));
-    
-    res.json(ordersWithItems || []);
-  } catch (err) {
-    console.error("Error fetching driver orders:", err);
-    res.json([]);
-  }
-});
-
-/* =========================
-   GET PENDING PACKAGE APPROVALS (ADMIN)
-========================= */
-router.get("/admin/pending-packages", verifyToken, authorizeRoles("admin"), async (req, res) => {
-  try {
-    const results = await db.query(
-      `SELECT o.*, u.name as customer_name, u.email as customer_email, u.phone as customer_phone
-       FROM orders o
-       LEFT JOIN users u ON o.customer_id = u.id
-       WHERE o.delivery_type IN ('package', 'document', 'other')
-         AND o.status = 'pending_approval'
-       ORDER BY o.created_at ASC`
-    );
-    res.json(results.rows);
-  } catch (err) {
-    console.error("Error fetching pending packages:", err);
-    res.status(500).json({ message: "Server error" });
   }
 });
 

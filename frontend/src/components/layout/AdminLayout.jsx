@@ -26,6 +26,7 @@ const navItems = [
   { path: '/admin/drivers',     label: 'Drivers',        icon: Truck },
   { path: '/admin/users',       label: 'Users',          icon: Users },
   { path: '/admin/finance',     label: 'Finance',        icon: DollarSign },
+    { path: '/admin/package-approvals', label: 'Package Approvals', icon: Package, color: 'text-purple-500' },
   { path: '/admin/support', label: 'Support Tickets', icon: MessageCircle },
   { path: '/admin/disputes',    label: 'Disputes',       icon: AlertCircle },
   { path: '/admin/driver-payouts', label: 'Driver Payouts', icon: Truck, color: 'text-blue-500' },

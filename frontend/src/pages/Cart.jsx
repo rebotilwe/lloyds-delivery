@@ -149,6 +149,13 @@ export default function Cart() {
     try {
       const orderNotes = deliveryType === 'food' ? notes : createPackageNotes();
       
+      // FIXED: Set correct status based on delivery type
+      // Food orders go to 'pending', package orders go to 'pending_approval'
+      const orderStatus = deliveryType === 'food' ? 'pending' : 'pending_approval';
+      
+      // Determine required vehicle type based on weight
+      const vehicleType = deliveryType !== 'food' && (parseFloat(packageWeight) || 0) > 30 ? 'car' : 'bike';
+      
       // Step 1: Create the order in database
       const res = await fetch(`${API_URL}/orders/create`, {
         method: 'POST',
@@ -158,7 +165,7 @@ export default function Cart() {
           customer_name: user?.name || user?.full_name || 'Customer',
           restaurant_id: deliveryType === 'food' ? cart.restaurantId : null,
           restaurant_name: deliveryType === 'food' ? cart.restaurantName : (deliveryType === 'package' ? 'Package Delivery' : deliveryType === 'document' ? 'Document Delivery' : 'Other Delivery'),
-          status: 'pending',
+          status: orderStatus,  // FIXED: Use correct status
           total: discountedTotal,
           original_total: deliveryType === 'food' ? subtotalAmount : discountedTotal,
           delivery_address: address,
@@ -169,6 +176,15 @@ export default function Cart() {
           promo_code: appliedPromoCode,
           discount_applied: promoDiscount,
           delivery_type: deliveryType,
+          required_vehicle_type: vehicleType,  // FIXED: Add vehicle type based on weight
+          pickup_address: pickupAddress,
+          recipient_name: recipientName,
+          recipient_phone: recipientPhone,
+          package_description: packageDescription,
+          package_weight: parseFloat(packageWeight) || 0,
+          package_dimensions: packageDimensions,
+          requires_signature: requiresSignature,
+          is_fragile: isFragile,
           items: deliveryType === 'food' ? cart.items.map((item) => ({
             id: item.id,
             name: item.name,
@@ -239,6 +255,10 @@ export default function Cart() {
       toast.loading('Creating order...');
       
       const orderNotes = deliveryType === 'food' ? notes : createPackageNotes();
+      
+      // FIXED: Set correct status based on delivery type
+      const orderStatus = deliveryType === 'food' ? 'pending' : 'pending_approval';
+      const vehicleType = deliveryType !== 'food' && (parseFloat(packageWeight) || 0) > 30 ? 'car' : 'bike';
 
       const res = await fetch(`${API_URL}/orders/create`, {
         method: 'POST',
@@ -248,7 +268,7 @@ export default function Cart() {
           customer_name: user?.name || user?.full_name || 'Customer',
           restaurant_id: deliveryType === 'food' ? cart.restaurantId : null,
           restaurant_name: deliveryType === 'food' ? cart.restaurantName : (deliveryType === 'package' ? 'Package Delivery' : deliveryType === 'document' ? 'Document Delivery' : 'Other Delivery'),
-          status: 'pending',
+          status: orderStatus,  // FIXED
           total: discountedTotal,
           original_total: deliveryType === 'food' ? subtotalAmount : discountedTotal,
           delivery_address: address,
@@ -259,6 +279,15 @@ export default function Cart() {
           promo_code: appliedPromoCode,
           discount_applied: promoDiscount,
           delivery_type: deliveryType,
+          required_vehicle_type: vehicleType,  // FIXED
+          pickup_address: pickupAddress,
+          recipient_name: recipientName,
+          recipient_phone: recipientPhone,
+          package_description: packageDescription,
+          package_weight: parseFloat(packageWeight) || 0,
+          package_dimensions: packageDimensions,
+          requires_signature: requiresSignature,
+          is_fragile: isFragile,
           items: deliveryType === 'food' ? cart.items.map((item) => ({
             id: item.id,
             name: item.name,

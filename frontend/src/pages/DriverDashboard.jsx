@@ -114,6 +114,11 @@ export default function DriverDashboard() {
   const [restaurantDistances, setRestaurantDistances] = useState({});
   const [dataLoaded, setDataLoaded] = useState(false);
 
+  // Package Offer States
+  const [packageOffer, setPackageOffer] = useState(null);
+  const [showPackageOfferModal, setShowPackageOfferModal] = useState(false);
+  const [acceptingPackage, setAcceptingPackage] = useState(false);
+
   // WITHDRAWAL STATES
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState('');
@@ -233,7 +238,7 @@ export default function DriverDashboard() {
     }
   }, [isAvailable, trackingOrder, socket, online]);
 
-  // Socket connection
+  // Socket connection for order offers and package offers
   useEffect(() => {
     if (socket && user?.id && online) {
       socket.emit('join-driver', user.id);
@@ -244,7 +249,6 @@ export default function DriverDashboard() {
         
         console.log('New order offered:', data);
         
-        // Check vehicle compatibility if order has requiredVehicle
         if (data.requiredVehicle === 'car' && user?.vehicle_type === 'bike') {
           console.log('Order requires car, but driver has bike - ignoring');
           return;
@@ -262,6 +266,28 @@ export default function DriverDashboard() {
         fetchOrders();
       });
 
+      // Package offer listener
+      socket.on('new-package-offer', (data) => {
+        console.log('📦 New package offer:', data);
+        setPackageOffer(data);
+        setShowPackageOfferModal(true);
+        
+        toast.info(`📦 Package Delivery! - R${data.estimatedPay?.toFixed(2)}`, {
+          duration: 30000,
+          action: {
+            label: "Accept",
+            onClick: () => acceptPackageOffer(data.orderId)
+          }
+        });
+      });
+
+      socket.on('package-offer-taken', (data) => {
+        toast.info(`Package #${data.orderId} has been taken by another driver`);
+        if (packageOffer?.orderId === data.orderId) {
+          setShowPackageOfferModal(false);
+        }
+      });
+
       socket.on('earnings-updated', (data) => {
         toast.success(`💰 You earned R${formatCurrency(data.earning)} for order #${data.orderId}`);
         fetchOrders();
@@ -271,10 +297,12 @@ export default function DriverDashboard() {
 
       return () => {
         socket.off('order-offered');
+        socket.off('new-package-offer');
+        socket.off('package-offer-taken');
         socket.off('earnings-updated');
       };
     }
-  }, [socket, user, online, declinedOrders]);
+  }, [socket, user, online, declinedOrders, packageOffer]);
 
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -304,7 +332,6 @@ export default function DriverDashboard() {
     console.log('Fetching orders for driver:', user.id, 'Vehicle:', user.vehicle_type);
     
     try {
-      // Pass driver_id to filter orders by vehicle capability
       const res1 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/available?driver_id=${user.id}`);
       let available = await res1.json();
       console.log('Available orders API response:', available);
@@ -316,7 +343,6 @@ export default function DriverDashboard() {
       const mine = await res2.json();
       console.log('My orders API response:', mine);
       
-      // Debug: Check if customer_phone exists
       if (mine.length > 0) {
         console.log('Sample order customer_phone:', mine[0].customer_phone);
         console.log('Sample order customer_name:', mine[0].customer_name);
@@ -332,6 +358,38 @@ export default function DriverDashboard() {
       setRefreshing(false);
     }
   }, [user, declinedOrders]);
+
+  // Accept package offer
+  const acceptPackageOffer = async (orderId) => {
+    setAcceptingPackage(true);
+    try {
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/accept-package/${orderId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message);
+      }
+
+      toast.success('Package accepted! Check your active deliveries');
+      setShowPackageOfferModal(false);
+      setPackageOffer(null);
+      fetchOrders();
+      setIsAvailable(false);
+      
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'Failed to accept package');
+    } finally {
+      setAcceptingPackage(false);
+    }
+  };
 
   const fetchEarningsData = async () => {
     try {
@@ -462,7 +520,7 @@ export default function DriverDashboard() {
   // Check for active orders and prevent accepting new ones
   const hasActiveOrder = useMemo(() => {
     return myOrders.some(order => 
-      ['picked_up', 'on_the_way'].includes(order.status)
+      ['picked_up', 'on_the_way', 'assigned'].includes(order.status)
     );
   }, [myOrders]);
 
@@ -482,7 +540,6 @@ export default function DriverDashboard() {
       const data = await response.json();
       
       if (!response.ok) {
-        // Handle vehicle mismatch error from backend
         if (data.message && data.message.includes('requires a car')) {
           toast.error('This order requires a car. Only car drivers can accept it.');
         } else {
@@ -585,7 +642,7 @@ export default function DriverDashboard() {
 
   const activeOrders = useMemo(
     () => myOrders.filter((o) =>
-      ['confirmed', 'ready_for_pickup', 'picked_up', 'on_the_way'].includes(o.status)
+      ['confirmed', 'ready_for_pickup', 'picked_up', 'on_the_way', 'assigned'].includes(o.status)
     ),
     [myOrders]
   );
@@ -849,7 +906,7 @@ export default function DriverDashboard() {
         </div>
       </div>
 
-      {/* Active Deliveries - UPDATED with non-food support */}
+      {/* Active Deliveries */}
       {activeOrders.length > 0 && (
         <div className="mb-6 sm:mb-8">
           <h2 className="text-sm sm:text-base font-bold mb-3 sm:mb-4">Active Deliveries ({activeOrders.length})</h2>
@@ -863,7 +920,6 @@ export default function DriverDashboard() {
                         <p className="font-semibold text-sm sm:text-base truncate">
                           {order.restaurant_name || (order.delivery_type === 'food' ? 'Restaurant' : 'Delivery')}
                         </p>
-                        {/* Delivery Type Badge for Non-Food */}
                         {order.delivery_type && order.delivery_type !== 'food' && (
                           <Badge className={
                             order.delivery_type === 'package' ? 'bg-purple-100 text-purple-800' :
@@ -886,7 +942,6 @@ export default function DriverDashboard() {
                     </span>
                   </div>
 
-                  {/* Customer Name Card */}
                   {order.customer_name && (
                     <div className="flex items-center gap-2 bg-green-50 rounded-lg p-2 border border-green-100">
                       <User className="w-4 h-4 text-green" />
@@ -896,27 +951,18 @@ export default function DriverDashboard() {
                     </div>
                   )}
 
-                  {/* Customer Contact Info - Call & WhatsApp Buttons */}
                   {order.customer_phone ? (
                     <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-2">
                       <div className="flex items-center gap-1">
                         <Phone className="w-3 h-3 text-blue-500" />
-                        <a 
-                          href={`tel:${order.customer_phone}`} 
-                          className="text-xs text-blue-600 hover:underline"
-                        >
+                        <a href={`tel:${order.customer_phone}`} className="text-xs text-blue-600 hover:underline">
                           Call Customer
                         </a>
                       </div>
                       <div className="w-px h-4 bg-gray-300" />
                       <div className="flex items-center gap-1">
                         <MessageCircle className="w-3 h-3 text-green-600" />
-                        <a 
-                          href={`https://wa.me/${formatWhatsAppNumber(order.customer_phone)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-green-600 hover:underline"
-                        >
+                        <a href={`https://wa.me/${formatWhatsAppNumber(order.customer_phone)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:underline">
                           WhatsApp
                         </a>
                       </div>
@@ -924,25 +970,22 @@ export default function DriverDashboard() {
                   ) : (
                     order.customer_name && (
                       <div className="bg-yellow-50 rounded-lg p-2 text-center">
-                        <p className="text-xs text-yellow-600">⚠️ No phone number available for this customer</p>
+                        <p className="text-xs text-yellow-600">⚠️ No phone number available</p>
                       </div>
                     )
                   )}
 
                   {/* Pickup Address for Package Deliveries */}
-                  {order.delivery_type !== 'food' && order.notes?.includes('Pickup:') && (
+                  {order.delivery_type !== 'food' && order.pickup_address && (
                     <div className="flex items-start gap-2 bg-gray-50 rounded-lg p-2">
                       <MapPin className="w-3 h-3 text-purple-500 mt-0.5 shrink-0" />
                       <div className="flex-1">
                         <p className="text-xs font-medium text-gray-700">Pickup Location:</p>
-                        <p className="text-xs text-gray-600">
-                          {order.notes.match(/Pickup: ([^\n]+)/)?.[1] || 'Not specified'}
-                        </p>
+                        <p className="text-xs text-gray-600">{order.pickup_address}</p>
                       </div>
                     </div>
                   )}
 
-                  {/* Delivery Address */}
                   <div className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg p-2">
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />
@@ -959,35 +1002,6 @@ export default function DriverDashboard() {
                     </Button>
                   </div>
 
-                  {/* Package Details for Non-Food Deliveries */}
-                  {order.delivery_type !== 'food' && order.notes && (
-                    <div className="bg-gray-50 rounded-lg p-2">
-                      <p className="text-xs font-semibold text-gray-700 mb-1">📋 Package Details</p>
-                      {order.notes.match(/Recipient: ([^\n]+)/) && (
-                        <p className="text-xs text-gray-600">
-                          👤 Recipient: {order.notes.match(/Recipient: ([^\n]+)/)[1]}
-                        </p>
-                      )}
-                      {order.notes.match(/Description: ([^\n]+)/) && (
-                        <p className="text-xs text-gray-600">
-                          📦 Item: {order.notes.match(/Description: ([^\n]+)/)[1]}
-                        </p>
-                      )}
-                      {order.notes.match(/Weight: ([^\n]+)/) && (
-                        <p className="text-xs text-gray-600">
-                          ⚖️ Weight: {order.notes.match(/Weight: ([^\n]+)/)[1]}
-                        </p>
-                      )}
-                      {order.notes.includes('requires_signature') && (
-                        <p className="text-xs text-blue-600">📝 Signature required on delivery</p>
-                      )}
-                      {order.notes.includes('is_fragile') && (
-                        <p className="text-xs text-orange-600">⚠️ Fragile - Handle with care</p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Action Button */}
                   <Button
                     className="w-full bg-green hover:bg-green/90 text-white text-sm h-9 sm:h-10"
                     onClick={() => handleOrderAction(order)}
@@ -995,7 +1009,6 @@ export default function DriverDashboard() {
                     {getButtonText(order)}
                   </Button>
 
-                  {/* Order Items Expandable (Food only) */}
                   {order.delivery_type === 'food' && order.items && order.items.length > 0 && (
                     <>
                       <button
@@ -1028,7 +1041,7 @@ export default function DriverDashboard() {
         </div>
       )}
 
-      {/* Available Orders - UPDATED with delivery type badges */}
+      {/* Available Orders */}
       <div className="mb-6 sm:mb-8">
         <div className="flex justify-between items-center mb-3 sm:mb-4">
           <h2 className="text-sm sm:text-base font-bold">Available Orders ({availableOrders.length})</h2>
@@ -1081,7 +1094,6 @@ export default function DriverDashboard() {
                               Any Vehicle
                             </Badge>
                           )}
-                          {/* Delivery Type Badge for Non-Food */}
                           {order.delivery_type && order.delivery_type !== 'food' && (
                             <Badge className={
                               order.delivery_type === 'package' ? 'bg-purple-100 text-purple-800' :
@@ -1195,7 +1207,7 @@ export default function DriverDashboard() {
                   <CardContent className="p-3 sm:p-4">
                     <div className="flex justify-between items-start gap-2">
                       <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm truncate">{order.restaurant_name || (order.delivery_type === 'food' ? 'Restaurant' : 'Delivery')}</p>
+                        <p className="font-semibold text-sm truncate">{order.restaurant_name || 'Delivery'}</p>
                         <p className="text-xs text-gray-500">Order #{order.id}</p>
                         <p className="text-xs text-gray-400">
                           Delivered {new Date(order.created_at).toLocaleDateString()}
@@ -1281,6 +1293,72 @@ export default function DriverDashboard() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Package Offer Modal */}
+      <Dialog open={showPackageOfferModal} onOpenChange={setShowPackageOfferModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5 text-purple-500" />
+              New Package Delivery
+            </DialogTitle>
+          </DialogHeader>
+          {packageOffer && (
+            <div className="space-y-4">
+              <div className="bg-purple-50 p-3 rounded-lg">
+                <p className="text-sm font-semibold text-purple-800">Earnings: R{packageOffer.estimatedPay?.toFixed(2)}</p>
+                {packageOffer.distance && (
+                  <p className="text-xs text-purple-600">📍 {packageOffer.distance.toFixed(1)} km away</p>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  Accept within: {new Date(packageOffer.deadline).toLocaleTimeString()}
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-green mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-gray-500">Pickup Location</p>
+                    <p className="text-sm font-medium">{packageOffer.pickupAddress}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-gray-500">Delivery Location</p>
+                    <p className="text-sm font-medium">{packageOffer.deliveryAddress}</p>
+                  </div>
+                </div>
+                {packageOffer.packageWeight && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Weight:</span>
+                    <span className="text-sm">{packageOffer.packageWeight}kg</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button 
+                  onClick={() => acceptPackageOffer(packageOffer.orderId)}
+                  disabled={acceptingPackage}
+                  className="flex-1 bg-green text-white"
+                >
+                  {acceptingPackage ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                  Accept Delivery
+                </Button>
+                <Button 
+                  onClick={() => setShowPackageOfferModal(false)} 
+                  variant="outline" 
+                  className="flex-1"
+                >
+                  Decline
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -894,5 +894,225 @@ router.post("/checkout", async (req, res) => {
     res.status(500).json({ message: "Payment service error. Please try again." });
   }
 });
+/* =========================
+   ADMIN: APPROVE PACKAGE DELIVERY
+========================= */
+router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { action, rejection_reason } = req.body;
+    const adminId = req.user.id;
+    const io = req.app.get("io");
+
+    console.log(`📦 Admin ${action} package delivery #${id}`);
+
+    if (action === 'reject') {
+      await db.query(
+        `UPDATE orders 
+         SET status = 'cancelled', 
+             admin_rejection_reason = $1,
+             admin_approved_by = $2,
+             admin_approved_at = NOW()
+         WHERE id = $3 AND delivery_type != 'food'`,
+        [rejection_reason, adminId, id]
+      );
+      
+      io.to(`order_${id}`).emit("order-status-update", {
+        orderId: parseInt(id),
+        status: "cancelled",
+        reason: rejection_reason,
+        message: "Your package delivery request was not approved"
+      });
+      
+      return res.json({ message: "Package delivery request rejected" });
+    }
+
+    // Approve the package
+    await db.query(
+      `UPDATE orders 
+       SET status = 'pending_driver',
+           admin_approved_by = $1,
+           admin_approved_at = NOW(),
+           driver_acceptance_deadline = NOW() + INTERVAL '1 hour'
+       WHERE id = $2 AND delivery_type != 'food'`,
+      [adminId, id]
+    );
+
+    // Get order details for driver notification
+    const order = await db.query(
+      `SELECT o.*, u.latitude, u.longitude 
+       FROM orders o
+       LEFT JOIN users u ON o.customer_id = u.id
+       WHERE o.id = $1`,
+      [id]
+    );
+
+    const packageOrder = order.rows[0];
+    
+    if (!packageOrder) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    // Get nearby drivers (within 10km radius)
+    let nearbyDrivers = [];
+    if (packageOrder.pickup_lat && packageOrder.pickup_lng) {
+      const driversResult = await db.query(
+        `SELECT id, name, email, phone, vehicle_type 
+         FROM users 
+         WHERE role = 'driver' 
+           AND driver_status = 'approved'
+           AND is_available = true
+           AND ST_DWithin(
+             ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
+             ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography,
+             10000
+           )`,
+        [packageOrder.pickup_lng, packageOrder.pickup_lat]
+      );
+      nearbyDrivers = driversResult.rows;
+    } else {
+      // If no coordinates, get all available drivers
+      const driversResult = await db.query(
+        `SELECT id, name, email, phone, vehicle_type 
+         FROM users 
+         WHERE role = 'driver' 
+           AND driver_status = 'approved'
+           AND is_available = true`
+      );
+      nearbyDrivers = driversResult.rows;
+    }
+
+    // Notify each nearby driver
+    for (const driver of nearbyDrivers) {
+      io.to(`driver_${driver.id}`).emit("new-package-offer", {
+        orderId: parseInt(id),
+        pickupAddress: packageOrder.pickup_address,
+        deliveryAddress: packageOrder.delivery_address,
+        packageType: packageOrder.restaurant_name,
+        packageWeight: packageOrder.package_weight,
+        estimatedPay: packageOrder.delivery_fee,
+        deadline: packageOrder.driver_acceptance_deadline,
+        distance: packageOrder.pickup_lat ? calculateDistance(
+          driver.latitude, driver.longitude,
+          packageOrder.pickup_lat, packageOrder.pickup_lng
+        ) : null,
+      });
+    }
+    
+    console.log(`📢 Notified ${nearbyDrivers.length} drivers about package #${id}`);
+
+    res.json({ 
+      message: "Package delivery approved and sent to drivers",
+      driversNotified: nearbyDrivers.length
+    });
+  } catch (err) {
+    console.error("Error approving package:", err);
+    res.status(500).json({ message: "Server error: " + err.message });
+  }
+});
+
+/* =========================
+   DRIVER: ACCEPT PACKAGE DELIVERY
+========================= */
+router.put("/driver/accept-package/:id", verifyToken, authorizeRoles("driver"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const driverId = req.user.id;
+    const io = req.app.get("io");
+
+    // Check if order is still available
+    const orderCheck = await db.query(
+      `SELECT id, status, driver_id, driver_acceptance_deadline, delivery_type,
+              pickup_address, delivery_address, package_weight, delivery_fee
+       FROM orders 
+       WHERE id = $1 
+         AND delivery_type IN ('package', 'document', 'other')
+         AND status = 'pending_driver' 
+         AND (driver_id IS NULL OR driver_id = 0)
+         AND driver_acceptance_deadline > NOW()`,
+      [id]
+    );
+
+    if (orderCheck.rows.length === 0) {
+      return res.status(400).json({ 
+        message: "This delivery is no longer available or has expired" 
+      });
+    }
+
+    const order = orderCheck.rows[0];
+
+    // Get driver details
+    const driverResult = await db.query(
+      "SELECT id, name, phone, vehicle_type FROM users WHERE id = $1",
+      [driverId]
+    );
+    
+    const driver = driverResult.rows[0];
+
+    // Assign driver to order
+    await db.query(
+      `UPDATE orders 
+       SET driver_id = $1,
+           driver_name = $2,
+           driver_phone = $3,
+           status = 'assigned',
+           assigned_at = NOW()
+       WHERE id = $4`,
+      [driverId, driver.name, driver.phone, id]
+    );
+
+    // Notify other drivers that this order is taken
+    io.emit("package-offer-taken", { orderId: parseInt(id) });
+
+    // Notify customer that driver is assigned
+    io.to(`order_${id}`).emit("order-status-update", {
+      orderId: parseInt(id),
+      status: "assigned",
+      driverId: driverId,
+      driverName: driver.name,
+      driverPhone: driver.phone,
+      message: "A driver has been assigned to your package delivery!"
+    });
+
+    // Notify admin that driver accepted
+    io.emit("admin-notification", {
+      type: "driver_accepted_package",
+      orderId: parseInt(id),
+      driverName: driver.name,
+      timestamp: new Date(),
+    });
+
+    res.json({ 
+      message: "Package delivery accepted!",
+      orderId: id,
+      pickupAddress: order.pickup_address,
+      deliveryAddress: order.delivery_address,
+      estimatedPay: order.delivery_fee
+    });
+  } catch (err) {
+    console.error("Error accepting package:", err);
+    res.status(500).json({ message: "Server error: " + err.message });
+  }
+});
+
+/* =========================
+   GET PENDING PACKAGE APPROVALS (ADMIN)
+========================= */
+router.get("/admin/pending-packages", verifyToken, authorizeRoles("admin"), async (req, res) => {
+  try {
+    const results = await db.query(
+      `SELECT o.*, u.name as customer_name, u.email as customer_email, u.phone as customer_phone
+       FROM orders o
+       LEFT JOIN users u ON o.customer_id = u.id
+       WHERE o.delivery_type IN ('package', 'document', 'other')
+         AND o.status = 'pending_approval'
+       ORDER BY o.created_at ASC`
+    );
+    res.json(results.rows);
+  } catch (err) {
+    console.error("Error fetching pending packages:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 export default router;

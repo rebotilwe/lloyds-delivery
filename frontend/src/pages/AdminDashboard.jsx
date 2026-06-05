@@ -1,15 +1,21 @@
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   ShoppingBag, Truck, DollarSign, Clock,
   Users, AlertCircle, TrendingUp, ArrowRight,
-  CheckCircle, XCircle, Store,
+  CheckCircle, XCircle, Store, Package, MapPin, RefreshCw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/api/client';
 import { useAuth } from '@/lib/AuthContext';
 import RevenueChart from '@/components/admin/RevenueChart';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { toast } from 'sonner';
 
 // ── Tiny helpers ─────────────────────────────────────────────
 
@@ -33,7 +39,7 @@ const timeAgo = (ts) => {
   return `${Math.floor(h / 24)}d ago`;
 };
 
-// ── Stat card ── (Fixed for mobile)
+// ── Stat card ──
 function StatCard({ label, value, sub, icon: Icon, iconBg, onClick }) {
   return (
     <button
@@ -57,8 +63,7 @@ function StatCard({ label, value, sub, icon: Icon, iconBg, onClick }) {
   );
 }
 
-// ── Alert row ────────────────────────────────────────────────
-
+// ── Alert row ──
 function AlertRow({ label, count, color, path, navigate }) {
   if (!count) return null;
   return (
@@ -75,8 +80,7 @@ function AlertRow({ label, count, color, path, navigate }) {
   );
 }
 
-// ── Recent order row ─────────────────────────────────────────
-
+// ── Recent order row ──
 function OrderRow({ order }) {
   return (
     <div className="flex items-center gap-2 sm:gap-3 py-2.5 border-b border-slate-100 last:border-0">
@@ -97,13 +101,21 @@ function OrderRow({ order }) {
   );
 }
 
-// ── Main dashboard ───────────────────────────────────────────
-
+// ── Main dashboard ──
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
-  const { data: orders = [] } = useQuery({
+  // States for package approvals
+  const [pendingPackages, setPendingPackages] = useState([]);
+  const [loadingPackages, setLoadingPackages] = useState(false);
+  const [showPackageModal, setShowPackageModal] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [approving, setApproving] = useState(false);
+
+  const { data: orders = [], isLoading: ordersLoading, refetch: refetchOrders } = useQuery({
     queryKey: ['orders'],
     queryFn: async () => {
       const r = await api.get('/orders');
@@ -112,7 +124,7 @@ export default function AdminDashboard() {
     refetchInterval: 15000,
   });
 
-  const { data: users = [] } = useQuery({
+  const { data: users = [], isLoading: usersLoading, refetch: refetchUsers } = useQuery({
     queryKey: ['users'],
     queryFn: async () => {
       const r = await api.get('/users');
@@ -120,7 +132,7 @@ export default function AdminDashboard() {
     },
   });
 
-  const { data: restaurants = [] } = useQuery({
+  const { data: restaurants = [], isLoading: restaurantsLoading } = useQuery({
     queryKey: ['restaurants'],
     queryFn: async () => {
       const r = await api.get('/restaurants');
@@ -128,13 +140,30 @@ export default function AdminDashboard() {
     },
   });
 
+  // Fetch pending packages
+  const fetchPendingPackages = async () => {
+    setLoadingPackages(true);
+    try {
+      const response = await api.get('/orders/admin/pending-packages');
+      setPendingPackages(response.data || []);
+    } catch (error) {
+      console.error('Error fetching pending packages:', error);
+    } finally {
+      setLoadingPackages(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPendingPackages();
+  }, []);
+
   // Derived stats
   const drivers       = useMemo(() => users.filter(u => u.role === 'driver'), [users]);
   const vendors       = useMemo(() => users.filter(u => u.role === 'vendor'), [users]);
   const activeDrivers = useMemo(() => drivers.filter(d => d.driver_status === 'approved'), [drivers]);
   const pendingDrivers= useMemo(() => drivers.filter(d => d.driver_status === 'pending'), [drivers]);
   const pendingVendors= useMemo(() => vendors.filter(v => !v.vendor_status || v.vendor_status === 'pending'), [vendors]);
-  const pendingOrders = useMemo(() => orders.filter(o => o.status === 'pending'), [orders]);
+  const pendingOrders = useMemo(() => orders.filter(o => o.status === 'pending' && o.delivery_type === 'food'), [orders]);
   const totalRevenue  = useMemo(() => orders.reduce((s, o) => s + Number(o.total || 0), 0), [orders]);
   const todayRevenue  = useMemo(() => {
     const today = new Date().toDateString();
@@ -147,6 +176,60 @@ export default function AdminDashboard() {
   const hasAlerts     = pendingDrivers.length + pendingVendors.length + pendingOrders.length > 0;
 
   const firstName = user?.full_name?.split(' ')[0] || user?.name || 'Admin';
+
+  // Approve package
+  const approvePackage = async (orderId) => {
+    setApproving(true);
+    try {
+      await api.put(`/orders/admin/approve-package/${orderId}`, { action: 'approve' });
+      toast.success('Package approved and sent to drivers');
+      fetchPendingPackages();
+      refetchOrders();
+      setShowPackageModal(false);
+    } catch (error) {
+      console.error('Error approving package:', error);
+      toast.error('Failed to approve package');
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  // Reject package
+  const rejectPackage = async (orderId) => {
+    if (!rejectionReason) {
+      const reason = prompt('Enter rejection reason:');
+      if (!reason) return;
+      setRejectionReason(reason);
+    }
+    
+    setApproving(true);
+    try {
+      await api.put(`/orders/admin/approve-package/${orderId}`, { 
+        action: 'reject', 
+        rejection_reason: rejectionReason || 'Not specified'
+      });
+      toast.success('Package rejected');
+      fetchPendingPackages();
+      refetchOrders();
+      setShowPackageModal(false);
+      setRejectionReason('');
+    } catch (error) {
+      console.error('Error rejecting package:', error);
+      toast.error('Failed to reject package');
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const isLoading = ordersLoading || usersLoading || restaurantsLoading;
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -235,6 +318,103 @@ export default function AdminDashboard() {
 
       </div>
 
+      {/* Pending Package Deliveries Section */}
+      {pendingPackages.length > 0 && (
+        <div className="mt-6">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Package className="w-4 h-4 text-purple-500" />
+              Package Delivery Requests ({pendingPackages.length})
+            </h2>
+            <Button onClick={fetchPendingPackages} variant="outline" size="sm" disabled={loadingPackages}>
+              <RefreshCw className={`w-3 h-3 mr-1 ${loadingPackages ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+          <div className="space-y-3">
+            {pendingPackages.map((pkg) => (
+              <Card key={pkg.id} className="border-yellow-200 hover:shadow-md transition cursor-pointer" onClick={() => { setSelectedPackage(pkg); setShowPackageModal(true); }}>
+                <CardContent className="p-4">
+                  <div className="flex flex-col lg:flex-row justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 flex-wrap mb-2">
+                        <Badge className="bg-purple-100 text-purple-800">
+                          {pkg.delivery_type === 'package' && '📦 Package'}
+                          {pkg.delivery_type === 'document' && '📄 Document'}
+                          {pkg.delivery_type === 'other' && '🚚 Other'}
+                        </Badge>
+                        <Badge className="bg-yellow-100 text-yellow-800">Pending Approval</Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <p className="text-xs text-gray-500">Pickup Address</p>
+                          <p className="font-medium flex items-start gap-1">
+                            <MapPin className="w-3 h-3 text-green mt-0.5 shrink-0" />
+                            {pkg.pickup_address || 'Not specified'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Delivery Address</p>
+                          <p className="font-medium flex items-start gap-1">
+                            <MapPin className="w-3 h-3 text-red-500 mt-0.5 shrink-0" />
+                            {pkg.delivery_address}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Recipient</p>
+                          <p>{pkg.recipient_name || 'N/A'} {pkg.recipient_phone && `(${pkg.recipient_phone})`}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Package Details</p>
+                          <p>
+                            {pkg.package_weight && `⚖️ ${pkg.package_weight}kg `}
+                            {pkg.package_dimensions && `📏 ${pkg.package_dimensions} `}
+                            {pkg.requires_signature && <span className="text-blue-600">📝 Signature</span>}
+                            {pkg.is_fragile && <span className="text-orange-600 ml-1">⚠️ Fragile</span>}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-2">
+                        Customer: {pkg.customer_name} • {pkg.customer_email}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-lg font-bold text-green">R{parseFloat(pkg.total).toFixed(2)}</p>
+                      <div className="flex gap-2 mt-2">
+                        <Button 
+                          size="sm"
+                          onClick={(e) => { e.stopPropagation(); approvePackage(pkg.id); }}
+                          className="bg-green text-white"
+                          disabled={approving}
+                        >
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          Approve
+                        </Button>
+                        <Button 
+                          size="sm"
+                          variant="destructive"
+                          onClick={(e) => { e.stopPropagation(); 
+                            const reason = prompt('Enter rejection reason:');
+                            if (reason) {
+                              setRejectionReason(reason);
+                              rejectPackage(pkg.id);
+                            }
+                          }}
+                          disabled={approving}
+                        >
+                          <XCircle className="w-3 h-3 mr-1" />
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Quick links */}
       <div>
         <p className="mb-2 text-[10px] sm:text-xs font-semibold uppercase tracking-wide text-slate-400">Quick access</p>
@@ -257,6 +437,89 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      {/* Package Details Modal */}
+      <Dialog open={showPackageModal} onOpenChange={setShowPackageModal}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5 text-purple-500" />
+              Package Delivery Details
+            </DialogTitle>
+          </DialogHeader>
+          {selectedPackage && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <p className="font-semibold">Customer Information</p>
+                <p className="text-sm">{selectedPackage.customer_name}</p>
+                <p className="text-xs text-gray-500">{selectedPackage.customer_email}</p>
+                {selectedPackage.customer_phone && (
+                  <p className="text-xs text-gray-500">📞 {selectedPackage.customer_phone}</p>
+                )}
+              </div>
+
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <p className="font-semibold">Pickup Address</p>
+                <p className="text-sm">{selectedPackage.pickup_address || 'Not specified'}</p>
+              </div>
+
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <p className="font-semibold">Delivery Address</p>
+                <p className="text-sm">{selectedPackage.delivery_address}</p>
+              </div>
+
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <p className="font-semibold">Recipient Details</p>
+                <p className="text-sm">Name: {selectedPackage.recipient_name || 'N/A'}</p>
+                <p className="text-sm">Phone: {selectedPackage.recipient_phone || 'N/A'}</p>
+              </div>
+
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <p className="font-semibold">Package Details</p>
+                <p className="text-sm">Description: {selectedPackage.package_description || 'N/A'}</p>
+                <p className="text-sm">Weight: {selectedPackage.package_weight || 0}kg</p>
+                <p className="text-sm">Dimensions: {selectedPackage.package_dimensions || 'N/A'}</p>
+                {selectedPackage.requires_signature && (
+                  <p className="text-sm text-blue-600">📝 Signature Required</p>
+                )}
+                {selectedPackage.is_fragile && (
+                  <p className="text-sm text-orange-600">⚠️ Fragile Item</p>
+                )}
+              </div>
+
+              <div className="bg-green-50 p-3 rounded-lg">
+                <p className="font-semibold">Payment</p>
+                <p className="text-2xl font-bold text-green">R{parseFloat(selectedPackage.total).toFixed(2)}</p>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button 
+                  onClick={() => approvePackage(selectedPackage.id)} 
+                  disabled={approving}
+                  className="flex-1 bg-green text-white"
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Approve & Send to Drivers
+                </Button>
+                <Button 
+                  onClick={() => {
+                    const reason = prompt('Enter rejection reason:');
+                    if (reason) {
+                      setRejectionReason(reason);
+                      rejectPackage(selectedPackage.id);
+                    }
+                  }} 
+                  disabled={approving}
+                  variant="destructive" 
+                  className="flex-1"
+                >
+                  <XCircle className="w-4 h-4 mr-2" />
+                  Reject
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

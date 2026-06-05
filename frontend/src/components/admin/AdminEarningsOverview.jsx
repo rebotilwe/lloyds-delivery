@@ -1,4 +1,3 @@
-// src/components/admin/AdminEarningsOverview.jsx
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,6 +38,8 @@ export default function AdminEarningsOverview() {
   const [dashboard, setDashboard] = useState(null);
   const [drivers, setDrivers] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [vendorPayouts, setVendorPayouts] = useState([]);
+  const [driverPayouts, setDriverPayouts] = useState([]);
 
   useEffect(() => {
     fetchAllData();
@@ -47,30 +48,95 @@ export default function AdminEarningsOverview() {
   const fetchAllData = async () => {
     setLoading(true);
     try {
+      // Fetch all users
       const usersResponse = await api.get('/users');
       const allUsers = usersResponse.data || [];
       
-      // Get drivers
-      const driversList = allUsers.filter(u => u.role === 'driver' && u.driver_status === 'approved');
-      const driversWithEarnings = driversList.map(driver => ({
-        ...driver,
-        total_earned: parseFloat(driver.total_earnings || 0),
-        available_balance: parseFloat(driver.available_balance || 0),
-        withdrawn_total: parseFloat(driver.withdrawn_total || 0),
-        pending_payout: Math.max(0, parseFloat(driver.available_balance || 0) - parseFloat(driver.withdrawn_total || 0))
-      }));
-      setDrivers(driversWithEarnings);
-
-      // Get vendors
+      // Fetch vendor payouts to calculate earnings
+      const vendorPayoutsResponse = await api.get('/admin/vendor-payouts');
+      const allVendorPayouts = vendorPayoutsResponse.data || [];
+      setVendorPayouts(allVendorPayouts);
+      
+      // Fetch driver payouts
+      const driverPayoutsResponse = await api.get('/driver/admin/payouts');
+      const allDriverPayouts = driverPayoutsResponse.data || [];
+      setDriverPayouts(allDriverPayouts);
+      
+      // Process vendors with earnings from payouts
       const vendorsList = allUsers.filter(u => u.role === 'vendor' && u.vendor_status === 'approved');
-      const vendorsWithEarnings = vendorsList.map(vendor => ({
-        ...vendor,
-        total_earned: parseFloat(vendor.total_earnings || 0),
-        available_balance: parseFloat(vendor.available_balance || 0),
-        withdrawn_total: parseFloat(vendor.withdrawn_total || 0),
-        pending_payout: Math.max(0, parseFloat(vendor.available_balance || 0) - parseFloat(vendor.withdrawn_total || 0))
-      }));
+      const vendorsWithEarnings = vendorsList.map(vendor => {
+        // Get all payouts for this vendor
+        const vendorPayoutsList = allVendorPayouts.filter(p => p.vendor_id === vendor.id);
+        
+        // Calculate totals
+        const total_paid = vendorPayoutsList
+          .filter(p => p.status === 'paid')
+          .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+        
+        const total_pending = vendorPayoutsList
+          .filter(p => p.status === 'pending')
+          .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+        
+        // For vendors, total_earned = total_paid + total_pending (all payouts created)
+        const total_earned = total_paid + total_pending;
+        
+        // Available balance is pending (not yet paid)
+        const available_balance = total_pending;
+        
+        // Withdrawn is paid amount
+        const withdrawn_total = total_paid;
+        
+        // Pending payout is the same as available_balance
+        const pending_payout = total_pending;
+        
+        return {
+          ...vendor,
+          total_earned,
+          available_balance,
+          withdrawn_total,
+          pending_payout,
+          payouts: vendorPayoutsList
+        };
+      });
       setVendors(vendorsWithEarnings);
+
+      // Process drivers with earnings from payouts
+      const driversList = allUsers.filter(u => u.role === 'driver' && u.driver_status === 'approved');
+      const driversWithEarnings = driversList.map(driver => {
+        // Get all payouts for this driver
+        const driverPayoutsList = allDriverPayouts.filter(p => p.driver_id === driver.id);
+        
+        // Calculate totals
+        const total_paid = driverPayoutsList
+          .filter(p => p.status === 'paid')
+          .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+        
+        const total_pending = driverPayoutsList
+          .filter(p => p.status === 'pending')
+          .reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+        
+        // Total earned = total_paid + total_pending (all payouts created)
+        const total_earned = total_paid + total_pending;
+        
+        // Available balance is pending (not yet paid)
+        const available_balance = total_pending;
+        
+        // Withdrawn is paid amount
+        const withdrawn_total = total_paid;
+        
+        // Pending payout is the same as available_balance
+        const pending_payout = total_pending;
+        
+        return {
+          ...driver,
+          total_earned,
+          available_balance,
+          withdrawn_total,
+          pending_payout,
+          payouts: driverPayoutsList
+        };
+      });
+      setDrivers(driversWithEarnings);
 
       // Calculate dashboard summary
       const driverStats = {
@@ -325,6 +391,7 @@ export default function AdminEarningsOverview() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Vendor</TableHead>
+                    <TableHead>Restaurant</TableHead>
                     <TableHead>Contact</TableHead>
                     <TableHead className="text-right">Total Earned</TableHead>
                     <TableHead className="text-right">Available</TableHead>
@@ -335,7 +402,7 @@ export default function AdminEarningsOverview() {
                 <TableBody>
                   {vendors.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
                         No vendors found
                       </TableCell>
                     </TableRow>
@@ -343,6 +410,7 @@ export default function AdminEarningsOverview() {
                     vendors.map((vendor) => (
                       <TableRow key={vendor.id}>
                         <TableCell className="font-medium">{vendor.name}</TableCell>
+                        <TableCell>{vendor.restaurant_name || '-'}</TableCell>
                         <TableCell>
                           <div className="flex flex-col text-xs">
                             <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> {vendor.email}</span>

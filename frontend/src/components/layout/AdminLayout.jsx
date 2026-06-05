@@ -7,7 +7,7 @@ import {
   Settings, LogOut, Bell, Menu, X, ChevronDown,
   UtensilsCrossed, DollarSign, AlertCircle, UserCheck,
   Package, CheckCircle, Clock, XCircle, Eye, Home, User,
-  CreditCard, Banknote, MessageCircle  // ← Add MessageCircle here
+  CreditCard, Banknote, MessageCircle, TrendingUp  // ← Add TrendingUp here
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -18,20 +18,21 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 
 const navItems = [
-  { path: '/admin',             label: 'Dashboard',      icon: LayoutDashboard, exact: true },
-  { path: '/admin/orders',      label: 'Orders',         icon: ShoppingBag },
-  { path: '/admin/restaurants', label: 'Restaurants',    icon: Store },
-  { path: '/admin/menu',        label: 'Menu',           icon: UtensilsCrossed },
-  { path: '/admin/vendors',     label: 'Vendors',        icon: UserCheck },
-  { path: '/admin/drivers',     label: 'Drivers',        icon: Truck },
-  { path: '/admin/users',       label: 'Users',          icon: Users },
-  { path: '/admin/finance',     label: 'Finance',        icon: DollarSign },
-    { path: '/admin/package-approvals', label: 'Package Approvals', icon: Package, color: 'text-purple-500' },
-  { path: '/admin/support', label: 'Support Tickets', icon: MessageCircle },
-  { path: '/admin/disputes',    label: 'Disputes',       icon: AlertCircle },
-  { path: '/admin/driver-payouts', label: 'Driver Payouts', icon: Truck, color: 'text-blue-500' },
-  { path: '/admin/vendor-payouts', label: 'Vendor Payouts', icon: Store, color: 'text-purple-500' },
-  { path: '/admin/settings',    label: 'Settings',       icon: Settings },
+  { path: '/admin',                label: 'Dashboard',         icon: LayoutDashboard, exact: true },
+  { path: '/admin/orders',        label: 'Orders',            icon: ShoppingBag },
+  { path: '/admin/restaurants',   label: 'Restaurants',       icon: Store },
+  { path: '/admin/menu',          label: 'Menu',              icon: UtensilsCrossed },
+  { path: '/admin/vendors',       label: 'Vendors',           icon: UserCheck },
+  { path: '/admin/drivers',       label: 'Drivers',           icon: Truck },
+  { path: '/admin/users',         label: 'Users',             icon: Users },
+  { path: '/admin/earnings',      label: 'Earnings Overview', icon: TrendingUp, color: 'text-green-500' },  // ← NEW
+  { path: '/admin/finance',       label: 'Finance',           icon: DollarSign },
+  { path: '/admin/package-approvals', label: 'Package Approvals', icon: Package, color: 'text-purple-500' },
+  { path: '/admin/support',       label: 'Support Tickets',   icon: MessageCircle },
+  { path: '/admin/disputes',      label: 'Disputes',          icon: AlertCircle },
+  { path: '/admin/driver-payouts', label: 'Driver Payouts',   icon: Truck, color: 'text-blue-500' },
+  { path: '/admin/vendor-payouts', label: 'Vendor Payouts',   icon: Store, color: 'text-purple-500' },
+  { path: '/admin/settings',      label: 'Settings',          icon: Settings },
 ];
 
 const notifIcon = (type) => {
@@ -57,7 +58,7 @@ function NavLink({ item, active, onClick }) {
           : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
       )}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      <Icon className={cn("h-4 w-4 shrink-0", item.color)} />
       <span className="truncate">{item.label}</span>
     </Link>
   );

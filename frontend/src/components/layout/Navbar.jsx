@@ -79,6 +79,7 @@ export default function Navbar() {
   const navLinks = [
     { path: '/cart', label: 'Cart', icon: ShoppingBag, show: isCustomer, badge: totalItems },
     { path: '/orders', label: 'Orders', icon: Package, show: isCustomer },
+    { path: '/package-delivery', label: 'Send Package', icon: Package, show: isCustomer, color: 'text-purple-400' }, // NEW
     { path: '/driver', label: 'Driver', icon: Truck, show: isDriver },
     { path: '/admin', label: 'Admin', icon: LayoutDashboard, show: isAdmin },
   ];
@@ -153,6 +154,9 @@ export default function Navbar() {
       on_the_way: 'On the Way',
       delivered: 'Delivered',
       cancelled: 'Cancelled',
+      pending_approval: 'Pending Approval',  // Package status
+      pending_driver: 'Finding Driver',      // Package status
+      assigned: 'Driver Assigned',           // Package status
     };
     return statusMap[status] || status;
   };
@@ -188,7 +192,7 @@ export default function Navbar() {
                     className={`relative flex items-center gap-1.5 px-2 py-2 transition ${
                       isActive(link.path)
                         ? 'text-green border-b-2 border-green'
-                        : 'hover:text-green'
+                        : `hover:text-green ${link.color || ''}`
                     }`}
                   >
                     <Icon className="w-4 h-4" />
@@ -271,7 +275,9 @@ export default function Navbar() {
                               <div className="flex items-start gap-2">
                                 <div className="w-2 h-2 rounded-full bg-green mt-1.5"></div>
                                 <div>
-                                  <p className="font-medium text-sm">{n.restaurant_name}</p>
+                                  <p className="font-medium text-sm">
+                                    {n.delivery_type === 'package' ? '📦 Package Delivery' : n.restaurant_name}
+                                  </p>
                                   <p className="text-xs text-gray-500 mt-0.5">
                                     Status: <span className="font-medium">{formatStatus(n.status)}</span>
                                   </p>
@@ -327,14 +333,24 @@ export default function Navbar() {
                       </Link>
 
                       {isCustomer && (
-                        <Link
-                          to="/orders"
-                          onClick={() => setUserMenuOpen(false)}
-                          className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center gap-3 transition"
-                        >
-                          <Package className="w-4 h-4 text-gray-500" />
-                          My Orders
-                        </Link>
+                        <>
+                          <Link
+                            to="/orders"
+                            onClick={() => setUserMenuOpen(false)}
+                            className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center gap-3 transition"
+                          >
+                            <Package className="w-4 h-4 text-gray-500" />
+                            My Orders (Food & Packages)
+                          </Link>
+                          <Link
+                            to="/package-delivery"
+                            onClick={() => setUserMenuOpen(false)}
+                            className="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center gap-3 transition border-t"
+                          >
+                            <Package className="w-4 h-4 text-purple-500" />
+                            Send a Package
+                          </Link>
+                        </>
                       )}
 
                       {isAdmin && (
@@ -416,6 +432,14 @@ export default function Navbar() {
               {isCustomer && (
                 <>
                   <Link 
+                    to="/package-delivery" 
+                    onClick={() => setMobileMenuOpen(false)} 
+                    className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition"
+                  >
+                    <Package className="w-5 h-5 text-purple-400" /> 
+                    <span>Send a Package</span>
+                  </Link>
+                  <Link 
                     to="/cart" 
                     onClick={() => setMobileMenuOpen(false)} 
                     className="flex items-center justify-between p-3 rounded-lg hover:bg-white/10 transition"
@@ -434,7 +458,7 @@ export default function Navbar() {
                     className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition"
                   >
                     <Package className="w-5 h-5" /> 
-                    <span>Orders</span>
+                    <span>My Orders</span>
                     {unreadOrders > 0 && (
                       <span className="bg-red-500 text-white text-xs px-1.5 rounded-full">{unreadOrders}</span>
                     )}

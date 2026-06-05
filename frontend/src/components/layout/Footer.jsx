@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Mail, Phone, MapPin, Heart, Clock } from 'lucide-react';
+import { Mail, Phone, MapPin, Heart, Clock, Package } from 'lucide-react';
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
@@ -18,11 +18,12 @@ export default function Footer() {
               <h2 className="text-xl font-bold text-green">Lloyd's Delivery</h2>
             </div>
             <p className="text-sm text-gray-300 leading-relaxed">
-              Fast, reliable food delivery at your fingertips. Serving Verulam and surrounding areas.
+              Fast, reliable <span className="text-green">food</span> &amp; <span className="text-purple-400">package delivery</span> at your fingertips. 
+              Serving Verulam for food, and nationwide for parcels.
             </p>
             <div className="flex items-center justify-center sm:justify-start gap-2 mt-3 text-xs text-gray-400">
               <MapPin className="w-3 h-3" />
-              <span>Verulam, South Africa</span>
+              <span>Verulam, South Africa (Nationwide packages)</span>
             </div>
           </div>
 
@@ -32,6 +33,10 @@ export default function Footer() {
             <ul className="space-y-2 text-sm text-center sm:text-left">
               <li><Link to="/" className="text-gray-300 hover:text-green transition inline-block">Home</Link></li>
               <li><Link to="/orders" className="text-gray-300 hover:text-green transition inline-block">My Orders</Link></li>
+              <li><Link to="/package-delivery" className="text-gray-300 hover:text-green transition inline-block flex items-center justify-center sm:justify-start gap-1">
+                <Package className="w-3 h-3 text-purple-400" />
+                Send a Package
+              </Link></li>
               <li><Link to="/faq" className="text-gray-300 hover:text-green transition inline-block">FAQ</Link></li>
               <li><Link to="/contact" className="text-gray-300 hover:text-green transition inline-block">Contact Us</Link></li>
               <li><Link to="/privacy" className="text-gray-300 hover:text-green transition inline-block">Privacy Policy</Link></li>
@@ -61,22 +66,34 @@ export default function Footer() {
             </ul>
           </div>
 
-          {/* Social & Delivery Info - Using simple text links instead of icons */}
+          {/* Delivery Info */}
           <div>
-            <h3 className="font-semibold text-base mb-3 text-center sm:text-left">Follow Us</h3>
-            <div className="flex items-center justify-center sm:justify-start gap-4 mb-4 text-sm">
+            <h3 className="font-semibold text-base mb-3 text-center sm:text-left">Delivery Info</h3>
+            
+            <div className="bg-white/5 rounded-lg p-3">
+              <p className="text-xs text-gray-300 text-center sm:text-left">
+                <span className="font-semibold text-green">🍔 Food Delivery:</span>
+              </p>
+              <p className="text-xs text-gray-400 text-center sm:text-left pl-2">
+                Verulam and surrounding suburbs<br />
+                Fee: R20 flat rate
+              </p>
+              
+              <div className="border-t border-gray-700 my-2"></div>
+              
+              <p className="text-xs text-gray-300 text-center sm:text-left">
+                <span className="font-semibold text-purple-400">📦 Package Delivery:</span>
+              </p>
+              <p className="text-xs text-gray-400 text-center sm:text-left pl-2">
+                Nationwide door-to-door<br />
+                Fee: Calculated by distance
+              </p>
+            </div>
+            
+            <div className="flex items-center justify-center sm:justify-start gap-4 mt-3 text-sm">
               <a href="#" className="text-gray-300 hover:text-green transition">Facebook</a>
               <a href="#" className="text-gray-300 hover:text-green transition">Twitter</a>
               <a href="#" className="text-gray-300 hover:text-green transition">Instagram</a>
-            </div>
-            
-            <div className="bg-white/5 rounded-lg p-3 mt-2">
-              <p className="text-xs text-gray-300 text-center sm:text-left">
-                <span className="font-semibold text-green">Delivery Areas:</span> Verulam and surrounding suburbs
-              </p>
-              <p className="text-xs text-gray-400 mt-1 text-center sm:text-left">
-                Standard delivery fee: R20
-              </p>
             </div>
           </div>
         </div>
@@ -106,6 +123,8 @@ export default function Footer() {
             <Link to="/terms" className="hover:text-green transition">Terms</Link>
             <span>•</span>
             <Link to="/contact" className="hover:text-green transition">Support</Link>
+            <span>•</span>
+            <Link to="/package-delivery" className="hover:text-purple-400 transition">Send Package</Link>
           </div>
         </div>
       </div>

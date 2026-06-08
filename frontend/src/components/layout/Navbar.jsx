@@ -35,6 +35,7 @@ export default function Navbar() {
   const notificationsRef = useRef(null);
 
   const [unreadOrders, setUnreadOrders] = useState(0);
+  const [allActiveOrders, setAllActiveOrders] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [readNotifications, setReadNotifications] = useState(() => {
     const saved = localStorage.getItem('read_notifications');
@@ -79,7 +80,7 @@ export default function Navbar() {
   const navLinks = [
     { path: '/cart', label: 'Cart', icon: ShoppingBag, show: isCustomer, badge: totalItems },
     { path: '/orders', label: 'Orders', icon: Package, show: isCustomer },
-    { path: '/package-delivery', label: 'Send Package', icon: Package, show: isCustomer, color: 'text-purple-400' }, // NEW
+    { path: '/package-delivery', label: 'Send Package', icon: Package, show: isCustomer, color: 'text-purple-400' },
     { path: '/driver', label: 'Driver', icon: Truck, show: isDriver },
     { path: '/admin', label: 'Admin', icon: LayoutDashboard, show: isAdmin },
   ];
@@ -98,13 +99,22 @@ export default function Navbar() {
         const activeOrders = orders.filter(
           (o) => o.status !== 'delivered' && o.status !== 'cancelled'
         );
+        
+        setAllActiveOrders(activeOrders);
 
-        // Calculate unread count by checking localStorage
+        // Calculate unread count - compare active orders with read notifications
         const viewedOrders = JSON.parse(localStorage.getItem('viewed_orders') || '[]');
-        const trulyUnread = activeOrders.filter(o => !viewedOrders.includes(o.id));
+        // Also check read_notifications
+        const readOrderIds = [...viewedOrders, ...readNotifications];
+        const trulyUnread = activeOrders.filter(o => !readOrderIds.includes(o.id));
         
         setUnreadOrders(trulyUnread.length);
-        setNotifications(activeOrders.slice(0, 5));
+        // Show first 5 unread notifications, or if none, show any active orders
+        if (trulyUnread.length > 0) {
+          setNotifications(trulyUnread.slice(0, 5));
+        } else {
+          setNotifications(activeOrders.slice(0, 5));
+        }
       } catch (err) {
         console.log(err);
       }
@@ -114,27 +124,54 @@ export default function Navbar() {
 
     const interval = setInterval(fetchUnread, 30000);
     return () => clearInterval(interval);
-  }, [isAuthenticated, isCustomer, user]);
+  }, [isAuthenticated, isCustomer, user, readNotifications]);
 
   // Mark notification as read
   const markAsRead = (orderId) => {
+    // Add to read_notifications
     const updated = [...readNotifications, orderId];
     setReadNotifications(updated);
     localStorage.setItem('read_notifications', JSON.stringify(updated));
-    setUnreadOrders(prev => Math.max(0, prev - 1));
+    
+    // Also add to viewed_orders for compatibility
+    const viewed = JSON.parse(localStorage.getItem('viewed_orders') || '[]');
+    if (!viewed.includes(orderId)) {
+      const updatedViewed = [...viewed, orderId];
+      localStorage.setItem('viewed_orders', JSON.stringify(updatedViewed));
+    }
+    
+    // Recalculate unread count
+    const readOrderIds = [...updated, ...JSON.parse(localStorage.getItem('viewed_orders') || '[]')];
+    const newUnread = allActiveOrders.filter(o => !readOrderIds.includes(o.id)).length;
+    setUnreadOrders(newUnread);
   };
 
-  // Mark all as read
+  // Mark all as read - mark ALL active orders as read
   const markAllAsRead = () => {
-    const allOrderIds = notifications.map(n => n.id);
-    const updated = [...new Set([...readNotifications, ...allOrderIds])];
+    const allActiveOrderIds = allActiveOrders.map(n => n.id);
+    
+    // Update read_notifications with ALL active order IDs
+    const updated = [...new Set([...readNotifications, ...allActiveOrderIds])];
     setReadNotifications(updated);
     localStorage.setItem('read_notifications', JSON.stringify(updated));
+    
+    // Also update viewed_orders
+    const viewed = JSON.parse(localStorage.getItem('viewed_orders') || '[]');
+    const updatedViewed = [...new Set([...viewed, ...allActiveOrderIds])];
+    localStorage.setItem('viewed_orders', JSON.stringify(updatedViewed));
+    
+    // Reset unread count to 0
     setUnreadOrders(0);
+    
+    // Update notifications display to show no unread
+    setNotifications(allActiveOrders.slice(0, 5));
   };
 
-  // Get unread notifications for display
-  const unreadNotifications = notifications.filter(n => !readNotifications.includes(n.id));
+  // Get unread notifications for display (only orders not in read list)
+  const getUnreadNotifications = () => {
+    const readOrderIds = [...readNotifications, ...(JSON.parse(localStorage.getItem('viewed_orders') || '[]'))];
+    return allActiveOrders.filter(n => !readOrderIds.includes(n.id)).slice(0, 5);
+  };
 
   const handleLogout = () => {
     logout();
@@ -154,12 +191,15 @@ export default function Navbar() {
       on_the_way: 'On the Way',
       delivered: 'Delivered',
       cancelled: 'Cancelled',
-      pending_approval: 'Pending Approval',  // Package status
-      pending_driver: 'Finding Driver',      // Package status
-      assigned: 'Driver Assigned',           // Package status
+      pending_approval: 'Pending Approval',
+      pending_driver: 'Finding Driver',
+      assigned: 'Driver Assigned',
     };
     return statusMap[status] || status;
   };
+
+  const displayNotifications = getUnreadNotifications();
+  const hasUnread = unreadOrders > 0;
 
   return (
     <>
@@ -222,9 +262,9 @@ export default function Navbar() {
                     className="relative p-2 hover:text-green transition rounded-lg hover:bg-white/10"
                   >
                     <Bell className="w-5 h-5" />
-                    {unreadOrders > 0 && (
-                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-4 h-4 rounded-full flex items-center justify-center">
-                        {unreadOrders > 9 ? '9+' : unreadOrders}
+                    {hasUnread && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] min-w-[16px] h-4 rounded-full flex items-center justify-center px-1">
+                        {unreadOrders > 99 ? '99+' : unreadOrders}
                       </span>
                     )}
                   </button>
@@ -234,7 +274,7 @@ export default function Navbar() {
                       <div className="p-3 border-b font-semibold flex justify-between items-center">
                         <span>Notifications</span>
                         <div className="flex gap-2">
-                          {unreadOrders > 0 && (
+                          {hasUnread && (
                             <button 
                               onClick={markAllAsRead}
                               className="text-xs text-green hover:underline"
@@ -251,18 +291,18 @@ export default function Navbar() {
                         </div>
                       </div>
                       <div className="max-h-96 overflow-y-auto">
-                        {unreadNotifications.length === 0 ? (
+                        {displayNotifications.length === 0 ? (
                           <div className="p-6 text-center">
                             <Bell className="w-8 h-8 text-gray-300 mx-auto mb-2" />
                             <p className="text-sm text-gray-500">No new notifications</p>
-                            {notifications.length > 0 && (
+                            {allActiveOrders.length > 0 && (
                               <p className="text-xs text-gray-400 mt-1">
-                                You have {notifications.length} completed orders
+                                You have {allActiveOrders.length} active order{allActiveOrders.length !== 1 ? 's' : ''}
                               </p>
                             )}
                           </div>
                         ) : (
-                          unreadNotifications.map((n) => (
+                          displayNotifications.map((n) => (
                             <div
                               key={n.id}
                               className="p-3 border-b hover:bg-gray-50 cursor-pointer transition"
@@ -276,7 +316,7 @@ export default function Navbar() {
                                 <div className="w-2 h-2 rounded-full bg-green mt-1.5"></div>
                                 <div>
                                   <p className="font-medium text-sm">
-                                    {n.delivery_type === 'package' ? '📦 Package Delivery' : n.restaurant_name}
+                                    {n.delivery_type === 'package' ? '📦 Package Delivery' : n.restaurant_name || 'Food Order'}
                                   </p>
                                   <p className="text-xs text-gray-500 mt-0.5">
                                     Status: <span className="font-medium">{formatStatus(n.status)}</span>
@@ -409,7 +449,7 @@ export default function Navbar() {
         </div>
       </nav>
 
-      {/* MOBILE MENU */}
+      {/* MOBILE MENU - same as before */}
       {mobileMenuOpen && (
         <>
           <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setMobileMenuOpen(false)} />
@@ -459,7 +499,7 @@ export default function Navbar() {
                   >
                     <Package className="w-5 h-5" /> 
                     <span>My Orders</span>
-                    {unreadOrders > 0 && (
+                    {hasUnread && (
                       <span className="bg-red-500 text-white text-xs px-1.5 rounded-full">{unreadOrders}</span>
                     )}
                   </Link>

@@ -5,7 +5,8 @@ import { api } from '@/api/client';
 import { 
   Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, 
   AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
-  Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car
+  Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car,
+  Filter
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -13,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSocket } from '@/context/SocketContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useCart } from '@/lib/cartStore';
@@ -475,6 +477,19 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
           <LiveMap driverLocation={driverLocation} orderStatus={order.status} />
         )}
 
+        {/* Track Package Button - for packages on the way */}
+        {isPackage && order.status === 'on_the_way' && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full border-purple-300 text-purple-600 hover:bg-purple-50"
+            onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
+          >
+            <Navigation className="w-3 h-3 mr-1" />
+            Track Package
+          </Button>
+        )}
+
         {/* Action Buttons */}
         <div className="flex gap-2">
           {canCancel && order.status !== 'delivered' && (
@@ -722,6 +737,7 @@ export default function CustomerOrders() {
   const [showTicketsModal, setShowTicketsModal] = useState(false);
   const [userTickets, setUserTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
+  const [orderTab, setOrderTab] = useState('active');
 
   // Listen for driver location updates
   useEffect(() => {
@@ -864,6 +880,7 @@ export default function CustomerOrders() {
   // Filter orders
   const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'pending_approval', 'pending_driver', 'assigned'];
   const activeOrders = orders.filter(o => activeStatuses.includes(o.status));
+  const pastOrders = orders.filter(o => !activeStatuses.includes(o.status));
   
   // Mark active orders as viewed when they load
   useEffect(() => {
@@ -874,7 +891,6 @@ export default function CustomerOrders() {
   }, [activeOrders]);
   
   // Filter past orders by search term
-  const pastOrders = orders.filter(o => !activeStatuses.includes(o.status));
   const filteredPastOrders = pastOrders.filter(order => 
     (order.restaurant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
      order.id?.toString().includes(searchTerm) ||
@@ -886,6 +902,13 @@ export default function CustomerOrders() {
   const hasMore = filteredPastOrders.length > visibleCount;
 
   const loadMore = () => setVisibleCount(prev => prev + 10);
+
+  // Quick filter chips
+  const quickFilters = [
+    { label: 'All Orders', value: '', icon: Package },
+    { label: '📦 Packages', value: 'package', icon: Package },
+    { label: '🍔 Food', value: 'food', icon: Truck },
+  ];
 
   if (isLoading) {
     return (
@@ -936,6 +959,20 @@ export default function CustomerOrders() {
         </div>
       </div>
 
+      {/* Order Type Tabs */}
+      <div className="mb-4">
+        <Tabs value={orderTab} onValueChange={setOrderTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="active" className="text-sm">
+              Active ({activeOrders.length})
+            </TabsTrigger>
+            <TabsTrigger value="history" className="text-sm">
+              History ({pastOrders.length})
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
       {orders.length === 0 ? (
         <div className="text-center py-8 sm:py-12 bg-white rounded-xl border">
           <Package className="w-12 h-12 sm:w-16 sm:h-16 text-gray-300 mx-auto mb-3 sm:mb-4" />
@@ -953,12 +990,9 @@ export default function CustomerOrders() {
         </div>
       ) : (
         <div className="space-y-6 sm:space-y-8">
-          {/* Active Orders */}
-          {activeOrders.length > 0 && (
-            <div>
-              <h2 className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3 sm:mb-4">
-                Active Orders ({activeOrders.length})
-              </h2>
+          {/* Active Orders Tab */}
+          {orderTab === 'active' && (
+            activeOrders.length > 0 ? (
               <div className="space-y-3 sm:space-y-4">
                 {activeOrders.map(order => (
                   <ActiveOrderCard 
@@ -971,29 +1005,60 @@ export default function CustomerOrders() {
                   />
                 ))}
               </div>
-            </div>
+            ) : (
+              <div className="text-center py-12 bg-white rounded-xl border">
+                <CheckCircle className="w-12 h-12 text-green-300 mx-auto mb-2" />
+                <p className="text-gray-500">No active orders</p>
+                <p className="text-xs text-gray-400 mt-1">Your active orders will appear here</p>
+                <Button onClick={() => navigate('/')} variant="outline" className="mt-4">
+                  Browse Restaurants
+                </Button>
+              </div>
+            )
           )}
 
-          {/* Order History */}
-          {pastOrders.length > 0 && (
+          {/* Order History Tab */}
+          {orderTab === 'history' && (
             <div>
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3 sm:mb-4">
-                <h2 className="text-xs sm:text-sm font-semibold text-gray-500 uppercase tracking-wider">
-                  Order History ({filteredPastOrders.length} of {pastOrders.length})
-                </h2>
-                <div className="relative w-full sm:w-64">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400" />
-                  <Input
-                    placeholder="Search by restaurant or package..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-8 h-8 text-sm"
-                  />
-                </div>
+              {/* Quick Filter Chips */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {quickFilters.map((filter) => (
+                  <Badge
+                    key={filter.label}
+                    variant={searchTerm === filter.value ? 'default' : 'outline'}
+                    className={`cursor-pointer text-xs ${
+                      searchTerm === filter.value 
+                        ? 'bg-green text-white' 
+                        : 'hover:bg-gray-100'
+                    }`}
+                    onClick={() => setSearchTerm(filter.value)}
+                  >
+                    {filter.label}
+                  </Badge>
+                ))}
+              </div>
+
+              {/* Search Bar */}
+              <div className="relative w-full mb-4">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400" />
+                <Input
+                  placeholder="Search by restaurant, package, or order #..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <XCircle className="w-3 h-3" />
+                  </button>
+                )}
               </div>
               
               <div className="space-y-2 sm:space-y-3">
-                {displayedPastOrders.length === 0 ? (
+                {filteredPastOrders.length === 0 ? (
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
                     <p className="text-sm text-gray-500">No orders match your search</p>
                   </div>

@@ -41,17 +41,9 @@ export default function Cart() {
   const [deliveryType, setDeliveryType] = useState(location.state?.deliveryType || 'food');
   const [packageDetails, setPackageDetails] = useState(location.state?.packageDetails || null);
   
+  // For package deliveries, we already have all the details from the PackageDelivery page
+  // So we don't need to ask for them again
   const [address, setAddress] = useState('');
-  const [pickupAddress, setPickupAddress] = useState('');
-  const [recipientName, setRecipientName] = useState('');
-  const [recipientPhone, setRecipientPhone] = useState('');
-  const [packageDescription, setPackageDescription] = useState('');
-  const [packageWeight, setPackageWeight] = useState('');
-  const [packageDimensions, setPackageDimensions] = useState('');
-  const [requiresSignature, setRequiresSignature] = useState(false);
-  const [isFragile, setIsFragile] = useState(false);
-  const [quote, setQuote] = useState(null);
-  
   const [notes, setNotes] = useState('');
   const [placing, setPlacing] = useState(false);
   const [loadingStep, setLoadingStep] = useState('');
@@ -60,7 +52,18 @@ export default function Cart() {
   const [appliedPromoCode, setAppliedPromoCode] = useState(null);
   const [showPaymentOptions, setShowPaymentOptions] = useState(false);
 
-  // Calculate quote for package delivery
+  // For package deliveries, use the details passed from the previous page
+  // Only ask for delivery address for food orders
+  const [pickupAddress, setPickupAddress] = useState(packageDetails?.pickup_address || '');
+  const [recipientName, setRecipientName] = useState(packageDetails?.recipient_name || '');
+  const [recipientPhone, setRecipientPhone] = useState(packageDetails?.recipient_phone || '');
+  const [packageDescription, setPackageDescription] = useState(packageDetails?.description || '');
+  const [packageWeight, setPackageWeight] = useState(packageDetails?.weight || '');
+  const [packageDimensions, setPackageDimensions] = useState(packageDetails?.dimensions || '');
+  const [requiresSignature, setRequiresSignature] = useState(packageDetails?.requires_signature || false);
+  const [isFragile, setIsFragile] = useState(packageDetails?.is_fragile || false);
+
+  // Calculate quote for package delivery (if not already provided)
   const calculateQuote = () => {
     if (deliveryType === 'food') return;
     
@@ -69,14 +72,27 @@ export default function Cart() {
     const signatureFee = requiresSignature ? 10 : 0;
     const fragileFee = isFragile ? 15 : 0;
     const total = basePrice + weightPrice + signatureFee + fragileFee;
-    setQuote({ total: Math.max(20, total) });
+    return { total: Math.max(20, total) };
   };
 
-  useEffect(() => {
-    if (deliveryType !== 'food' && !quote) {
-      calculateQuote();
+  const quote = calculateQuote();
+  const orderTotal = deliveryType === 'food' 
+    ? getNumericPrice(subtotal) + DELIVERY_FEE - promoDiscount
+    : (quote?.total || 0) - promoDiscount;
+  
+  const discountedTotal = orderTotal;
+
+  // For food orders, we need delivery address
+  // For package orders, we already have all the info
+  const canCheckout = () => {
+    if (deliveryType === 'food') {
+      return address.trim() !== '';
+    } else {
+      return pickupAddress.trim() !== '' && 
+             address.trim() !== '' && 
+             recipientName.trim() !== '';
     }
-  }, [deliveryType, packageWeight, requiresSignature, isFragile]);
+  };
 
   useEffect(() => {
     if (!loading && !isAuthenticated && (itemCount > 0 || deliveryType !== 'food')) {
@@ -84,6 +100,13 @@ export default function Cart() {
       navigate('/login');
     }
   }, [isAuthenticated, loading, itemCount, navigate, deliveryType]);
+
+  // Pre-fill address from packageDetails if available
+  useEffect(() => {
+    if (deliveryType !== 'food' && packageDetails?.delivery_address) {
+      setAddress(packageDetails.delivery_address);
+    }
+  }, [deliveryType, packageDetails]);
 
   const handleApplyPromo = (discountAmount, message, promoCode) => {
     setPromoDiscount(discountAmount);
@@ -96,14 +119,6 @@ export default function Cart() {
     setPromoMessage('');
     setAppliedPromoCode(null);
   };
-
-  const subtotalAmount = getNumericPrice(subtotal);
-  const deliveryFee = DELIVERY_FEE;
-  const orderTotal = deliveryType === 'food' 
-    ? subtotalAmount + deliveryFee - promoDiscount
-    : (quote?.total || 0) - promoDiscount;
-  
-  const discountedTotal = orderTotal;
 
   // Create notes for package delivery
   const createPackageNotes = () => {
@@ -123,24 +138,13 @@ export default function Cart() {
 
   // Handle Place Order (Food or Package)
   const handlePlaceOrder = async () => {
-    if (deliveryType === 'food') {
-      if (!address.trim()) {
+    if (!canCheckout()) {
+      if (deliveryType === 'food') {
         toast.error('Enter delivery address');
-        return;
+      } else {
+        toast.error('Please fill in all required delivery details');
       }
-    } else {
-      if (!pickupAddress.trim()) {
-        toast.error('Enter pickup address');
-        return;
-      }
-      if (!address.trim()) {
-        toast.error('Enter delivery address');
-        return;
-      }
-      if (!recipientName.trim()) {
-        toast.error('Enter recipient name');
-        return;
-      }
+      return;
     }
 
     setPlacing(true);
@@ -149,12 +153,13 @@ export default function Cart() {
     try {
       const orderNotes = deliveryType === 'food' ? notes : createPackageNotes();
       
-      // FIXED: Set correct status based on delivery type
-      // Food orders go to 'pending', package orders go to 'pending_approval'
+      // Set correct status based on delivery type
       const orderStatus = deliveryType === 'food' ? 'pending' : 'pending_approval';
       
       // Determine required vehicle type based on weight
       const vehicleType = deliveryType !== 'food' && (parseFloat(packageWeight) || 0) > 30 ? 'car' : 'bike';
+      
+      const subtotalAmount = getNumericPrice(subtotal);
       
       // Step 1: Create the order in database
       const res = await fetch(`${API_URL}/orders/create`, {
@@ -165,18 +170,18 @@ export default function Cart() {
           customer_name: user?.name || user?.full_name || 'Customer',
           restaurant_id: deliveryType === 'food' ? cart.restaurantId : null,
           restaurant_name: deliveryType === 'food' ? cart.restaurantName : (deliveryType === 'package' ? 'Package Delivery' : deliveryType === 'document' ? 'Document Delivery' : 'Other Delivery'),
-          status: orderStatus,  // FIXED: Use correct status
+          status: orderStatus,
           total: discountedTotal,
           original_total: deliveryType === 'food' ? subtotalAmount : discountedTotal,
           delivery_address: address,
-          delivery_fee: deliveryType === 'food' ? deliveryFee : discountedTotal,
+          delivery_fee: deliveryType === 'food' ? DELIVERY_FEE : discountedTotal,
           notes: orderNotes,
           payment_status: 'pending',
           payment_transaction_id: null,
           promo_code: appliedPromoCode,
           discount_applied: promoDiscount,
           delivery_type: deliveryType,
-          required_vehicle_type: vehicleType,  // FIXED: Add vehicle type based on weight
+          required_vehicle_type: vehicleType,
           pickup_address: pickupAddress,
           recipient_name: recipientName,
           recipient_phone: recipientPhone,
@@ -237,16 +242,13 @@ export default function Cart() {
 
   // Mock payment for testing
   const handleMockOrder = async () => {
-    if (deliveryType === 'food') {
-      if (!address.trim()) {
+    if (!canCheckout()) {
+      if (deliveryType === 'food') {
         toast.error('Enter delivery address');
-        return;
+      } else {
+        toast.error('Please fill in all required delivery details');
       }
-    } else {
-      if (!pickupAddress.trim() || !address.trim() || !recipientName.trim()) {
-        toast.error('Please fill in all required fields');
-        return;
-      }
+      return;
     }
 
     setPlacing(true);
@@ -256,9 +258,9 @@ export default function Cart() {
       
       const orderNotes = deliveryType === 'food' ? notes : createPackageNotes();
       
-      // FIXED: Set correct status based on delivery type
       const orderStatus = deliveryType === 'food' ? 'pending' : 'pending_approval';
       const vehicleType = deliveryType !== 'food' && (parseFloat(packageWeight) || 0) > 30 ? 'car' : 'bike';
+      const subtotalAmount = getNumericPrice(subtotal);
 
       const res = await fetch(`${API_URL}/orders/create`, {
         method: 'POST',
@@ -268,18 +270,18 @@ export default function Cart() {
           customer_name: user?.name || user?.full_name || 'Customer',
           restaurant_id: deliveryType === 'food' ? cart.restaurantId : null,
           restaurant_name: deliveryType === 'food' ? cart.restaurantName : (deliveryType === 'package' ? 'Package Delivery' : deliveryType === 'document' ? 'Document Delivery' : 'Other Delivery'),
-          status: orderStatus,  // FIXED
+          status: orderStatus,
           total: discountedTotal,
           original_total: deliveryType === 'food' ? subtotalAmount : discountedTotal,
           delivery_address: address,
-          delivery_fee: deliveryType === 'food' ? deliveryFee : discountedTotal,
+          delivery_fee: deliveryType === 'food' ? DELIVERY_FEE : discountedTotal,
           notes: orderNotes,
           payment_status: 'paid',
           payment_transaction_id: 'mock_' + Date.now(),
           promo_code: appliedPromoCode,
           discount_applied: promoDiscount,
           delivery_type: deliveryType,
-          required_vehicle_type: vehicleType,  // FIXED
+          required_vehicle_type: vehicleType,
           pickup_address: pickupAddress,
           recipient_name: recipientName,
           recipient_phone: recipientPhone,
@@ -375,7 +377,7 @@ export default function Cart() {
         <h1 className="text-2xl font-bold">{getDeliveryTitle()}</h1>
       </div>
       <p className="text-gray-500 mb-6">
-        {deliveryType === 'food' ? `From ${cart.restaurantName || 'Restaurant'}` : 'Complete your delivery details below'}
+        {deliveryType === 'food' ? `From ${cart.restaurantName || 'Restaurant'}` : 'Review your delivery details before payment'}
       </p>
 
       <div className="bg-white border rounded-xl overflow-hidden">
@@ -428,109 +430,70 @@ export default function Cart() {
           </>
         )}
 
-        {/* Package Delivery Form (for non-food) */}
+        {/* Package Delivery Summary (for non-food) - SHOW SUMMARY, NOT FORM */}
         {deliveryType !== 'food' && (
           <div className="p-4 space-y-4">
-            <div>
-              <label className="text-sm font-medium">Pickup Address *</label>
-              <Input
-                placeholder="Where should we pick up from?"
-                value={pickupAddress}
-                onChange={(e) => setPickupAddress(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium">Delivery Address *</label>
-              <Input
-                placeholder="Where should we deliver to?"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                className="mt-1"
-              />
-            </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium">Recipient Name *</label>
-                <Input
-                  placeholder="Who is receiving?"
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                  className="mt-1"
-                />
+            <div className="bg-gray-50 rounded-lg p-3">
+              <h3 className="font-semibold text-sm mb-2">📦 Delivery Summary</h3>
+              
+              <div className="space-y-2 text-sm">
+                <div className="flex">
+                  <span className="w-28 text-gray-500">Pickup:</span>
+                  <span className="flex-1">{pickupAddress || 'Not provided'}</span>
+                </div>
+                <div className="flex">
+                  <span className="w-28 text-gray-500">Delivery:</span>
+                  <span className="flex-1">{address || 'Not provided'}</span>
+                </div>
+                <div className="flex">
+                  <span className="w-28 text-gray-500">Recipient:</span>
+                  <span className="flex-1">{recipientName || 'Not provided'}</span>
+                </div>
+                {recipientPhone && (
+                  <div className="flex">
+                    <span className="w-28 text-gray-500">Phone:</span>
+                    <span className="flex-1">{recipientPhone}</span>
+                  </div>
+                )}
+                {packageDescription && (
+                  <div className="flex">
+                    <span className="w-28 text-gray-500">Description:</span>
+                    <span className="flex-1">{packageDescription}</span>
+                  </div>
+                )}
+                {(packageWeight || packageDimensions) && (
+                  <div className="flex">
+                    <span className="w-28 text-gray-500">Package:</span>
+                    <span className="flex-1">
+                      {packageWeight && `${packageWeight}kg`}
+                      {packageWeight && packageDimensions && ' • '}
+                      {packageDimensions && `${packageDimensions}cm`}
+                    </span>
+                  </div>
+                )}
+                <div className="flex">
+                  <span className="w-28 text-gray-500">Options:</span>
+                  <span className="flex-1">
+                    {requiresSignature && <span className="inline-block mr-2">📝 Signature</span>}
+                    {isFragile && <span className="inline-block">⚠️ Fragile</span>}
+                    {!requiresSignature && !isFragile && <span className="text-gray-400">None</span>}
+                  </span>
+                </div>
               </div>
-              <div>
-                <label className="text-sm font-medium">Recipient Phone</label>
-                <Input
-                  placeholder="Recipient contact number"
-                  value={recipientPhone}
-                  onChange={(e) => setRecipientPhone(e.target.value)}
-                  className="mt-1"
-                />
-              </div>
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium">Package Description</label>
-              <Textarea
-                placeholder="Describe what you're sending..."
-                value={packageDescription}
-                onChange={(e) => setPackageDescription(e.target.value)}
-                rows={2}
-                className="mt-1"
-              />
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium">Weight (kg)</label>
-                <Input
-                  type="number"
-                  step="0.5"
-                  placeholder="e.g., 2.5"
-                  value={packageWeight}
-                  onChange={(e) => setPackageWeight(e.target.value)}
-                  className="mt-1"
-                  onBlur={calculateQuote}
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Dimensions (cm)</label>
-                <Input
-                  placeholder="e.g., 30x20x10"
-                  value={packageDimensions}
-                  onChange={(e) => setPackageDimensions(e.target.value)}
-                  className="mt-1"
-                />
-              </div>
-            </div>
-            
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={requiresSignature}
-                  onChange={(e) => { setRequiresSignature(e.target.checked); calculateQuote(); }}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm">📝 Requires Signature (+R10)</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={isFragile}
-                  onChange={(e) => { setIsFragile(e.target.checked); calculateQuote(); }}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm">⚠️ Fragile Item (+R15)</span>
-              </label>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3 w-full"
+                onClick={() => navigate('/package-delivery', { state: { deliveryType: deliveryType } })}
+              >
+                Edit Details
+              </Button>
             </div>
           </div>
         )}
 
-        {/* Delivery Address (for food only - shown above) */}
+        {/* Delivery Address (for food only) */}
         {deliveryType === 'food' && (
           <>
             <Separator />
@@ -563,7 +526,7 @@ export default function Cart() {
           )}
 
           <PromoCode
-            subtotal={deliveryType === 'food' ? subtotalAmount : orderTotal}
+            subtotal={deliveryType === 'food' ? getNumericPrice(subtotal) : orderTotal}
             onApply={handleApplyPromo}
             onRemove={handleRemovePromo}
           />
@@ -578,7 +541,7 @@ export default function Cart() {
           {deliveryType === 'food' && (
             <div className="flex justify-between">
               <span>Delivery Fee</span>
-              <span>R{formatPrice(deliveryFee)}</span>
+              <span>R{formatPrice(DELIVERY_FEE)}</span>
             </div>
           )}
 
@@ -642,7 +605,7 @@ export default function Cart() {
         <div className="p-4 pt-0 space-y-2">
           <button
             onClick={handlePlaceOrder}
-            disabled={placing}
+            disabled={placing || !canCheckout()}
             className="w-full py-3 bg-green text-white rounded-lg font-medium hover:bg-green/90 transition disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {placing ? (
@@ -660,7 +623,7 @@ export default function Cart() {
 
           <button
             onClick={handleMockOrder}
-            disabled={placing}
+            disabled={placing || !canCheckout()}
             className="w-full py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition disabled:opacity-50 border border-gray-300"
           >
             {placing ? 'Processing...' : `🎮 Demo Mode (No Charge) • R${formatPrice(discountedTotal)}`}

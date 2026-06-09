@@ -37,10 +37,11 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET menu items by restaurant (shows customer price)
-// GET menu items by restaurant (public - only approved)
+// GET menu items by restaurant (shows customer price) - FIXED: added missing parameter
 router.get("/restaurant/:restaurant_id", async (req, res) => {
   try {
+    const restaurantId = req.params.restaurant_id;
+    
     const results = await db.query(
       `SELECT mi.*, r.name as restaurant_name,
               COALESCE(r.markup_percentage, 12.5) as markup_percentage,
@@ -48,8 +49,9 @@ router.get("/restaurant/:restaurant_id", async (req, res) => {
        FROM menu_items mi
        LEFT JOIN restaurants r ON mi.restaurant_id = r.id
        WHERE mi.restaurant_id = $1 
-         AND mi.approval_status = 'approved'
+         AND (mi.approval_status = 'approved' OR mi.approval_status IS NULL)
        ORDER BY mi.name`,
+      [restaurantId]  // ← THIS WAS MISSING! Added the parameter value
     );
     
     const menuItems = results.rows.map(item => ({
@@ -60,7 +62,7 @@ router.get("/restaurant/:restaurant_id", async (req, res) => {
     
     res.json(menuItems);
   } catch (err) {
-    console.error(err);
+    console.error("Error fetching restaurant menu items:", err);
     res.status(500).json({ message: err.message });
   }
 });
@@ -73,6 +75,10 @@ router.get("/vendor/restaurant/:restaurant_id", verifyToken, authorizeRoles("ven
       "SELECT owner_id FROM restaurants WHERE id = $1",
       [req.params.restaurant_id]
     );
+    
+    if (restaurantCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
     
     if (restaurantCheck.rows[0]?.owner_id !== req.user.id) {
       return res.status(403).json({ message: "You don't own this restaurant" });
@@ -159,17 +165,19 @@ router.post("/", verifyToken, authorizeRoles("vendor"), async (req, res) => {
     
     const result = await db.query(
       `INSERT INTO menu_items 
-       (restaurant_id, name, description, vendor_price, customer_price, price, markup_applied, image_url, category) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+       (restaurant_id, name, description, vendor_price, customer_price, price, markup_applied, image_url, category, approval_status, submitted_at) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', NOW()) 
+       RETURNING id`,
       [restaurant_id, name, description, vendorPrice, customerPrice, customerPrice, markupPercentage, image_url || null, category || null]
     );
     
     res.status(201).json({ 
       id: result.rows[0].id, 
-      message: "Menu item created successfully",
+      message: "Menu item created successfully. Pending admin approval.",
       vendor_price: vendorPrice,
       customer_price: customerPrice,
-      markup_applied: markupPercentage
+      markup_applied: markupPercentage,
+      approval_status: 'pending'
     });
   } catch (err) {
     console.error(err);
@@ -212,15 +220,18 @@ router.put("/:id", verifyToken, authorizeRoles("vendor"), async (req, res) => {
            price = $4,
            markup_applied = $5,
            image_url = COALESCE($6, image_url),
-           category = COALESCE($7, category)
+           category = COALESCE($7, category),
+           approval_status = 'pending',
+           submitted_at = NOW()
        WHERE id = $8`,
       [name, description, vendorPrice, customerPrice, markupPercentage, image_url, category, req.params.id]
     );
     
     res.json({ 
-      message: "Menu item updated successfully",
+      message: "Menu item updated successfully. Pending re-approval.",
       vendor_price: vendorPrice,
-      customer_price: customerPrice
+      customer_price: customerPrice,
+      approval_status: 'pending'
     });
   } catch (err) {
     console.error(err);
@@ -239,7 +250,11 @@ router.delete("/:id", verifyToken, authorizeRoles("vendor", "admin"), async (req
       [req.params.id]
     );
     
-    if (menuItemCheck.rows.length > 0 && menuItemCheck.rows[0].owner_id !== req.user.id && req.user.role !== 'admin') {
+    if (menuItemCheck.rows.length === 0) {
+      return res.status(404).json({ message: "Menu item not found" });
+    }
+    
+    if (menuItemCheck.rows[0].owner_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ message: "You don't own this restaurant" });
     }
     

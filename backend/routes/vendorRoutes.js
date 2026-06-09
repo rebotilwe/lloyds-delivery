@@ -15,22 +15,26 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
+// Ensure upload directory exists
+const vendorDocUploadDir = path.join(process.cwd(), 'uploads', 'vendor-documents');
+if (!fs.existsSync(vendorDocUploadDir)) {
+  fs.mkdirSync(vendorDocUploadDir, { recursive: true });
+}
+
 // Configure multer for document uploads
-const documentStorage = multer.diskStorage({
+const vendorDocumentStorage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = path.join(process.cwd(), 'uploads', 'vendor-documents');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
+    cb(null, vendorDocUploadDir);
   },
   filename: (req, file, cb) => {
+    const { vendorId } = req.params;
+    const { document_key } = req.body;
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `vendor-${req.params.vendorId}-${req.body.document_key}-${uniqueSuffix}${path.extname(file.originalname)}`);
+    cb(null, `vendor-${vendorId}-${document_key}-${uniqueSuffix}${path.extname(file.originalname)}`);
   }
 });
 
-const documentFileFilter = (req, file, cb) => {
+const vendorDocumentFilter = (req, file, cb) => {
   const allowedTypes = /jpeg|jpg|png|gif|webp|pdf/;
   const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
   const mimetype = allowedTypes.test(file.mimetype);
@@ -42,10 +46,10 @@ const documentFileFilter = (req, file, cb) => {
   }
 };
 
-const uploadDocument = multer({ 
-  storage: documentStorage, 
-  fileFilter: documentFileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+const uploadVendorDocument = multer({ 
+  storage: vendorDocumentStorage, 
+  fileFilter: vendorDocumentFilter,
+  limits: { fileSize: 10 * 1024 * 1024 }
 });
 
 // Apply vendor authentication to all routes
@@ -655,10 +659,10 @@ router.post("/request-withdrawal", async (req, res) => {
    ADMIN: UPLOAD VENDOR DOCUMENT
 ========================= */
 router.post(
-  "/:vendorId/upload-document",
+  "/admin/upload-document/:vendorId",
   verifyToken,
   authorizeRoles("admin"),
-  uploadDocument.single("file"),
+  uploadVendorDocument.single("file"),
   async (req, res) => {
     try {
       const { vendorId } = req.params;
@@ -683,38 +687,18 @@ router.post(
         return res.status(400).json({ message: "Invalid document key" });
       }
       
-      let fileUrl;
+      // Construct the file URL
+      const fileUrl = `${req.protocol}://${req.get('host')}/uploads/vendor-documents/${file.filename}`;
       
-      if (supabase) {
-        const fileExt = file.originalname.split('.').pop();
-        const fileName = `vendors/${vendorId}/${document_key}-${Date.now()}.${fileExt}`;
-        
-        const { data, error } = await supabase.storage
-          .from('vendor-docs')
-          .upload(fileName, file.buffer, {
-            contentType: file.mimetype,
-            cacheControl: '3600',
-            upsert: true
-          });
-        
-        if (error) {
-          console.error(`Upload error:`, error);
-          return res.status(500).json({ message: "Failed to upload to storage" });
-        }
-        
-        const { data: { publicUrl } } = supabase.storage
-          .from('vendor-docs')
-          .getPublicUrl(fileName);
-        
-        fileUrl = publicUrl;
-      } else {
-        fileUrl = `${req.protocol}://${req.get('host')}/uploads/vendor-documents/${file.filename}`;
-      }
-      
-      await db.query(
-        `UPDATE users SET ${document_key} = $1 WHERE id = $2 AND role = 'vendor'`,
+      // Update the vendor's record with the new document URL
+      const result = await db.query(
+        `UPDATE users SET ${document_key} = $1 WHERE id = $2 AND role = 'vendor' RETURNING id`,
         [fileUrl, vendorId]
       );
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "Vendor not found" });
+      }
       
       console.log(`✅ Uploaded ${document_key} for vendor ${vendorId}`);
       
@@ -726,77 +710,6 @@ router.post(
       
     } catch (err) {
       console.error("Upload error:", err);
-      res.status(500).json({ message: "Server error: " + err.message });
-    }
-  }
-);
-
-/* =========================
-   ADMIN: GET VENDOR DOCUMENTS
-========================= */
-router.get(
-  "/:vendorId/documents",
-  verifyToken,
-  authorizeRoles("admin"),
-  async (req, res) => {
-    try {
-      const { vendorId } = req.params;
-      
-      const result = await db.query(
-        `SELECT 
-          health_certificate, 
-          halaal_certificate, 
-          business_license, 
-          vat_registration, 
-          bank_confirmation
-         FROM users 
-         WHERE id = $1 AND role = 'vendor'`,
-        [vendorId]
-      );
-      
-      if (result.rows.length === 0) {
-        return res.status(404).json({ message: "Vendor not found" });
-      }
-      
-      res.json(result.rows[0]);
-    } catch (err) {
-      console.error("Error fetching documents:", err);
-      res.status(500).json({ message: "Server error: " + err.message });
-    }
-  }
-);
-
-/* =========================
-   ADMIN: DELETE VENDOR DOCUMENT
-========================= */
-router.delete(
-  "/:vendorId/documents/:documentKey",
-  verifyToken,
-  authorizeRoles("admin"),
-  async (req, res) => {
-    try {
-      const { vendorId, documentKey } = req.params;
-      
-      const allowedDocuments = [
-        'health_certificate', 
-        'halaal_certificate', 
-        'business_license', 
-        'vat_registration', 
-        'bank_confirmation'
-      ];
-      
-      if (!allowedDocuments.includes(documentKey)) {
-        return res.status(400).json({ message: "Invalid document key" });
-      }
-      
-      await db.query(
-        `UPDATE users SET ${documentKey} = NULL WHERE id = $1 AND role = 'vendor'`,
-        [vendorId]
-      );
-      
-      res.json({ message: `${documentKey} deleted successfully` });
-    } catch (err) {
-      console.error("Error deleting document:", err);
       res.status(500).json({ message: "Server error: " + err.message });
     }
   }

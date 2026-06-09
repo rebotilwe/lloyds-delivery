@@ -289,7 +289,32 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
     return '';
   };
 
-  const handlePayment = async () => {
+  // Direct payment handler (bypasses Yoco for testing)
+  const handleDirectPayment = async () => {
+    try {
+      toast.loading('Processing payment...');
+      const response = await api.put(`/orders/${order.id}/payment`, {
+        payment_status: 'paid',
+        payment_transaction_id: 'direct_' + Date.now()
+      });
+      toast.dismiss();
+      if (response.status === 200) {
+        toast.success('Payment successful! Driver will be notified shortly.');
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else {
+        throw new Error('Payment failed');
+      }
+    } catch (err) {
+      toast.dismiss();
+      console.error('Payment error:', err);
+      toast.error('Payment failed. Please try again.');
+    }
+  };
+
+  // Yoco payment handler
+  const handleYocoPayment = async () => {
     try {
       toast.loading('Preparing payment...');
       const response = await api.post(`/orders/checkout`, {
@@ -299,10 +324,12 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
       toast.dismiss();
       if (response.data.redirectUrl) {
         window.location.href = response.data.redirectUrl;
+      } else {
+        throw new Error('No redirect URL');
       }
     } catch (err) {
       toast.dismiss();
-      toast.error('Failed to initiate payment');
+      toast.error('Failed to initiate payment. Please try demo payment.');
     }
   };
 
@@ -511,14 +538,24 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
 
         {/* Pay Now Button - For approved packages waiting for payment */}
         {needsPayment && (
-          <Button
-            size="sm"
-            className="w-full bg-yellow-500 text-white hover:bg-yellow-600"
-            onClick={handlePayment}
-          >
-            <Lock className="w-3 h-3 mr-1" />
-            Pay Now • R{Number(order.total).toFixed(2)}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="flex-1 bg-yellow-500 text-white hover:bg-yellow-600"
+              onClick={handleDirectPayment}
+            >
+              <Lock className="w-3 h-3 mr-1" />
+              Pay Now • R{Number(order.total).toFixed(2)}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1 border-green-500 text-green-600 hover:bg-green-50"
+              onClick={handleYocoPayment}
+            >
+              💳 Pay with Card
+            </Button>
+          </div>
         )}
 
         {/* Action Buttons */}

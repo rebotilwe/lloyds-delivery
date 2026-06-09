@@ -137,109 +137,214 @@ export default function Cart() {
   };
 
   // Handle Place Order (Food or Package)
-  const handlePlaceOrder = async () => {
-    if (!canCheckout()) {
+const handlePlaceOrder = async () => {
+  if (!canCheckout()) {
+    if (deliveryType === 'food') {
+      toast.error('Enter delivery address');
+    } else {
+      toast.error('Please fill in all required delivery details');
+    }
+    return;
+  }
+
+  setPlacing(true);
+  setLoadingStep('Creating your order...');
+
+  try {
+    const orderNotes = deliveryType === 'food' ? notes : createPackageNotes();
+    
+    // Set correct status based on delivery type
+    const orderStatus = deliveryType === 'food' ? 'pending' : 'pending_approval';
+    
+    // For packages, payment_status is 'pending_payment' (not paid yet)
+    const paymentStatus = deliveryType === 'food' ? 'pending' : 'pending_payment';
+    
+    // Determine required vehicle type based on weight
+    const vehicleType = deliveryType !== 'food' && (parseFloat(packageWeight) || 0) > 30 ? 'car' : 'bike';
+    
+    const subtotalAmount = getNumericPrice(subtotal);
+    
+    // Step 1: Create the order in database
+    const res = await fetch(`${API_URL}/orders/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer_id: user?.id,
+        customer_name: user?.name || user?.full_name || 'Customer',
+        restaurant_id: deliveryType === 'food' ? cart.restaurantId : null,
+        restaurant_name: deliveryType === 'food' ? cart.restaurantName : (deliveryType === 'package' ? 'Package Delivery' : deliveryType === 'document' ? 'Document Delivery' : 'Other Delivery'),
+        status: orderStatus,
+        total: discountedTotal,
+        original_total: deliveryType === 'food' ? subtotalAmount : discountedTotal,
+        delivery_address: address,
+        delivery_fee: deliveryType === 'food' ? DELIVERY_FEE : discountedTotal,
+        notes: orderNotes,
+        payment_status: paymentStatus, // pending_payment for packages
+        payment_transaction_id: null,
+        promo_code: appliedPromoCode,
+        discount_applied: promoDiscount,
+        delivery_type: deliveryType,
+        required_vehicle_type: vehicleType,
+        pickup_address: pickupAddress,
+        recipient_name: recipientName,
+        recipient_phone: recipientPhone,
+        package_description: packageDescription,
+        package_weight: parseFloat(packageWeight) || 0,
+        package_dimensions: packageDimensions,
+        requires_signature: requiresSignature,
+        is_fragile: isFragile,
+        items: deliveryType === 'food' ? cart.items.map((item) => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          price: getNumericPrice(item.price),
+        })) : [],
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to create order');
+
+    const orderId = data.orderId;
+    toast.dismiss();
+
+    // For packages: Don't redirect to payment, just show success message
+    if (deliveryType !== 'food') {
+      toast.success('Package request submitted! Awaiting admin approval.', {
+        duration: 5000,
+      });
       if (deliveryType === 'food') {
-        toast.error('Enter delivery address');
-      } else {
-        toast.error('Please fill in all required delivery details');
+        clearCart();
       }
+      navigate('/orders');
       return;
     }
 
-    setPlacing(true);
-    setLoadingStep('Creating your order...');
+    // For food: Proceed with payment
+    setLoadingStep('Preparing secure payment...');
 
-    try {
-      const orderNotes = deliveryType === 'food' ? notes : createPackageNotes();
-      
-      // Set correct status based on delivery type
-      const orderStatus = deliveryType === 'food' ? 'pending' : 'pending_approval';
-      
-      // Determine required vehicle type based on weight
-      const vehicleType = deliveryType !== 'food' && (parseFloat(packageWeight) || 0) > 30 ? 'car' : 'bike';
-      
-      const subtotalAmount = getNumericPrice(subtotal);
-      
-      // Step 1: Create the order in database
-      const res = await fetch(`${API_URL}/orders/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customer_id: user?.id,
-          customer_name: user?.name || user?.full_name || 'Customer',
-          restaurant_id: deliveryType === 'food' ? cart.restaurantId : null,
-          restaurant_name: deliveryType === 'food' ? cart.restaurantName : (deliveryType === 'package' ? 'Package Delivery' : deliveryType === 'document' ? 'Document Delivery' : 'Other Delivery'),
-          status: orderStatus,
-          total: discountedTotal,
-          original_total: deliveryType === 'food' ? subtotalAmount : discountedTotal,
-          delivery_address: address,
-          delivery_fee: deliveryType === 'food' ? DELIVERY_FEE : discountedTotal,
-          notes: orderNotes,
-          payment_status: 'pending',
-          payment_transaction_id: null,
-          promo_code: appliedPromoCode,
-          discount_applied: promoDiscount,
-          delivery_type: deliveryType,
-          required_vehicle_type: vehicleType,
-          pickup_address: pickupAddress,
-          recipient_name: recipientName,
-          recipient_phone: recipientPhone,
-          package_description: packageDescription,
-          package_weight: parseFloat(packageWeight) || 0,
-          package_dimensions: packageDimensions,
-          requires_signature: requiresSignature,
-          is_fragile: isFragile,
-          items: deliveryType === 'food' ? cart.items.map((item) => ({
-            id: item.id,
-            name: item.name,
-            quantity: item.quantity,
-            price: getNumericPrice(item.price),
-          })) : [],
-        }),
-      });
+    const checkoutResponse = await fetch(`${API_URL}/orders/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount: discountedTotal,
+        orderId: orderId,
+      }),
+    });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Failed to create order');
+    const checkoutData = await checkoutResponse.json();
 
-      const orderId = data.orderId;
-      toast.dismiss();
-      setLoadingStep('Preparing secure payment...');
-
-      // Step 2: Create Yoco checkout session
-      const checkoutResponse = await fetch(`${API_URL}/orders/checkout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: discountedTotal,
-          orderId: orderId,
-        }),
-      });
-
-      const checkoutData = await checkoutResponse.json();
-
-      if (checkoutData.redirectUrl) {
-        setLoadingStep('Redirecting to payment page...');
-        localStorage.setItem('lastOrderId', orderId);
-        if (deliveryType === 'food') {
-          clearCart();
-        }
-        setTimeout(() => {
-          window.location.href = checkoutData.redirectUrl;
-        }, 500);
-      } else {
-        throw new Error('No redirectUrl from Yoco');
+    if (checkoutData.redirectUrl) {
+      setLoadingStep('Redirecting to payment page...');
+      localStorage.setItem('lastOrderId', orderId);
+      if (deliveryType === 'food') {
+        clearCart();
       }
-
-    } catch (err) {
-      console.error('Order error:', err);
-      toast.dismiss();
-      toast.error(err.message || 'Order failed');
-      setPlacing(false);
-      setLoadingStep('');
+      setTimeout(() => {
+        window.location.href = checkoutData.redirectUrl;
+      }, 500);
+    } else {
+      throw new Error('No redirectUrl from Yoco');
     }
-  };
 
+  } catch (err) {
+    console.error('Order error:', err);
+    toast.dismiss();
+    toast.error(err.message || 'Order failed');
+    setPlacing(false);
+    setLoadingStep('');
+  }
+};
+
+// Mock payment for testing (also updated for packages)
+const handleMockOrder = async () => {
+  if (!canCheckout()) {
+    if (deliveryType === 'food') {
+      toast.error('Enter delivery address');
+    } else {
+      toast.error('Please fill in all required delivery details');
+    }
+    return;
+  }
+
+  setPlacing(true);
+
+  try {
+    toast.loading('Creating order...');
+    
+    const orderNotes = deliveryType === 'food' ? notes : createPackageNotes();
+    
+    const orderStatus = deliveryType === 'food' ? 'pending' : 'pending_approval';
+    const paymentStatus = deliveryType === 'food' ? 'paid' : 'pending_payment'; // Mock payment only for food
+    const vehicleType = deliveryType !== 'food' && (parseFloat(packageWeight) || 0) > 30 ? 'car' : 'bike';
+    const subtotalAmount = getNumericPrice(subtotal);
+
+    const res = await fetch(`${API_URL}/orders/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        customer_id: user?.id,
+        customer_name: user?.name || user?.full_name || 'Customer',
+        restaurant_id: deliveryType === 'food' ? cart.restaurantId : null,
+        restaurant_name: deliveryType === 'food' ? cart.restaurantName : (deliveryType === 'package' ? 'Package Delivery' : deliveryType === 'document' ? 'Document Delivery' : 'Other Delivery'),
+        status: orderStatus,
+        total: discountedTotal,
+        original_total: deliveryType === 'food' ? subtotalAmount : discountedTotal,
+        delivery_address: address,
+        delivery_fee: deliveryType === 'food' ? DELIVERY_FEE : discountedTotal,
+        notes: orderNotes,
+        payment_status: paymentStatus,
+        payment_transaction_id: deliveryType === 'food' ? 'mock_' + Date.now() : null,
+        promo_code: appliedPromoCode,
+        discount_applied: promoDiscount,
+        delivery_type: deliveryType,
+        required_vehicle_type: vehicleType,
+        pickup_address: pickupAddress,
+        recipient_name: recipientName,
+        recipient_phone: recipientPhone,
+        package_description: packageDescription,
+        package_weight: parseFloat(packageWeight) || 0,
+        package_dimensions: packageDimensions,
+        requires_signature: requiresSignature,
+        is_fragile: isFragile,
+        items: deliveryType === 'food' ? cart.items.map((item) => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          price: getNumericPrice(item.price),
+        })) : [],
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to create order');
+
+    const orderId = data.orderId;
+    toast.dismiss();
+
+    if (deliveryType !== 'food') {
+      toast.success('Package request submitted! Awaiting admin approval.');
+      navigate('/orders');
+      return;
+    }
+
+    toast.success('Order placed successfully!');
+
+    localStorage.setItem('lastOrderId', orderId);
+    localStorage.setItem('hasOrderedBefore', 'true');
+    if (deliveryType === 'food') {
+      clearCart();
+    }
+    navigate('/order-confirmation', { state: { orderId: orderId } });
+
+  } catch (err) {
+    console.error('Order error:', err);
+    toast.dismiss();
+    toast.error(err.message || 'Order failed');
+  } finally {
+    setPlacing(false);
+  }
+};
   // Mock payment for testing
   const handleMockOrder = async () => {
     if (!canCheckout()) {

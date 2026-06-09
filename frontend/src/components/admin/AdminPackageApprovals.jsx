@@ -37,21 +37,40 @@ export default function AdminPackageApprovals() {
     }
   };
 
-  const approvePackage = async (orderId) => {
-    setProcessing(true);
-    try {
-      await api.put(`/orders/admin/approve-package/${orderId}`, { action: 'approve' });
-      toast.success('Package approved and sent to drivers');
-      fetchPendingPackages();
-      setShowModal(false);
-      setSelectedPackage(null);
-    } catch (error) {
-      console.error('Error approving package:', error);
-      toast.error('Failed to approve package');
-    } finally {
-      setProcessing(false);
+ const approvePackage = async (orderId) => {
+  setProcessing(true);
+  try {
+    // First, approve the package
+    await api.put(`/orders/admin/approve-package/${orderId}`, { action: 'approve' });
+    
+    // Get order details to know the amount
+    const orderResponse = await api.get(`/orders/${orderId}`);
+    const order = orderResponse.data;
+    
+    // Create payment session for the approved package
+    const paymentResponse = await api.post(`/orders/checkout`, {
+      amount: order.total,
+      orderId: orderId
+    });
+    
+    if (paymentResponse.data.redirectUrl) {
+      toast.success('Package approved! Redirecting customer to payment...');
+      // Open payment link in new window or redirect
+      window.open(paymentResponse.data.redirectUrl, '_blank');
+    } else {
+      toast.success('Package approved! Customer can now pay in their orders page.');
     }
-  };
+    
+    fetchPendingPackages();
+    setShowModal(false);
+    setSelectedPackage(null);
+  } catch (error) {
+    console.error('Error approving package:', error);
+    toast.error('Failed to approve package');
+  } finally {
+    setProcessing(false);
+  }
+};
 
   const rejectPackage = async (orderId) => {
     if (!rejectionReason.trim()) {

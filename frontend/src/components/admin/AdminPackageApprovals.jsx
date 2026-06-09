@@ -37,40 +37,28 @@ export default function AdminPackageApprovals() {
     }
   };
 
- const approvePackage = async (orderId) => {
-  setProcessing(true);
-  try {
-    // First, approve the package
-    await api.put(`/orders/admin/approve-package/${orderId}`, { action: 'approve' });
-    
-    // Get order details to know the amount
-    const orderResponse = await api.get(`/orders/${orderId}`);
-    const order = orderResponse.data;
-    
-    // Create payment session for the approved package
-    const paymentResponse = await api.post(`/orders/checkout`, {
-      amount: order.total,
-      orderId: orderId
-    });
-    
-    if (paymentResponse.data.redirectUrl) {
-      toast.success('Package approved! Redirecting customer to payment...');
-      // Open payment link in new window or redirect
-      window.open(paymentResponse.data.redirectUrl, '_blank');
-    } else {
-      toast.success('Package approved! Customer can now pay in their orders page.');
+  // FIXED: Approve package WITHOUT creating payment link
+  const approvePackage = async (orderId) => {
+    setProcessing(true);
+    try {
+      // Simply approve the package - update status from 'pending_approval' to 'pending_driver'
+      // Payment will be handled by the customer later
+      await api.put(`/orders/admin/approve-package/${orderId}`, { action: 'approve' });
+      
+      toast.success('Package approved! Customer can now pay and driver will be notified.', {
+        duration: 5000,
+      });
+      
+      fetchPendingPackages();
+      setShowModal(false);
+      setSelectedPackage(null);
+    } catch (error) {
+      console.error('Error approving package:', error);
+      toast.error('Failed to approve package');
+    } finally {
+      setProcessing(false);
     }
-    
-    fetchPendingPackages();
-    setShowModal(false);
-    setSelectedPackage(null);
-  } catch (error) {
-    console.error('Error approving package:', error);
-    toast.error('Failed to approve package');
-  } finally {
-    setProcessing(false);
-  }
-};
+  };
 
   const rejectPackage = async (orderId) => {
     if (!rejectionReason.trim()) {
@@ -272,6 +260,7 @@ export default function AdminPackageApprovals() {
               <div className="bg-green-50 p-3 rounded-lg">
                 <p className="font-semibold text-sm">Payment Amount</p>
                 <p className="text-2xl font-bold text-green">R{parseFloat(selectedPackage.total).toFixed(2)}</p>
+                <p className="text-xs text-gray-500 mt-1">Customer will pay after approval</p>
               </div>
 
               {/* Rejection Reason Input */}
@@ -293,7 +282,7 @@ export default function AdminPackageApprovals() {
                   className="flex-1 bg-green text-white"
                 >
                   {processing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
-                  Approve & Send to Drivers
+                  Approve Package
                 </Button>
                 <Button 
                   onClick={() => rejectPackage(selectedPackage.id)} 

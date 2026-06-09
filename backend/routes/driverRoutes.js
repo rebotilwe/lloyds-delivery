@@ -32,7 +32,7 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
-// In driverRoutes.js, update the onboarding POST endpoint
+// Driver onboarding POST endpoint
 router.post(
   "/onboarding",
   upload.fields([
@@ -40,11 +40,11 @@ router.post(
     { name: "pdp", maxCount: 1 },
     { name: "profile_photo", maxCount: 1 },
     { name: "car_license", maxCount: 1 },
-    { name: "vehicle_registration", maxCount: 1 }, // Add for cars
+    { name: "vehicle_registration", maxCount: 1 },
   ]),
   async (req, res) => {
     try {
-      const { userId, car_info, vehicle_type } = req.body; // Add vehicle_type
+      const { userId, car_info, vehicle_type } = req.body;
       const files = req.files;
 
       console.log("📝 Processing driver application for userId:", userId);
@@ -54,7 +54,6 @@ router.post(
         return res.status(400).json({ message: "User ID is required" });
       }
 
-      // Parse vehicle info (bike or car)
       let vehicleInfo = {};
       try {
         vehicleInfo = typeof car_info === 'string' ? JSON.parse(car_info) : (car_info || {});
@@ -62,7 +61,6 @@ router.post(
         vehicleInfo = {};
       }
 
-      // Upload each file to Supabase Storage
       const fileUrls = {};
       const BUCKET_NAME = 'driver-docs';
 
@@ -94,12 +92,10 @@ router.post(
         console.log(`✅ Uploaded ${fieldName}: ${publicUrl}`);
       }
 
-      // Check required files
       if (!fileUrls.id_copy || !fileUrls.pdp || !fileUrls.profile_photo) {
         return res.status(400).json({ message: "Missing required files" });
       }
 
-      // Update database with vehicle_type
       const sql = `
         UPDATE users 
         SET 
@@ -121,7 +117,7 @@ router.post(
       `;
 
       const values = [
-        vehicle_type || 'bike',  // vehicle_type
+        vehicle_type || 'bike',
         fileUrls.id_copy,
         fileUrls.pdp,
         fileUrls.profile_photo,
@@ -131,8 +127,8 @@ router.post(
         vehicleInfo?.year || null,
         vehicleInfo?.color || null,
         vehicleInfo?.license_plate || null,
-        vehicleInfo?.engine_cc || null,  // For bikes
-        fileUrls.vehicle_registration || null,  // For cars
+        vehicleInfo?.engine_cc || null,
+        fileUrls.vehicle_registration || null,
         userId,
       ];
 
@@ -158,12 +154,12 @@ router.post(
     }
   }
 );
+
 // ==================== DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const driverId = req.user.id;
     
-    // Get earnings directly from users table (the source of truth)
     const userResult = await db.query(
       `SELECT 
          COALESCE(total_earnings, 0) as total_earned,
@@ -177,7 +173,6 @@ router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (re
     
     const userData = userResult.rows[0] || {};
     
-    // Get pending earnings from driver_earnings table (if it exists)
     let pendingEarnings = 0;
     try {
       const earningsTableExists = await db.query(`
@@ -200,7 +195,6 @@ router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (re
       console.log("driver_earnings table not found or error:", err.message);
     }
     
-    // Calculate pending payout (available balance that hasn't been requested yet)
     const pendingPayout = Math.max(0, userData.available_balance - userData.withdrawn_total);
     
     res.json({
@@ -208,7 +202,7 @@ router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (re
         pending_balance: pendingEarnings,
         available_balance: parseFloat(userData.available_balance || 0),
         total_earned: parseFloat(userData.total_earned || 0),
-        withdrawn_total: parseFloat(userData.withdrawn_total || 0),  // ← CHANGED: use withdrawn_total
+        withdrawn_total: parseFloat(userData.withdrawn_total || 0),
         pending_payout: pendingPayout
       },
       recent_earnings: [],
@@ -221,7 +215,7 @@ router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (re
         pending_balance: 0,
         available_balance: 0,
         total_earned: 0,
-        withdrawn_total: 0,  // ← CHANGED
+        withdrawn_total: 0,
         pending_payout: 0
       },
       recent_earnings: [],
@@ -229,6 +223,7 @@ router.get("/earnings-summary", verifyToken, authorizeRoles("driver"), async (re
     });
   }
 });
+
 // ==================== DRIVER REQUEST WITHDRAWAL ====================
 router.post("/request-withdrawal", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
@@ -423,8 +418,6 @@ router.post("/admin/payouts", verifyToken, authorizeRoles("admin"), async (req, 
 });
 
 // ==================== ADMIN: PROCESS PAYOUT ====================
-// ==================== ADMIN: PROCESS PAYOUT ====================
-// ==================== ADMIN: PROCESS PAYOUT ====================
 router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { id } = req.params;
@@ -433,7 +426,6 @@ router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), a
     
     console.log("📝 Processing payout:", { id, status, reference_number, adminId });
     
-    // Build update query dynamically based on available columns
     let updateFields = [];
     let queryParams = [];
     let paramIndex = 1;
@@ -456,10 +448,22 @@ router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), a
     
     if (status === 'paid') {
       updateFields.push(`paid_at = NOW()`);
+      
+      // Get payout details to update driver's balance
+      const payout = await db.query(
+        "SELECT driver_id, amount FROM driver_payouts WHERE id = $1",
+        [id]
+      );
+      
+      if (payout.rows.length > 0) {
+        await db.query(
+          `UPDATE users SET 
+             withdrawn_total = COALESCE(withdrawn_total, 0) + $1
+           WHERE id = $2`,
+          [payout.rows[0].amount, payout.rows[0].driver_id]
+        );
+      }
     }
-    
-    // Don't use processed_at if it doesn't exist
-    // processed_at column is optional
     
     queryParams.push(id);
     
@@ -483,12 +487,21 @@ router.put("/admin/payouts/:id/process", verifyToken, authorizeRoles("admin"), a
   }
 });
 
-// ==================== ADMIN: MARK PAYOUT AS PAID (alternative endpoint for frontend compatibility) ====================
+// ==================== ADMIN: MARK PAYOUT AS PAID ====================
 router.put("/admin/payouts/:id/mark-paid", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { id } = req.params;
     const { reference_number, payment_method } = req.body;
     const adminId = req.user.id;
+    
+    const payout = await db.query(
+      "SELECT driver_id, amount FROM driver_payouts WHERE id = $1",
+      [id]
+    );
+    
+    if (payout.rows.length === 0) {
+      return res.status(404).json({ message: "Payout not found" });
+    }
     
     await db.query(
       `UPDATE driver_payouts 
@@ -502,6 +515,13 @@ router.put("/admin/payouts/:id/mark-paid", verifyToken, authorizeRoles("admin"),
       [reference_number, payment_method, adminId, id]
     );
     
+    await db.query(
+      `UPDATE users SET 
+         withdrawn_total = COALESCE(withdrawn_total, 0) + $1
+       WHERE id = $2`,
+      [payout.rows[0].amount, payout.rows[0].driver_id]
+    );
+    
     res.json({ message: "Payout marked as paid" });
   } catch (err) {
     console.error("Mark paid error:", err);
@@ -509,7 +529,6 @@ router.put("/admin/payouts/:id/mark-paid", verifyToken, authorizeRoles("admin"),
   }
 });
 
-// ==================== ADMIN: GET DRIVER EARNINGS SUMMARY ====================
 // ==================== ADMIN: GET DRIVER EARNINGS SUMMARY ====================
 router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
@@ -553,4 +572,185 @@ router.get("/earnings-summary/:driverId", verifyToken, authorizeRoles("admin"), 
     });
   }
 });
+
+// ==================== ADMIN: UPLOAD DRIVER DOCUMENT ====================
+router.post(
+  "/admin/upload-document",
+  verifyToken,
+  authorizeRoles("admin"),
+  upload.single("file"),
+  async (req, res) => {
+    try {
+      const { driver_id, fieldName } = req.body;
+      const file = req.file;
+      
+      console.log(`📤 Admin uploading ${fieldName} for driver ${driver_id}`);
+      
+      if (!file || !driver_id || !fieldName) {
+        return res.status(400).json({ message: "Missing required fields: file, driver_id, or fieldName" });
+      }
+      
+      const allowedFields = ['id_copy', 'pdp', 'profile_photo', 'car_license', 'vehicle_registration'];
+      if (!allowedFields.includes(fieldName)) {
+        return res.status(400).json({ message: "Invalid field name" });
+      }
+      
+      const fileExt = file.originalname.split('.').pop();
+      const fileName = `${driver_id}/${fieldName}-${Date.now()}.${fileExt}`;
+      const BUCKET_NAME = 'driver-docs';
+      
+      const { data, error } = await supabase.storage
+        .from(BUCKET_NAME)
+        .upload(fileName, file.buffer, {
+          contentType: file.mimetype,
+          cacheControl: '3600',
+          upsert: true
+        });
+      
+      if (error) {
+        console.error(`Upload error for ${fieldName}:`, error);
+        return res.status(500).json({ message: "Failed to upload file" });
+      }
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from(BUCKET_NAME)
+        .getPublicUrl(fileName);
+      
+      await db.query(
+        `UPDATE users SET ${fieldName} = $1 WHERE id = $2`,
+        [publicUrl, driver_id]
+      );
+      
+      console.log(`✅ Uploaded ${fieldName} for driver ${driver_id}: ${publicUrl}`);
+      
+      res.json({ 
+        success: true, 
+        url: publicUrl,
+        message: `${fieldName} uploaded successfully`
+      });
+      
+    } catch (err) {
+      console.error("Upload error:", err);
+      res.status(500).json({ message: "Server error: " + err.message });
+    }
+  }
+);
+
+// ==================== ADMIN: UPDATE DRIVER DETAILS ====================
+router.put(
+  "/admin/update-driver/:id",
+  verifyToken,
+  authorizeRoles("admin"),
+  async (req, res) => {
+    try {
+      const driverId = req.params.id;
+      const {
+        name,
+        email,
+        phone,
+        vehicle_type,
+        car_make,
+        car_model,
+        car_year,
+        license_plate,
+        address,
+        bank_name,
+        bank_account_name,
+        bank_account_number,
+        bank_branch_code
+      } = req.body;
+      
+      console.log(`📝 Admin updating driver ${driverId}`);
+      
+      const updates = [];
+      const values = [];
+      let paramIndex = 1;
+      
+      if (name !== undefined) {
+        updates.push(`name = $${paramIndex++}`);
+        values.push(name);
+      }
+      if (email !== undefined) {
+        updates.push(`email = $${paramIndex++}`);
+        values.push(email);
+      }
+      if (phone !== undefined) {
+        updates.push(`phone = $${paramIndex++}`);
+        values.push(phone);
+      }
+      if (vehicle_type !== undefined) {
+        updates.push(`vehicle_type = $${paramIndex++}`);
+        values.push(vehicle_type);
+      }
+      if (car_make !== undefined) {
+        updates.push(`car_make = $${paramIndex++}`);
+        values.push(car_make);
+      }
+      if (car_model !== undefined) {
+        updates.push(`car_model = $${paramIndex++}`);
+        values.push(car_model);
+      }
+      if (car_year !== undefined) {
+        updates.push(`car_year = $${paramIndex++}`);
+        values.push(car_year);
+      }
+      if (license_plate !== undefined) {
+        updates.push(`license_plate = $${paramIndex++}`);
+        values.push(license_plate);
+      }
+      if (address !== undefined) {
+        updates.push(`address = $${paramIndex++}`);
+        values.push(address);
+      }
+      if (bank_name !== undefined) {
+        updates.push(`bank_name = $${paramIndex++}`);
+        values.push(bank_name);
+      }
+      if (bank_account_name !== undefined) {
+        updates.push(`bank_account_name = $${paramIndex++}`);
+        values.push(bank_account_name);
+      }
+      if (bank_account_number !== undefined) {
+        updates.push(`bank_account_number = $${paramIndex++}`);
+        values.push(bank_account_number);
+      }
+      if (bank_branch_code !== undefined) {
+        updates.push(`bank_branch_code = $${paramIndex++}`);
+        values.push(bank_branch_code);
+      }
+      
+      if (updates.length === 0) {
+        return res.status(400).json({ message: "No fields to update" });
+      }
+      
+      values.push(driverId);
+      
+      const query = `
+        UPDATE users 
+        SET ${updates.join(", ")} 
+        WHERE id = $${paramIndex} AND role = 'driver'
+        RETURNING id, name, email, phone, vehicle_type, car_make, car_model, license_plate
+      `;
+      
+      const result = await db.query(query, values);
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "Driver not found" });
+      }
+      
+      console.log(`✅ Driver ${driverId} updated successfully`);
+      
+      res.json({ 
+        success: true, 
+        driver: result.rows[0],
+        message: "Driver updated successfully"
+      });
+      
+    } catch (err) {
+      console.error("Update driver error:", err);
+      res.status(500).json({ message: "Server error: " + err.message });
+    }
+  }
+);
+
 export default router;

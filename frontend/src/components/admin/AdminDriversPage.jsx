@@ -1,11 +1,18 @@
 import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
 import { toast } from 'sonner';
-import { Loader2, CheckCircle, XCircle, Eye, RefreshCw, Download } from 'lucide-react';
+import { 
+  Loader2, CheckCircle, XCircle, Eye, RefreshCw, Download, 
+  Edit, Save, X, Upload, FileText, User, Phone, Mail, Car, 
+  CreditCard, Calendar, MapPin, AlertCircle
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 const STATUS_COLOR = {
@@ -14,15 +21,36 @@ const STATUS_COLOR = {
   rejected: 'bg-red-100 text-red-700',
 };
 
-function DriverDocumentsModal({ driver, onClose, onApprove, onReject }) {
+// Driver Documents Modal
+function DriverDocumentsModal({ driver, onClose, onApprove, onReject, onRefresh }) {
   const [viewingDoc, setViewingDoc] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: driver.full_name || driver.name || '',
+    email: driver.email || '',
+    phone: driver.phone || '',
+    car_make: driver.car_make || '',
+    car_model: driver.car_model || '',
+    car_year: driver.car_year || '',
+    license_plate: driver.license_plate || '',
+    vehicle_type: driver.vehicle_type || 'bike',
+    address: driver.address || '',
+    bank_name: driver.bank_name || '',
+    bank_account_name: driver.bank_account_name || '',
+    bank_account_number: driver.bank_account_number || '',
+    bank_branch_code: driver.bank_branch_code || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [newDocs, setNewDocs] = useState({});
 
   const docs = [
-    { key: 'id_copy',       label: 'ID / Passport' },
-    { key: 'pdp',           label: 'PDP Licence' },
-    { key: 'profile_photo', label: 'Profile Photo' },
-    { key: 'car_license',   label: 'Vehicle Licence' },
+    { key: 'id_copy', label: 'ID / Passport', required: true },
+    { key: 'pdp', label: 'PDP Licence', required: true },
+    { key: 'profile_photo', label: 'Profile Photo', required: true },
+    { key: 'car_license', label: 'Vehicle Licence', required: false },
+    { key: 'vehicle_registration', label: 'Vehicle Registration', required: false },
   ];
 
   const getUrl = (key) => {
@@ -37,7 +65,7 @@ function DriverDocumentsModal({ driver, onClose, onApprove, onReject }) {
     setLoading(true);
     try {
       await api.put(`/users/${driver.id}`, { driver_status: 'approved', is_available: 1 });
-      toast.success(`${driver.full_name || driver.name} approved`);
+      toast.success(`${editForm.name} approved`);
       onApprove();
       onClose();
     } catch { toast.error('Failed to approve'); }
@@ -48,59 +76,312 @@ function DriverDocumentsModal({ driver, onClose, onApprove, onReject }) {
     setLoading(true);
     try {
       await api.put(`/users/${driver.id}`, { driver_status: 'rejected', is_available: 0 });
-      toast.success(`${driver.full_name || driver.name} rejected`);
+      toast.success(`${editForm.name} rejected`);
       onReject();
       onClose();
     } catch { toast.error('Failed to reject'); }
     finally { setLoading(false); }
   };
 
+  const handleSaveEdit = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/users/${driver.id}`, editForm);
+      toast.success('Driver details updated');
+      setEditing(false);
+      onRefresh();
+    } catch (err) {
+      toast.error('Failed to update driver');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleFileUpload = async (fieldName, file) => {
+    if (!file) return;
+    
+    setUploading(true);
+    const formData = new FormData();
+    formData.append(fieldName, file);
+    formData.append('driver_id', driver.id);
+    
+    try {
+      const response = await api.post(`/upload/driver-document`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      toast.success(`${fieldName} uploaded successfully`);
+      setNewDocs(prev => ({ ...prev, [fieldName]: response.data.url }));
+      onRefresh();
+    } catch (err) {
+      toast.error(`Failed to upload ${fieldName}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Driver Documents</DialogTitle>
-          <p className="text-sm text-slate-500">{driver.full_name || driver.name} · {driver.email}</p>
+          <div className="flex justify-between items-center">
+            <DialogTitle className="flex items-center gap-2">
+              <User className="w-5 h-5 text-green" />
+              Driver Details
+            </DialogTitle>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setEditing(!editing)}
+              disabled={saving}
+            >
+              {editing ? <X className="w-4 h-4 mr-1" /> : <Edit className="w-4 h-4 mr-1" />}
+              {editing ? 'Cancel' : 'Edit'}
+            </Button>
+          </div>
+          <p className="text-sm text-slate-500">{driver.email}</p>
         </DialogHeader>
 
-        {(driver.car_make || driver.license_plate) && (
-          <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
-            <span className="font-medium">{driver.car_make} {driver.car_model}</span>
-            {driver.license_plate && <span className="ml-2 text-slate-400">· {driver.license_plate}</span>}
+        {editing ? (
+          // Edit Form
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Full Name</Label>
+                <Input 
+                  value={editForm.name} 
+                  onChange={(e) => setEditForm({...editForm, name: e.target.value})}
+                  className="mt-1 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Email</Label>
+                <Input 
+                  value={editForm.email} 
+                  onChange={(e) => setEditForm({...editForm, email: e.target.value})}
+                  className="mt-1 text-sm"
+                  type="email"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Phone</Label>
+                <Input 
+                  value={editForm.phone} 
+                  onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
+                  className="mt-1 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Address</Label>
+                <Input 
+                  value={editForm.address} 
+                  onChange={(e) => setEditForm({...editForm, address: e.target.value})}
+                  className="mt-1 text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="border-t pt-3">
+              <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                <Car className="w-4 h-4" /> Vehicle Details
+              </h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Vehicle Type</Label>
+                  <select 
+                    value={editForm.vehicle_type}
+                    onChange={(e) => setEditForm({...editForm, vehicle_type: e.target.value})}
+                    className="w-full mt-1 rounded-lg border border-gray-200 px-3 py-1.5 text-sm"
+                  >
+                    <option value="bike">Bike</option>
+                    <option value="car">Car</option>
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-xs">License Plate</Label>
+                  <Input 
+                    value={editForm.license_plate} 
+                    onChange={(e) => setEditForm({...editForm, license_plate: e.target.value})}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Make</Label>
+                  <Input 
+                    value={editForm.car_make} 
+                    onChange={(e) => setEditForm({...editForm, car_make: e.target.value})}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Model</Label>
+                  <Input 
+                    value={editForm.car_model} 
+                    onChange={(e) => setEditForm({...editForm, car_model: e.target.value})}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Year</Label>
+                  <Input 
+                    value={editForm.car_year} 
+                    onChange={(e) => setEditForm({...editForm, car_year: e.target.value})}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-3">
+              <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                <CreditCard className="w-4 h-4" /> Bank Details
+              </h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Bank Name</Label>
+                  <Input 
+                    value={editForm.bank_name} 
+                    onChange={(e) => setEditForm({...editForm, bank_name: e.target.value})}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Account Holder</Label>
+                  <Input 
+                    value={editForm.bank_account_name} 
+                    onChange={(e) => setEditForm({...editForm, bank_account_name: e.target.value})}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Account Number</Label>
+                  <Input 
+                    value={editForm.bank_account_number} 
+                    onChange={(e) => setEditForm({...editForm, bank_account_number: e.target.value})}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Branch Code</Label>
+                  <Input 
+                    value={editForm.bank_branch_code} 
+                    onChange={(e) => setEditForm({...editForm, bank_branch_code: e.target.value})}
+                    className="mt-1 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <Button onClick={handleSaveEdit} disabled={saving} className="flex-1 bg-green text-white">
+                {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                Save Changes
+              </Button>
+            </div>
+          </div>
+        ) : (
+          // View Mode
+          <div className="space-y-4">
+            {/* Basic Info */}
+            <div className="bg-gray-50 rounded-lg p-3">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><span className="text-gray-500">Name:</span> <span className="font-medium">{driver.full_name || driver.name}</span></div>
+                <div><span className="text-gray-500">Phone:</span> {driver.phone || '—'}</div>
+                <div><span className="text-gray-500">Vehicle:</span> {driver.vehicle_type === 'car' ? '🚗 Car' : '🏍️ Bike'}</div>
+                <div><span className="text-gray-500">License Plate:</span> {driver.license_plate || '—'}</div>
+                {driver.car_make && <div><span className="text-gray-500">Car:</span> {driver.car_make} {driver.car_model} ({driver.car_year})</div>}
+              </div>
+            </div>
+
+            {/* Documents Section */}
+            <div>
+              <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                <FileText className="w-4 h-4" /> Driver Documents
+              </h4>
+              <div className="space-y-2">
+                {docs.map(({ key, label, required }) => {
+                  const url = getUrl(key);
+                  const isUploaded = !!url;
+                  return (
+                    <div key={key} className="flex items-center justify-between rounded-lg border px-3 py-2.5">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {label} {required && <span className="text-red-500">*</span>}
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          {isUploaded ? '✓ Uploaded' : '⚠️ Not uploaded'}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        {url && (
+                          <Button size="sm" variant="outline" onClick={() => setViewingDoc(url)}>
+                            <Eye className="mr-1 h-3.5 w-3.5" /> View
+                          </Button>
+                        )}
+                        <label className={`cursor-pointer ${uploading ? 'opacity-50' : ''}`}>
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept="image/*,application/pdf"
+                            onChange={(e) => {
+                              if (e.target.files?.[0]) {
+                                handleFileUpload(key, e.target.files[0]);
+                              }
+                            }}
+                            disabled={uploading}
+                          />
+                          <Button size="sm" variant="outline" as="span" disabled={uploading}>
+                            <Upload className="mr-1 h-3.5 w-3.5" />
+                            {uploading ? 'Uploading...' : (isUploaded ? 'Replace' : 'Upload')}
+                          </Button>
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Bank Details (if any) */}
+            {(driver.bank_name || driver.bank_account_number) && (
+              <div className="bg-gray-50 rounded-lg p-3">
+                <h4 className="font-semibold text-sm mb-2">Bank Details</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  {driver.bank_name && <div><span className="text-gray-500">Bank:</span> {driver.bank_name}</div>}
+                  {driver.bank_account_name && <div><span className="text-gray-500">Account:</span> {driver.bank_account_name}</div>}
+                  {driver.bank_account_number && <div><span className="text-gray-500">Number:</span> ••••{driver.bank_account_number.slice(-4)}</div>}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        <div className="space-y-2">
-          {docs.map(({ key, label }) => {
-            const url = getUrl(key);
-            return (
-              <div key={key} className="flex items-center justify-between rounded-lg border px-3 py-2.5">
-                <div>
-                  <p className="text-sm font-medium">{label}</p>
-                  <p className="text-xs text-slate-400">{url ? 'Uploaded' : 'Not uploaded'}</p>
-                </div>
-                {url && (
-                  <Button size="sm" variant="outline" onClick={() => setViewingDoc(url)}>
-                    <Eye className="mr-1 h-3.5 w-3.5" /> View
-                  </Button>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        {/* Actions (only for pending drivers) */}
+        {driver.driver_status === 'pending' && !editing && (
+          <div className="flex gap-2 pt-2">
+            <Button onClick={handleApprove} disabled={loading} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white">
+              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+              Approve Driver
+            </Button>
+            <Button onClick={handleReject} disabled={loading} variant="destructive" className="flex-1">
+              <XCircle className="mr-2 h-4 w-4" /> Reject
+            </Button>
+          </div>
+        )}
 
-        <div className="flex gap-2 pt-2">
-          <Button onClick={handleApprove} disabled={loading} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white">
-            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-            Approve
-          </Button>
-          <Button onClick={handleReject} disabled={loading} variant="destructive" className="flex-1">
-            <XCircle className="mr-2 h-4 w-4" /> Reject
-          </Button>
-        </div>
+        {/* Status badge for non-pending */}
+        {driver.driver_status !== 'pending' && !editing && (
+          <div className="flex justify-center pt-2">
+            <Badge className={STATUS_COLOR[driver.driver_status]}>
+              {driver.driver_status?.toUpperCase()}
+            </Badge>
+          </div>
+        )}
       </DialogContent>
 
-      {/* Doc preview */}
+      {/* Document Preview Modal */}
       {viewingDoc && (
         <Dialog open onOpenChange={() => setViewingDoc(null)}>
           <DialogContent className="max-w-2xl">
@@ -122,8 +403,90 @@ function DriverDocumentsModal({ driver, onClose, onApprove, onReject }) {
   );
 }
 
+// Edit Driver Modal (for non-pending drivers)
+function EditDriverModal({ driver, onClose, onRefresh }) {
+  const [formData, setFormData] = useState({
+    name: driver.full_name || driver.name || '',
+    email: driver.email || '',
+    phone: driver.phone || '',
+    car_make: driver.car_make || '',
+    car_model: driver.car_model || '',
+    car_year: driver.car_year || '',
+    license_plate: driver.license_plate || '',
+    vehicle_type: driver.vehicle_type || 'bike',
+    address: driver.address || '',
+    bank_name: driver.bank_name || '',
+    bank_account_name: driver.bank_account_name || '',
+    bank_account_number: driver.bank_account_number || '',
+    bank_branch_code: driver.bank_branch_code || '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/users/${driver.id}`, formData);
+      toast.success('Driver details updated');
+      onRefresh();
+      onClose();
+    } catch (err) {
+      toast.error('Failed to update driver');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Driver</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label>Full Name</Label>
+            <Input value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
+          </div>
+          <div>
+            <Label>Email</Label>
+            <Input value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} type="email" />
+          </div>
+          <div>
+            <Label>Phone</Label>
+            <Input value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} />
+          </div>
+          <div>
+            <Label>Vehicle Type</Label>
+            <select 
+              value={formData.vehicle_type}
+              onChange={(e) => setFormData({...formData, vehicle_type: e.target.value})}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2"
+            >
+              <option value="bike">Bike</option>
+              <option value="car">Car</option>
+            </select>
+          </div>
+          <div>
+            <Label>License Plate</Label>
+            <Input value={formData.license_plate} onChange={(e) => setFormData({...formData, license_plate: e.target.value})} />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button onClick={handleSave} disabled={saving} className="flex-1 bg-green text-white">
+              {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              Save
+            </Button>
+            <Button onClick={onClose} variant="outline" className="flex-1">Cancel</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function AdminDriversPage() {
   const [selected, setSelected] = useState(null);
+  const [editingDriver, setEditingDriver] = useState(null);
+  const queryClient = useQueryClient();
 
   const { data: users = [], isLoading, refetch } = useQuery({
     queryKey: ['users'],
@@ -134,6 +497,11 @@ export default function AdminDriversPage() {
   });
 
   const drivers = useMemo(() => users.filter(u => u.role === 'driver'), [users]);
+
+  const handleRefresh = () => {
+    refetch();
+    queryClient.invalidateQueries(['users']);
+  };
 
   if (isLoading) return (
     <div className="flex justify-center py-16">
@@ -146,9 +514,12 @@ export default function AdminDriversPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold">Drivers</h2>
-          <p className="text-xs text-slate-400">{drivers.length} total · {drivers.filter(d => d.driver_status === 'pending').length} pending</p>
+          <p className="text-xs text-slate-400">
+            {drivers.length} total · {drivers.filter(d => d.driver_status === 'pending').length} pending · 
+            {drivers.filter(d => d.driver_status === 'approved').length} approved
+          </p>
         </div>
-        <Button size="sm" variant="outline" onClick={() => refetch()}>
+        <Button size="sm" variant="outline" onClick={handleRefresh}>
           <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
         </Button>
       </div>
@@ -161,16 +532,20 @@ export default function AdminDriversPage() {
               <div>
                 <p className="font-semibold text-sm">{d.full_name || d.name}</p>
                 <p className="text-xs text-slate-400">{d.email}</p>
+                <p className="text-xs text-slate-400 mt-1">{d.phone || 'No phone'}</p>
               </div>
               <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', STATUS_COLOR[d.driver_status] ?? 'bg-slate-100 text-slate-500')}>
                 {d.driver_status ?? 'none'}
               </span>
             </div>
-            {d.driver_status === 'pending' && (
-              <Button size="sm" className="mt-3 w-full" onClick={() => setSelected(d)}>
-                Review Documents
+            <div className="flex gap-2 mt-3">
+              <Button size="sm" variant="outline" className="flex-1" onClick={() => setSelected(d)}>
+                <Eye className="w-3 h-3 mr-1" /> View
               </Button>
-            )}
+              <Button size="sm" variant="outline" className="flex-1" onClick={() => setEditingDriver(d)}>
+                <Edit className="w-3 h-3 mr-1" /> Edit
+              </Button>
+            </div>
           </div>
         ))}
       </div>
@@ -194,18 +569,24 @@ export default function AdminDriversPage() {
                 <td className="whitespace-nowrap px-4 py-3 font-medium">{d.full_name || d.name}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-slate-500">{d.email}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-slate-500 hidden md:table-cell">{d.phone || '—'}</td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-500 hidden lg:table-cell">{d.car_make ? `${d.car_make} ${d.car_model}` : '—'}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-500 hidden lg:table-cell">
+                  {d.vehicle_type === 'car' ? '🚗 Car' : '🏍️ Bike'}
+                  {d.license_plate && <span className="text-xs text-slate-400 ml-1">({d.license_plate})</span>}
+                </td>
                 <td className="whitespace-nowrap px-4 py-3">
                   <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', STATUS_COLOR[d.driver_status] ?? 'bg-slate-100 text-slate-500')}>
                     {d.driver_status ?? 'none'}
                   </span>
                 </td>
                 <td className="sticky right-0 whitespace-nowrap bg-white px-4 py-3 text-right shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">
-                  {d.driver_status === 'pending' && (
+                  <div className="flex gap-2 justify-end">
                     <Button size="sm" variant="outline" onClick={() => setSelected(d)}>
-                      Review
+                      <Eye className="w-3 h-3 mr-1" /> View
                     </Button>
-                  )}
+                    <Button size="sm" variant="outline" onClick={() => setEditingDriver(d)}>
+                      <Edit className="w-3 h-3 mr-1" /> Edit
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -213,12 +594,23 @@ export default function AdminDriversPage() {
         </table>
       </div>
 
+      {/* Driver Details Modal (with edit capability) */}
       {selected && (
         <DriverDocumentsModal
           driver={selected}
           onClose={() => setSelected(null)}
-          onApprove={() => refetch()}
-          onReject={() => refetch()}
+          onApprove={() => handleRefresh()}
+          onReject={() => handleRefresh()}
+          onRefresh={handleRefresh}
+        />
+      )}
+
+      {/* Edit Driver Modal */}
+      {editingDriver && (
+        <EditDriverModal
+          driver={editingDriver}
+          onClose={() => setEditingDriver(null)}
+          onRefresh={handleRefresh}
         />
       )}
     </div>

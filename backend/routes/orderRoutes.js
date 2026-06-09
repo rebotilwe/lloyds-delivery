@@ -682,6 +682,9 @@ router.put("/assign/:id", async (req, res) => {
 /* =========================
    ADMIN: APPROVE PACKAGE DELIVERY
 ========================= */
+/* =========================
+   ADMIN: APPROVE PACKAGE DELIVERY (FIXED)
+========================= */
 router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { id } = req.params;
@@ -691,8 +694,9 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
 
     console.log(`📦 Admin ${action} package delivery #${id}`);
 
+    // First, check if order exists and is a package
     const orderCheck = await db.query(
-      `SELECT id, status, delivery_type, pickup_address, delivery_address, delivery_fee, package_weight
+      `SELECT id, status, delivery_type, pickup_address, delivery_address, delivery_fee, package_weight, customer_id
        FROM orders 
        WHERE id = $1 AND delivery_type != 'food'`,
       [id]
@@ -705,15 +709,20 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
     const packageOrder = orderCheck.rows[0];
 
     if (action === 'reject') {
-      await db.query(
+      const result = await db.query(
         `UPDATE orders 
          SET status = 'cancelled', 
              admin_rejection_reason = $1,
              admin_approved_by = $2,
              admin_approved_at = NOW()
-         WHERE id = $3`,
+         WHERE id = $3 AND delivery_type != 'food'
+         RETURNING id, status`,
         [rejection_reason || "No reason provided", adminId, id]
       );
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "Failed to update order" });
+      }
       
       if (io) {
         io.to(`order_${id}`).emit("order-status-update", {
@@ -727,18 +736,38 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
       return res.json({ message: "Package delivery request rejected" });
     }
 
-    await db.query(
+    // APPROVE: Update status from 'pending_approval' to 'pending_driver'
+    const result = await db.query(
       `UPDATE orders 
        SET status = 'pending_driver',
            admin_approved_by = $1,
            admin_approved_at = NOW(),
            driver_acceptance_deadline = NOW() + INTERVAL '1 hour'
-       WHERE id = $2 AND delivery_type != 'food'`,
+       WHERE id = $2 AND delivery_type != 'food' AND status = 'pending_approval'
+       RETURNING id, status`,
       [adminId, id]
     );
 
-    console.log(`✅ Package #${id} approved, status: pending_driver`);
+    if (result.rows.length === 0) {
+      console.error(`❌ Failed to approve package #${id} - Order may already be processed or not in pending_approval status`);
+      return res.status(404).json({ 
+        message: "Order not found or already processed. Current status may not be pending_approval." 
+      });
+    }
 
+    console.log(`✅ Package #${id} approved, new status: ${result.rows[0].status}`);
+
+    // Notify customer via socket
+    if (io) {
+      io.to(`order_${id}`).emit("order-status-update", {
+        orderId: parseInt(id),
+        status: "pending_driver",
+        message: "Your package has been approved! Please complete payment.",
+        timestamp: new Date(),
+      });
+    }
+
+    // Get ALL approved, available drivers
     const driversResult = await db.query(
       `SELECT id, name, email, phone, vehicle_type
        FROM users 
@@ -748,12 +777,11 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
     );
     
     const allDrivers = driversResult.rows;
-    console.log(`📢 Found ${allDrivers.length} available drivers`);
+    console.log(`📢 Found ${allDrivers.length} available drivers to notify`);
 
+    // Notify all drivers about the new package
     let notifiedCount = 0;
     for (const driver of allDrivers) {
-      console.log(`🔔 Notifying driver ${driver.id} (${driver.name}) about package #${id}`);
-      
       if (io) {
         io.to(`driver_${driver.id}`).emit("new-package-offer", {
           orderId: parseInt(id),
@@ -765,6 +793,7 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
           deadline: new Date(Date.now() + 3600000).toISOString(),
         });
         notifiedCount++;
+        console.log(`🔔 Notified driver ${driver.id} (${driver.name})`);
       }
     }
     
@@ -772,8 +801,9 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
 
     res.json({ 
       success: true,
-      message: "Package delivery approved and sent to drivers",
-      driversNotified: notifiedCount
+      message: "Package approved! Customer can now pay and drivers have been notified.",
+      driversNotified: notifiedCount,
+      newStatus: 'pending_driver'
     });
     
   } catch (err) {

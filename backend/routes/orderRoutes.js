@@ -273,7 +273,7 @@ router.post("/checkout", async (req, res) => {
 });
 
 /* =========================
-   REVIEWS - CREATE
+   REVIEWS - CREATE (FIXED - updates driver rating properly)
 ========================= */
 router.post("/reviews/create", async (req, res) => {
   try {
@@ -308,6 +308,7 @@ router.post("/reviews/create", async (req, res) => {
 
     await db.query("UPDATE orders SET reviewed = true WHERE id = $1", [order_id]);
 
+    // Update driver's average rating
     if (type === 'driver' && driver_id) {
       const driverReviews = await db.query(
         "SELECT rating FROM reviews WHERE driver_id = $1 AND type = 'driver'",
@@ -315,8 +316,17 @@ router.post("/reviews/create", async (req, res) => {
       );
       
       if (driverReviews.rows.length > 0) {
-        const avgRating = driverReviews.rows.reduce((sum, r) => sum + r.rating, 0) / driverReviews.rows.length;
-        await db.query("UPDATE users SET driver_rating = $1 WHERE id = $2", [avgRating, driver_id]);
+        const avgRating = driverReviews.rows.reduce((sum, r) => sum + parseFloat(r.rating), 0) / driverReviews.rows.length;
+        const roundedAvg = Math.round(avgRating * 10) / 10;
+        
+        // Update both driver_rating and average_rating columns
+        await db.query(
+          `UPDATE users SET 
+             driver_rating = $1,
+             average_rating = $1
+           WHERE id = $2`, 
+          [roundedAvg, driver_id]
+        );
       }
     }
 
@@ -360,7 +370,7 @@ router.put("/:id/payment", async (req, res) => {
 });
 
 /* =========================
-   UPDATE ORDER STATUS (DRIVER)
+   UPDATE ORDER STATUS (DRIVER) - FIXED earnings update
 ========================= */
 router.put("/status/:id", async (req, res) => {
   try {
@@ -423,7 +433,8 @@ router.put("/status/:id", async (req, res) => {
       })();
     }
 
-    if (status === "delivered" && deliveryType === 'food') {
+    // FIXED: Update earnings correctly when order is delivered
+    if (status === "delivered") {
       const orders = await db.query(
         "SELECT total, delivery_fee FROM orders WHERE id = $1",
         [orderId]
@@ -434,24 +445,37 @@ router.put("/status/:id", async (req, res) => {
         const deliveryFee = parseFloat(order.delivery_fee) || 0;
         const total = parseFloat(order.total) || 0;
         
-        const commission = total * 0.1;
-        const earning = deliveryFee + commission;
-        const finalEarning = Math.round(earning * 100) / 100;
+        // For food orders, calculate earning from delivery fee and commission
+        let finalEarning = 0;
+        if (deliveryType === 'food') {
+          const commission = total * 0.1;
+          const earning = deliveryFee + commission;
+          finalEarning = Math.round(earning * 100) / 100;
+        } else {
+          // For package deliveries, the delivery_fee is the total
+          finalEarning = deliveryFee;
+        }
         
-        await db.query(
-          "UPDATE orders SET driver_earning = $1 WHERE id = $2", 
-          [finalEarning, orderId]
-        );
-        
-        await db.query(
-          "UPDATE users SET earnings = COALESCE(earnings, 0) + $1 WHERE id = $2", 
-          [finalEarning, driverId]
-        );
+        if (finalEarning > 0) {
+          await db.query(
+            "UPDATE orders SET driver_earning = $1 WHERE id = $2", 
+            [finalEarning, orderId]
+          );
+          
+          // FIXED: Update both total_earnings AND available_balance
+          await db.query(
+            `UPDATE users SET 
+               total_earnings = COALESCE(total_earnings, 0) + $1,
+               available_balance = COALESCE(available_balance, 0) + $1
+             WHERE id = $2`, 
+            [finalEarning, driverId]
+          );
 
-        io.to(`driver_${driverId}`).emit("earnings-updated", {
-          orderId: parseInt(orderId),
-          earning: finalEarning,
-        });
+          io.to(`driver_${driverId}`).emit("earnings-updated", {
+            orderId: parseInt(orderId),
+            earning: finalEarning,
+          });
+        }
       }
     }
     
@@ -656,7 +680,7 @@ router.put("/assign/:id", async (req, res) => {
 });
 
 /* =========================
-   ADMIN: APPROVE PACKAGE DELIVERY (UPDATED - NO DISTANCE FILTER)
+   ADMIN: APPROVE PACKAGE DELIVERY
 ========================= */
 router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
@@ -667,7 +691,6 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
 
     console.log(`📦 Admin ${action} package delivery #${id}`);
 
-    // First, check if order exists and is a package
     const orderCheck = await db.query(
       `SELECT id, status, delivery_type, pickup_address, delivery_address, delivery_fee, package_weight
        FROM orders 
@@ -704,7 +727,6 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
       return res.json({ message: "Package delivery request rejected" });
     }
 
-    // Approve the package - update status to pending_driver
     await db.query(
       `UPDATE orders 
        SET status = 'pending_driver',
@@ -717,7 +739,6 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
 
     console.log(`✅ Package #${id} approved, status: pending_driver`);
 
-    // Get ALL approved, available drivers (no distance filter for testing)
     const driversResult = await db.query(
       `SELECT id, name, email, phone, vehicle_type
        FROM users 
@@ -729,7 +750,6 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
     const allDrivers = driversResult.rows;
     console.log(`📢 Found ${allDrivers.length} available drivers`);
 
-    // Notify all drivers
     let notifiedCount = 0;
     for (const driver of allDrivers) {
       console.log(`🔔 Notifying driver ${driver.id} (${driver.name}) about package #${id}`);
@@ -767,9 +787,6 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
 /* =========================
    DRIVER: ACCEPT PACKAGE DELIVERY
 ========================= */
-/* =========================
-   DRIVER: ACCEPT PACKAGE DELIVERY
-========================= */
 router.put("/driver/accept-package/:id", verifyToken, authorizeRoles("driver"), async (req, res) => {
   try {
     const { id } = req.params;
@@ -804,7 +821,6 @@ router.put("/driver/accept-package/:id", verifyToken, authorizeRoles("driver"), 
     
     const driver = driverResult.rows[0];
 
-    // REMOVED "assigned_at" column since it doesn't exist
     await db.query(
       `UPDATE orders 
        SET driver_id = $1,
@@ -847,10 +863,11 @@ router.put("/driver/accept-package/:id", verifyToken, authorizeRoles("driver"), 
     res.status(500).json({ message: "Server error: " + err.message });
   }
 });
-// ==================== GET ROUTES (ORDER MATTERS - SPECIFIC BEFORE DYNAMIC!) ====================
+
+// ==================== GET ROUTES ====================
 
 /* =========================
-   AVAILABLE ORDERS FOR DRIVERS - UPDATED FOR PACKAGES
+   AVAILABLE ORDERS FOR DRIVERS
 ========================= */
 router.get("/available", async (req, res) => {
   try {
@@ -871,10 +888,8 @@ router.get("/available", async (req, res) => {
       LEFT JOIN restaurants r ON o.restaurant_id = r.id
       WHERE (o.driver_id IS NULL OR o.driver_id = 0)
         AND (
-          -- Food orders: only ready_for_pickup
           (o.delivery_type = 'food' AND o.status = 'ready_for_pickup')
           OR
-          -- Package/Non-food orders: only pending_driver
           (o.delivery_type != 'food' AND o.status = 'pending_driver')
         )
     `;
@@ -900,7 +915,7 @@ router.get("/available", async (req, res) => {
     
     const results = await db.query(query, values);
     const orders = results.rows || [];
-    console.log(`📋 Found ${orders.length} available orders (${orders.filter(o => o.delivery_type === 'food').length} food, ${orders.filter(o => o.delivery_type !== 'food').length} packages)`);
+    console.log(`📋 Found ${orders.length} available orders`);
     res.json(orders);
     
   } catch (err) {
@@ -930,7 +945,7 @@ router.get("/admin/pending-packages", verifyToken, authorizeRoles("admin"), asyn
 });
 
 /* =========================
-   DRIVER ORDERS (assigned/accepted)
+   DRIVER ORDERS
 ========================= */
 router.get("/driver/:id", async (req, res) => {
   try {
@@ -961,7 +976,7 @@ router.get("/driver/:id", async (req, res) => {
 });
 
 /* =========================
-   CUSTOMER ORDERS (UPDATED with driver details)
+   CUSTOMER ORDERS
 ========================= */
 router.get("/customer/:customer_id", async (req, res) => {
   try {
@@ -993,13 +1008,12 @@ router.get("/customer/:customer_id", async (req, res) => {
 });
 
 /* =========================
-   GET SINGLE ORDER (by ID) - MUST BE AFTER SPECIFIC ROUTES!
+   GET SINGLE ORDER (by ID)
 ========================= */
 router.get("/:id", async (req, res) => {
   try {
     const orderId = parseInt(req.params.id);
     
-    // Check if it's a valid number
     if (isNaN(orderId)) {
       return res.status(400).json({ message: "Invalid order ID" });
     }

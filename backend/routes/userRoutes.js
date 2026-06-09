@@ -1,6 +1,7 @@
 import express from "express";
 import db from "../config/db.js";
 import bcrypt from "bcryptjs";
+import { verifyToken, authorizeRoles } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -8,12 +9,13 @@ const router = express.Router();
 router.get("/", async (req, res) => {
   try {
     const results = await db.query(
-      `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, 
+      `SELECT id, name, email, role, phone, address, driver_status, vendor_status, is_available, 
               total_deliveries, earnings, created_at,
               total_earnings, available_balance, pending_balance, withdrawn_total,
               vendor_total_earnings, vendor_available_balance, vendor_withdrawn_total,
-              id_copy, pdp, profile_photo, car_license,
-              car_make, car_model, car_year, car_color, license_plate
+              id_copy, pdp, profile_photo, car_license, vehicle_registration,
+              car_make, car_model, car_year, car_color, license_plate, vehicle_type, vehicle_engine_cc,
+              bank_name, bank_account_name, bank_account_number, bank_branch_code
        FROM users ORDER BY created_at DESC`
     );
     res.json(results.rows);
@@ -27,12 +29,13 @@ router.get("/", async (req, res) => {
 router.get("/:id", async (req, res) => {
   try {
     const results = await db.query(
-      `SELECT id, name, email, role, phone, driver_status, vendor_status, is_available, 
+      `SELECT id, name, email, role, phone, address, driver_status, vendor_status, is_available, 
               total_deliveries, earnings, created_at,
               total_earnings, available_balance, pending_balance, withdrawn_total,
               vendor_total_earnings, vendor_available_balance, vendor_withdrawn_total,
-              id_copy, pdp, profile_photo, car_license,
-              car_make, car_model, car_year, car_color, license_plate
+              id_copy, pdp, profile_photo, car_license, vehicle_registration,
+              car_make, car_model, car_year, car_color, license_plate, vehicle_type, vehicle_engine_cc,
+              bank_name, bank_account_name, bank_account_number, bank_branch_code
        FROM users WHERE id = $1`,
       [req.params.id]
     );
@@ -50,15 +53,22 @@ router.get("/:id", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { 
-      name, email, phone, role, driver_status, vendor_status, is_available,
+      name, email, phone, address, role, 
+      driver_status, vendor_status, is_available,
       total_earnings, available_balance, pending_balance, withdrawn_total,
-      vendor_total_earnings, vendor_available_balance, vendor_withdrawn_total
+      vendor_total_earnings, vendor_available_balance, vendor_withdrawn_total,
+      // Driver specific fields
+      vehicle_type, car_make, car_model, car_year, car_color, license_plate, vehicle_engine_cc,
+      id_copy, pdp, profile_photo, car_license, vehicle_registration,
+      // Bank details
+      bank_name, bank_account_name, bank_account_number, bank_branch_code
     } = req.body;
     
     const updateFields = [];
     const updateValues = [];
     let paramIndex = 1;
     
+    // Basic info
     if (name !== undefined) {
       updateFields.push(`name = $${paramIndex++}`);
       updateValues.push(name);
@@ -71,10 +81,16 @@ router.put("/:id", async (req, res) => {
       updateFields.push(`phone = $${paramIndex++}`);
       updateValues.push(phone);
     }
+    if (address !== undefined) {
+      updateFields.push(`address = $${paramIndex++}`);
+      updateValues.push(address);
+    }
     if (role !== undefined) {
       updateFields.push(`role = $${paramIndex++}`);
       updateValues.push(role);
     }
+    
+    // Status fields
     if (driver_status !== undefined) {
       updateFields.push(`driver_status = $${paramIndex++}`);
       updateValues.push(driver_status);
@@ -87,6 +103,8 @@ router.put("/:id", async (req, res) => {
       updateFields.push(`is_available = $${paramIndex++}`);
       updateValues.push(is_available);
     }
+    
+    // Driver earnings
     if (total_earnings !== undefined) {
       updateFields.push(`total_earnings = $${paramIndex++}`);
       updateValues.push(total_earnings);
@@ -103,7 +121,8 @@ router.put("/:id", async (req, res) => {
       updateFields.push(`withdrawn_total = $${paramIndex++}`);
       updateValues.push(withdrawn_total);
     }
-    // Vendor balance fields
+    
+    // Vendor earnings
     if (vendor_total_earnings !== undefined) {
       updateFields.push(`vendor_total_earnings = $${paramIndex++}`);
       updateValues.push(vendor_total_earnings);
@@ -117,18 +136,98 @@ router.put("/:id", async (req, res) => {
       updateValues.push(vendor_withdrawn_total);
     }
     
+    // Driver vehicle details
+    if (vehicle_type !== undefined) {
+      updateFields.push(`vehicle_type = $${paramIndex++}`);
+      updateValues.push(vehicle_type);
+    }
+    if (car_make !== undefined) {
+      updateFields.push(`car_make = $${paramIndex++}`);
+      updateValues.push(car_make);
+    }
+    if (car_model !== undefined) {
+      updateFields.push(`car_model = $${paramIndex++}`);
+      updateValues.push(car_model);
+    }
+    if (car_year !== undefined) {
+      updateFields.push(`car_year = $${paramIndex++}`);
+      updateValues.push(car_year);
+    }
+    if (car_color !== undefined) {
+      updateFields.push(`car_color = $${paramIndex++}`);
+      updateValues.push(car_color);
+    }
+    if (license_plate !== undefined) {
+      updateFields.push(`license_plate = $${paramIndex++}`);
+      updateValues.push(license_plate);
+    }
+    if (vehicle_engine_cc !== undefined) {
+      updateFields.push(`vehicle_engine_cc = $${paramIndex++}`);
+      updateValues.push(vehicle_engine_cc);
+    }
+    
+    // Driver documents
+    if (id_copy !== undefined) {
+      updateFields.push(`id_copy = $${paramIndex++}`);
+      updateValues.push(id_copy);
+    }
+    if (pdp !== undefined) {
+      updateFields.push(`pdp = $${paramIndex++}`);
+      updateValues.push(pdp);
+    }
+    if (profile_photo !== undefined) {
+      updateFields.push(`profile_photo = $${paramIndex++}`);
+      updateValues.push(profile_photo);
+    }
+    if (car_license !== undefined) {
+      updateFields.push(`car_license = $${paramIndex++}`);
+      updateValues.push(car_license);
+    }
+    if (vehicle_registration !== undefined) {
+      updateFields.push(`vehicle_registration = $${paramIndex++}`);
+      updateValues.push(vehicle_registration);
+    }
+    
+    // Bank details (for both drivers and vendors)
+    if (bank_name !== undefined) {
+      updateFields.push(`bank_name = $${paramIndex++}`);
+      updateValues.push(bank_name);
+    }
+    if (bank_account_name !== undefined) {
+      updateFields.push(`bank_account_name = $${paramIndex++}`);
+      updateValues.push(bank_account_name);
+    }
+    if (bank_account_number !== undefined) {
+      updateFields.push(`bank_account_number = $${paramIndex++}`);
+      updateValues.push(bank_account_number);
+    }
+    if (bank_branch_code !== undefined) {
+      updateFields.push(`bank_branch_code = $${paramIndex++}`);
+      updateValues.push(bank_branch_code);
+    }
+    
     if (updateFields.length === 0) {
       return res.status(400).json({ message: "No fields to update" });
     }
     
     updateValues.push(req.params.id);
     
-    await db.query(
-      `UPDATE users SET ${updateFields.join(", ")} WHERE id = $${paramIndex}`,
-      updateValues
+    const query = `UPDATE users SET ${updateFields.join(", ")} WHERE id = $${paramIndex}`;
+    await db.query(query, updateValues);
+    
+    // Fetch updated user to return
+    const updatedUser = await db.query(
+      `SELECT id, name, email, phone, address, role, driver_status, vendor_status,
+              vehicle_type, car_make, car_model, license_plate,
+              bank_name, bank_account_name, bank_account_number
+       FROM users WHERE id = $1`,
+      [req.params.id]
     );
     
-    res.json({ message: "User updated successfully" });
+    res.json({ 
+      message: "User updated successfully",
+      user: updatedUser.rows[0]
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: err.message });
@@ -165,7 +264,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 // Reset user password (admin only)
-router.post("/:id/reset-password", async (req, res) => {
+router.post("/:id/reset-password", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { password } = req.body;
     const userId = req.params.id;
@@ -190,7 +289,7 @@ router.post("/:id/reset-password", async (req, res) => {
 });
 
 // Update driver status (approve/reject)
-router.put("/:id/driver-status", async (req, res) => {
+router.put("/:id/driver-status", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { driver_status, is_available } = req.body;
     const userId = req.params.id;
@@ -208,7 +307,7 @@ router.put("/:id/driver-status", async (req, res) => {
 });
 
 // Update vendor status (approve/reject/suspend)
-router.put("/:id/vendor-status", async (req, res) => {
+router.put("/:id/vendor-status", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {
     const { vendor_status } = req.body;
     const userId = req.params.id;

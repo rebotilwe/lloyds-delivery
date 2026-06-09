@@ -19,6 +19,7 @@ const supabase = createClient(
 const vendorDocUploadDir = path.join(process.cwd(), 'uploads', 'vendor-documents');
 if (!fs.existsSync(vendorDocUploadDir)) {
   fs.mkdirSync(vendorDocUploadDir, { recursive: true });
+  console.log(`📁 Created vendor documents folder: ${vendorDocUploadDir}`);
 }
 
 // Configure multer for document uploads
@@ -30,7 +31,8 @@ const vendorDocumentStorage = multer.diskStorage({
     const { vendorId } = req.params;
     const { document_key } = req.body;
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `vendor-${vendorId}-${document_key}-${uniqueSuffix}${path.extname(file.originalname)}`);
+    const ext = path.extname(file.originalname);
+    cb(null, `vendor-${vendorId}-${document_key}-${uniqueSuffix}${ext}`);
   }
 });
 
@@ -653,7 +655,7 @@ router.post("/request-withdrawal", async (req, res) => {
   }
 });
 
-// ==================== ADMIN: VENDOR DOCUMENT MANAGEMENT ====================
+// ==================== ADMIN: VENDOR DOCUMENT UPLOAD ====================
 
 /* =========================
    ADMIN: UPLOAD VENDOR DOCUMENT
@@ -670,9 +672,18 @@ router.post(
       const file = req.file;
       
       console.log(`📤 Admin uploading ${document_key} for vendor ${vendorId}`);
+      console.log("File received:", file ? file.originalname : "No file");
       
-      if (!file || !vendorId || !document_key) {
-        return res.status(400).json({ message: "Missing required fields" });
+      if (!file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+      
+      if (!vendorId) {
+        return res.status(400).json({ message: "Vendor ID is required" });
+      }
+      
+      if (!document_key) {
+        return res.status(400).json({ message: "Document key is required" });
       }
       
       const allowedDocuments = [
@@ -684,15 +695,19 @@ router.post(
       ];
       
       if (!allowedDocuments.includes(document_key)) {
-        return res.status(400).json({ message: "Invalid document key" });
+        return res.status(400).json({ 
+          message: `Invalid document key. Allowed: ${allowedDocuments.join(', ')}` 
+        });
       }
       
       // Construct the file URL
       const fileUrl = `${req.protocol}://${req.get('host')}/uploads/vendor-documents/${file.filename}`;
       
+      console.log(`Generated URL: ${fileUrl}`);
+      
       // Update the vendor's record with the new document URL
       const result = await db.query(
-        `UPDATE users SET ${document_key} = $1 WHERE id = $2 AND role = 'vendor' RETURNING id`,
+        `UPDATE users SET ${document_key} = $1 WHERE id = $2 AND role = 'vendor' RETURNING id, name`,
         [fileUrl, vendorId]
       );
       
@@ -700,7 +715,7 @@ router.post(
         return res.status(404).json({ message: "Vendor not found" });
       }
       
-      console.log(`✅ Uploaded ${document_key} for vendor ${vendorId}`);
+      console.log(`✅ Uploaded ${document_key} for vendor ${result.rows[0].name} (ID: ${vendorId})`);
       
       res.json({ 
         success: true, 
@@ -712,6 +727,16 @@ router.post(
       console.error("Upload error:", err);
       res.status(500).json({ message: "Server error: " + err.message });
     }
+  }
+);
+
+// Test endpoint to verify admin route is working
+router.get(
+  "/admin/test",
+  verifyToken,
+  authorizeRoles("admin"),
+  (req, res) => {
+    res.json({ message: "Admin route is working", user: { id: req.user.id, role: req.user.role } });
   }
 );
 

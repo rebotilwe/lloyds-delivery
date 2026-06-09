@@ -48,6 +48,7 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
   const [showDocumentsModal, setShowDocumentsModal] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadingFor, setUploadingFor] = useState(null);
   const [editForm, setEditForm] = useState({
     name: '',
     email: '',
@@ -139,37 +140,68 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
     setShowDocumentsModal(true);
   };
 
+  // FIXED: Better error handling and debugging for document upload
   const handleDocumentUpload = async (documentKey, file) => {
-    if (!file) return;
+    if (!file) {
+      toast.error('No file selected');
+      return;
+    }
     
     setUploading(true);
+    setUploadingFor(documentKey);
+    
     const formData = new FormData();
     formData.append('file', file);
     formData.append('document_key', documentKey);
-    formData.append('vendor_id', selectedVendor.id);
+    
+    console.log('Uploading document:', {
+      documentKey,
+      vendorId: selectedVendor?.id,
+      fileName: file.name,
+      fileSize: file.size,
+      fileType: file.type
+    });
     
     try {
-      const response = await api.post(`/vendors/${selectedVendor.id}/upload-document`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+      const response = await api.post(`/vendor/admin/upload-document/${selectedVendor.id}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 30000, // 30 second timeout
       });
+      
+      console.log('Upload response:', response.data);
       
       if (response.data.url) {
         setRestaurantDocuments(prev => ({ ...prev, [documentKey]: response.data.url }));
         toast.success(`${restaurantDocumentTypes.find(d => d.key === documentKey)?.label} uploaded successfully`);
         if (onRefresh) onRefresh();
+      } else {
+        throw new Error('No URL returned from server');
       }
     } catch (error) {
-      console.error('Upload error:', error);
-      toast.error('Failed to upload document');
+      console.error('Upload error details:', error);
+      console.error('Error response:', error.response);
+      
+      if (error.response?.status === 404) {
+        toast.error('Upload endpoint not found. Please check if the backend route is configured.');
+      } else if (error.response?.status === 401) {
+        toast.error('Unauthorized. Please log in again.');
+      } else if (error.response?.status === 403) {
+        toast.error('You do not have permission to upload documents.');
+      } else if (error.code === 'ECONNABORTED') {
+        toast.error('Upload timed out. Please try again with a smaller file.');
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to upload document. Please try again.');
+      }
     } finally {
       setUploading(false);
+      setUploadingFor(null);
     }
   };
 
   const getDocumentUrl = (url) => {
     if (!url) return null;
     if (url.startsWith('http')) return url;
-    if (url.startsWith('/uploads')) return `${import.meta.env.VITE_API_URL || ''}${url}`;
+    if (url.startsWith('/uploads')) return `${import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com'}${url}`;
     return url;
   };
 
@@ -469,6 +501,7 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
               const Icon = doc.icon;
               const docUrl = getDocumentUrl(restaurantDocuments[doc.key]);
               const isUploaded = !!docUrl;
+              const isUploadingThis = uploadingFor === doc.key;
               
               return (
                 <div key={doc.key} className="border rounded-lg p-3">
@@ -487,37 +520,67 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                       </Badge>
                     )}
                   </div>
-                  
-                  <div className="flex gap-2">
-                    <label className={`flex-1 cursor-pointer ${uploading ? 'opacity-50' : ''}`}>
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.jpg,.jpeg,.png"
-                        onChange={(e) => {
-                          if (e.target.files?.[0]) {
-                            handleDocumentUpload(doc.key, e.target.files[0]);
-                          }
-                        }}
-                        disabled={uploading}
-                      />
-                      <Button size="sm" variant="outline" className="w-full" as="span" disabled={uploading}>
-                        <Upload className="w-3 h-3 mr-1" />
-                        {uploading ? 'Uploading...' : (isUploaded ? 'Replace' : 'Upload')}
-                      </Button>
-                    </label>
-                    
-                    {isUploaded && (
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => window.open(docUrl, '_blank')}
-                      >
-                        <Download className="w-3 h-3 mr-1" />
-                        View
-                      </Button>
-                    )}
-                  </div>
+                 <div className="flex gap-2">
+  <input
+    id={`file-${doc.key}`}
+    type="file"
+    className="hidden"
+    accept=".pdf,.jpg,.jpeg,.png"
+    disabled={uploading}
+    onChange={(e) => {
+      const file = e.target.files?.[0];
+
+      console.log("Selected file:", file);
+
+      if (file) {
+        handleDocumentUpload(doc.key, file);
+      }
+    }}
+  />
+
+  <Button
+    type="button"
+    size="sm"
+    variant="outline"
+    className="flex-1"
+    disabled={uploading}
+    onClick={() => {
+      console.log("Upload clicked:", doc.key);
+
+      const input = document.getElementById(`file-${doc.key}`);
+
+      if (!input) {
+        console.error("File input not found:", `file-${doc.key}`);
+        return;
+      }
+
+      input.click();
+    }}
+  >
+    {isUploadingThis ? (
+      <div className="flex items-center justify-center">
+        <div className="w-4 h-4 border-2 border-gray-300 border-t-green rounded-full animate-spin mr-2" />
+        Uploading...
+      </div>
+    ) : (
+      <>
+        <Upload className="w-3 h-3 mr-1" />
+        {isUploaded ? "Replace" : "Upload"}
+      </>
+    )}
+  </Button>
+
+  {isUploaded && (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={() => window.open(docUrl, "_blank")}
+    >
+      <Download className="w-3 h-3 mr-1" />
+      View
+    </Button>
+  )}
+</div>
                   
                   {!isUploaded && doc.required && (
                     <p className="text-xs text-red-500 mt-1">

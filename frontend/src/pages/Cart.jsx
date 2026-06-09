@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
-import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, Lock, Package, FileText, Truck } from 'lucide-react';
+import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, Lock, Package, FileText, Truck, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -42,7 +42,6 @@ export default function Cart() {
   const [packageDetails, setPackageDetails] = useState(location.state?.packageDetails || null);
   
   // For package deliveries, we already have all the details from the PackageDelivery page
-  // So we don't need to ask for them again
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [placing, setPlacing] = useState(false);
@@ -53,7 +52,6 @@ export default function Cart() {
   const [showPaymentOptions, setShowPaymentOptions] = useState(false);
 
   // For package deliveries, use the details passed from the previous page
-  // Only ask for delivery address for food orders
   const [pickupAddress, setPickupAddress] = useState(packageDetails?.pickup_address || '');
   const [recipientName, setRecipientName] = useState(packageDetails?.recipient_name || '');
   const [recipientPhone, setRecipientPhone] = useState(packageDetails?.recipient_phone || '');
@@ -63,7 +61,7 @@ export default function Cart() {
   const [requiresSignature, setRequiresSignature] = useState(packageDetails?.requires_signature || false);
   const [isFragile, setIsFragile] = useState(packageDetails?.is_fragile || false);
 
-  // Calculate quote for package delivery (if not already provided)
+  // Calculate quote for package delivery
   const calculateQuote = () => {
     if (deliveryType === 'food') return;
     
@@ -82,8 +80,6 @@ export default function Cart() {
   
   const discountedTotal = orderTotal;
 
-  // For food orders, we need delivery address
-  // For package orders, we already have all the info
   const canCheckout = () => {
     if (deliveryType === 'food') {
       return address.trim() !== '';
@@ -101,7 +97,6 @@ export default function Cart() {
     }
   }, [isAuthenticated, loading, itemCount, navigate, deliveryType]);
 
-  // Pre-fill address from packageDetails if available
   useEffect(() => {
     if (deliveryType !== 'food' && packageDetails?.delivery_address) {
       setAddress(packageDetails.delivery_address);
@@ -120,7 +115,6 @@ export default function Cart() {
     setAppliedPromoCode(null);
   };
 
-  // Create notes for package delivery
   const createPackageNotes = () => {
     let notesText = '';
     if (deliveryType !== 'food') {
@@ -136,217 +130,8 @@ export default function Cart() {
     return notesText;
   };
 
-  // Handle Place Order (Food or Package)
-const handlePlaceOrder = async () => {
-  if (!canCheckout()) {
-    if (deliveryType === 'food') {
-      toast.error('Enter delivery address');
-    } else {
-      toast.error('Please fill in all required delivery details');
-    }
-    return;
-  }
-
-  setPlacing(true);
-  setLoadingStep('Creating your order...');
-
-  try {
-    const orderNotes = deliveryType === 'food' ? notes : createPackageNotes();
-    
-    // Set correct status based on delivery type
-    const orderStatus = deliveryType === 'food' ? 'pending' : 'pending_approval';
-    
-    // For packages, payment_status is 'pending_payment' (not paid yet)
-    const paymentStatus = deliveryType === 'food' ? 'pending' : 'pending_payment';
-    
-    // Determine required vehicle type based on weight
-    const vehicleType = deliveryType !== 'food' && (parseFloat(packageWeight) || 0) > 30 ? 'car' : 'bike';
-    
-    const subtotalAmount = getNumericPrice(subtotal);
-    
-    // Step 1: Create the order in database
-    const res = await fetch(`${API_URL}/orders/create`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customer_id: user?.id,
-        customer_name: user?.name || user?.full_name || 'Customer',
-        restaurant_id: deliveryType === 'food' ? cart.restaurantId : null,
-        restaurant_name: deliveryType === 'food' ? cart.restaurantName : (deliveryType === 'package' ? 'Package Delivery' : deliveryType === 'document' ? 'Document Delivery' : 'Other Delivery'),
-        status: orderStatus,
-        total: discountedTotal,
-        original_total: deliveryType === 'food' ? subtotalAmount : discountedTotal,
-        delivery_address: address,
-        delivery_fee: deliveryType === 'food' ? DELIVERY_FEE : discountedTotal,
-        notes: orderNotes,
-        payment_status: paymentStatus, // pending_payment for packages
-        payment_transaction_id: null,
-        promo_code: appliedPromoCode,
-        discount_applied: promoDiscount,
-        delivery_type: deliveryType,
-        required_vehicle_type: vehicleType,
-        pickup_address: pickupAddress,
-        recipient_name: recipientName,
-        recipient_phone: recipientPhone,
-        package_description: packageDescription,
-        package_weight: parseFloat(packageWeight) || 0,
-        package_dimensions: packageDimensions,
-        requires_signature: requiresSignature,
-        is_fragile: isFragile,
-        items: deliveryType === 'food' ? cart.items.map((item) => ({
-          id: item.id,
-          name: item.name,
-          quantity: item.quantity,
-          price: getNumericPrice(item.price),
-        })) : [],
-      }),
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to create order');
-
-    const orderId = data.orderId;
-    toast.dismiss();
-
-    // For packages: Don't redirect to payment, just show success message
-    if (deliveryType !== 'food') {
-      toast.success('Package request submitted! Awaiting admin approval.', {
-        duration: 5000,
-      });
-      if (deliveryType === 'food') {
-        clearCart();
-      }
-      navigate('/orders');
-      return;
-    }
-
-    // For food: Proceed with payment
-    setLoadingStep('Preparing secure payment...');
-
-    const checkoutResponse = await fetch(`${API_URL}/orders/checkout`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        amount: discountedTotal,
-        orderId: orderId,
-      }),
-    });
-
-    const checkoutData = await checkoutResponse.json();
-
-    if (checkoutData.redirectUrl) {
-      setLoadingStep('Redirecting to payment page...');
-      localStorage.setItem('lastOrderId', orderId);
-      if (deliveryType === 'food') {
-        clearCart();
-      }
-      setTimeout(() => {
-        window.location.href = checkoutData.redirectUrl;
-      }, 500);
-    } else {
-      throw new Error('No redirectUrl from Yoco');
-    }
-
-  } catch (err) {
-    console.error('Order error:', err);
-    toast.dismiss();
-    toast.error(err.message || 'Order failed');
-    setPlacing(false);
-    setLoadingStep('');
-  }
-};
-
-// Mock payment for testing (also updated for packages)
-const handleMockOrder = async () => {
-  if (!canCheckout()) {
-    if (deliveryType === 'food') {
-      toast.error('Enter delivery address');
-    } else {
-      toast.error('Please fill in all required delivery details');
-    }
-    return;
-  }
-
-  setPlacing(true);
-
-  try {
-    toast.loading('Creating order...');
-    
-    const orderNotes = deliveryType === 'food' ? notes : createPackageNotes();
-    
-    const orderStatus = deliveryType === 'food' ? 'pending' : 'pending_approval';
-    const paymentStatus = deliveryType === 'food' ? 'paid' : 'pending_payment'; // Mock payment only for food
-    const vehicleType = deliveryType !== 'food' && (parseFloat(packageWeight) || 0) > 30 ? 'car' : 'bike';
-    const subtotalAmount = getNumericPrice(subtotal);
-
-    const res = await fetch(`${API_URL}/orders/create`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        customer_id: user?.id,
-        customer_name: user?.name || user?.full_name || 'Customer',
-        restaurant_id: deliveryType === 'food' ? cart.restaurantId : null,
-        restaurant_name: deliveryType === 'food' ? cart.restaurantName : (deliveryType === 'package' ? 'Package Delivery' : deliveryType === 'document' ? 'Document Delivery' : 'Other Delivery'),
-        status: orderStatus,
-        total: discountedTotal,
-        original_total: deliveryType === 'food' ? subtotalAmount : discountedTotal,
-        delivery_address: address,
-        delivery_fee: deliveryType === 'food' ? DELIVERY_FEE : discountedTotal,
-        notes: orderNotes,
-        payment_status: paymentStatus,
-        payment_transaction_id: deliveryType === 'food' ? 'mock_' + Date.now() : null,
-        promo_code: appliedPromoCode,
-        discount_applied: promoDiscount,
-        delivery_type: deliveryType,
-        required_vehicle_type: vehicleType,
-        pickup_address: pickupAddress,
-        recipient_name: recipientName,
-        recipient_phone: recipientPhone,
-        package_description: packageDescription,
-        package_weight: parseFloat(packageWeight) || 0,
-        package_dimensions: packageDimensions,
-        requires_signature: requiresSignature,
-        is_fragile: isFragile,
-        items: deliveryType === 'food' ? cart.items.map((item) => ({
-          id: item.id,
-          name: item.name,
-          quantity: item.quantity,
-          price: getNumericPrice(item.price),
-        })) : [],
-      }),
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to create order');
-
-    const orderId = data.orderId;
-    toast.dismiss();
-
-    if (deliveryType !== 'food') {
-      toast.success('Package request submitted! Awaiting admin approval.');
-      navigate('/orders');
-      return;
-    }
-
-    toast.success('Order placed successfully!');
-
-    localStorage.setItem('lastOrderId', orderId);
-    localStorage.setItem('hasOrderedBefore', 'true');
-    if (deliveryType === 'food') {
-      clearCart();
-    }
-    navigate('/order-confirmation', { state: { orderId: orderId } });
-
-  } catch (err) {
-    console.error('Order error:', err);
-    toast.dismiss();
-    toast.error(err.message || 'Order failed');
-  } finally {
-    setPlacing(false);
-  }
-};
-  // Mock payment for testing
-  const handleMockOrder = async () => {
+  // Handle Place Order - For packages, NO PAYMENT
+  const handlePlaceOrder = async () => {
     if (!canCheckout()) {
       if (deliveryType === 'food') {
         toast.error('Enter delivery address');
@@ -357,16 +142,15 @@ const handleMockOrder = async () => {
     }
 
     setPlacing(true);
+    setLoadingStep('Creating your order...');
 
     try {
-      toast.loading('Creating order...');
-      
       const orderNotes = deliveryType === 'food' ? notes : createPackageNotes();
-      
       const orderStatus = deliveryType === 'food' ? 'pending' : 'pending_approval';
+      const paymentStatus = deliveryType === 'food' ? 'pending' : 'pending_payment';
       const vehicleType = deliveryType !== 'food' && (parseFloat(packageWeight) || 0) > 30 ? 'car' : 'bike';
       const subtotalAmount = getNumericPrice(subtotal);
-
+      
       const res = await fetch(`${API_URL}/orders/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -381,8 +165,8 @@ const handleMockOrder = async () => {
           delivery_address: address,
           delivery_fee: deliveryType === 'food' ? DELIVERY_FEE : discountedTotal,
           notes: orderNotes,
-          payment_status: 'paid',
-          payment_transaction_id: 'mock_' + Date.now(),
+          payment_status: paymentStatus,
+          payment_transaction_id: null,
           promo_code: appliedPromoCode,
           discount_applied: promoDiscount,
           delivery_type: deliveryType,
@@ -409,13 +193,127 @@ const handleMockOrder = async () => {
 
       const orderId = data.orderId;
       toast.dismiss();
+
+      // FOR PACKAGES: Just show success and redirect to orders (NO PAYMENT)
+      if (deliveryType !== 'food') {
+        toast.success('Package request submitted! Awaiting admin approval.', {
+          duration: 5000,
+        });
+        navigate('/orders');
+        return;
+      }
+
+      // FOR FOOD: Proceed with payment
+      setLoadingStep('Preparing secure payment...');
+      const checkoutResponse = await fetch(`${API_URL}/orders/checkout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: discountedTotal,
+          orderId: orderId,
+        }),
+      });
+
+      const checkoutData = await checkoutResponse.json();
+
+      if (checkoutData.redirectUrl) {
+        setLoadingStep('Redirecting to payment page...');
+        localStorage.setItem('lastOrderId', orderId);
+        clearCart();
+        setTimeout(() => {
+          window.location.href = checkoutData.redirectUrl;
+        }, 500);
+      } else {
+        throw new Error('No redirectUrl from Yoco');
+      }
+
+    } catch (err) {
+      console.error('Order error:', err);
+      toast.dismiss();
+      toast.error(err.message || 'Order failed');
+      setPlacing(false);
+      setLoadingStep('');
+    }
+  };
+
+  // Mock payment - ONLY for food
+  const handleMockOrder = async () => {
+    if (!canCheckout()) {
+      if (deliveryType === 'food') {
+        toast.error('Enter delivery address');
+      } else {
+        toast.error('Please fill in all required delivery details');
+      }
+      return;
+    }
+
+    setPlacing(true);
+
+    try {
+      toast.loading('Creating order...');
+      
+      const orderNotes = deliveryType === 'food' ? notes : createPackageNotes();
+      const orderStatus = deliveryType === 'food' ? 'pending' : 'pending_approval';
+      const paymentStatus = deliveryType === 'food' ? 'paid' : 'pending_payment';
+      const vehicleType = deliveryType !== 'food' && (parseFloat(packageWeight) || 0) > 30 ? 'car' : 'bike';
+      const subtotalAmount = getNumericPrice(subtotal);
+
+      const res = await fetch(`${API_URL}/orders/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_id: user?.id,
+          customer_name: user?.name || user?.full_name || 'Customer',
+          restaurant_id: deliveryType === 'food' ? cart.restaurantId : null,
+          restaurant_name: deliveryType === 'food' ? cart.restaurantName : (deliveryType === 'package' ? 'Package Delivery' : deliveryType === 'document' ? 'Document Delivery' : 'Other Delivery'),
+          status: orderStatus,
+          total: discountedTotal,
+          original_total: deliveryType === 'food' ? subtotalAmount : discountedTotal,
+          delivery_address: address,
+          delivery_fee: deliveryType === 'food' ? DELIVERY_FEE : discountedTotal,
+          notes: orderNotes,
+          payment_status: paymentStatus,
+          payment_transaction_id: deliveryType === 'food' ? 'mock_' + Date.now() : null,
+          promo_code: appliedPromoCode,
+          discount_applied: promoDiscount,
+          delivery_type: deliveryType,
+          required_vehicle_type: vehicleType,
+          pickup_address: pickupAddress,
+          recipient_name: recipientName,
+          recipient_phone: recipientPhone,
+          package_description: packageDescription,
+          package_weight: parseFloat(packageWeight) || 0,
+          package_dimensions: packageDimensions,
+          requires_signature: requiresSignature,
+          is_fragile: isFragile,
+          items: deliveryType === 'food' ? cart.items.map((item) => ({
+            id: item.id,
+            name: item.name,
+            quantity: item.quantity,
+            price: getNumericPrice(item.price),
+          })) : [],
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to create order');
+
+      const orderId = data.orderId;
+      toast.dismiss();
+
+      // FOR PACKAGES: Just show success and redirect (NO PAYMENT)
+      if (deliveryType !== 'food') {
+        toast.success('Package request submitted! Awaiting admin approval.');
+        navigate('/orders');
+        return;
+      }
+
+      // FOR FOOD: Order placed successfully
       toast.success('Order placed successfully!');
 
       localStorage.setItem('lastOrderId', orderId);
       localStorage.setItem('hasOrderedBefore', 'true');
-      if (deliveryType === 'food') {
-        clearCart();
-      }
+      clearCart();
       navigate('/order-confirmation', { state: { orderId: orderId } });
 
     } catch (err) {
@@ -427,7 +325,6 @@ const handleMockOrder = async () => {
     }
   };
 
-  // Get delivery type icon
   const getDeliveryIcon = () => {
     switch(deliveryType) {
       case 'package': return <Package className="w-5 h-5 text-purple-500" />;
@@ -454,7 +351,6 @@ const handleMockOrder = async () => {
     );
   }
 
-  // Show empty cart for food delivery only
   if (deliveryType === 'food' && itemCount === 0) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-12 text-center">
@@ -482,11 +378,11 @@ const handleMockOrder = async () => {
         <h1 className="text-2xl font-bold">{getDeliveryTitle()}</h1>
       </div>
       <p className="text-gray-500 mb-6">
-        {deliveryType === 'food' ? `From ${cart.restaurantName || 'Restaurant'}` : 'Review your delivery details before payment'}
+        {deliveryType === 'food' ? `From ${cart.restaurantName || 'Restaurant'}` : 'Review your delivery details before submitting'}
       </p>
 
       <div className="bg-white border rounded-xl overflow-hidden">
-        {/* Food Items Section (only for food delivery) */}
+        {/* Food Items Section */}
         {deliveryType === 'food' && cart.items.length > 0 && (
           <>
             <div className="p-4 space-y-4">
@@ -496,35 +392,18 @@ const handleMockOrder = async () => {
                     <p className="font-medium">{item.name}</p>
                     <p className="text-sm text-green">R{formatPrice(item.price)}</p>
                   </div>
-
                   <div className="flex items-center gap-2">
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                      className="h-8 w-8"
-                    >
+                    <Button size="icon" variant="outline" onClick={() => updateQuantity(item.id, item.quantity - 1)} className="h-8 w-8">
                       <Minus className="w-3 h-3" />
                     </Button>
                     <span className="w-6 text-center">{item.quantity}</span>
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                      className="h-8 w-8"
-                    >
+                    <Button size="icon" variant="outline" onClick={() => updateQuantity(item.id, item.quantity + 1)} className="h-8 w-8">
                       <Plus className="w-3 h-3" />
                     </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => removeFromCart(item.id)}
-                      className="h-8 w-8"
-                    >
+                    <Button size="icon" variant="ghost" onClick={() => removeFromCart(item.id)} className="h-8 w-8">
                       <Trash2 className="w-3 h-3 text-red-500" />
                     </Button>
                   </div>
-
                   <p className="font-semibold min-w-[80px] text-right">
                     R{formatPrice(getNumericPrice(item.price) * item.quantity)}
                   </p>
@@ -535,63 +414,23 @@ const handleMockOrder = async () => {
           </>
         )}
 
-        {/* Package Delivery Summary (for non-food) - SHOW SUMMARY, NOT FORM */}
+        {/* Package Delivery Summary */}
         {deliveryType !== 'food' && (
           <div className="p-4 space-y-4">
             <div className="bg-gray-50 rounded-lg p-3">
               <h3 className="font-semibold text-sm mb-2">📦 Delivery Summary</h3>
-              
               <div className="space-y-2 text-sm">
-                <div className="flex">
-                  <span className="w-28 text-gray-500">Pickup:</span>
-                  <span className="flex-1">{pickupAddress || 'Not provided'}</span>
-                </div>
-                <div className="flex">
-                  <span className="w-28 text-gray-500">Delivery:</span>
-                  <span className="flex-1">{address || 'Not provided'}</span>
-                </div>
-                <div className="flex">
-                  <span className="w-28 text-gray-500">Recipient:</span>
-                  <span className="flex-1">{recipientName || 'Not provided'}</span>
-                </div>
-                {recipientPhone && (
-                  <div className="flex">
-                    <span className="w-28 text-gray-500">Phone:</span>
-                    <span className="flex-1">{recipientPhone}</span>
-                  </div>
-                )}
-                {packageDescription && (
-                  <div className="flex">
-                    <span className="w-28 text-gray-500">Description:</span>
-                    <span className="flex-1">{packageDescription}</span>
-                  </div>
-                )}
+                <div className="flex"><span className="w-28 text-gray-500">Pickup:</span><span className="flex-1">{pickupAddress || 'Not provided'}</span></div>
+                <div className="flex"><span className="w-28 text-gray-500">Delivery:</span><span className="flex-1">{address || 'Not provided'}</span></div>
+                <div className="flex"><span className="w-28 text-gray-500">Recipient:</span><span className="flex-1">{recipientName || 'Not provided'}</span></div>
+                {recipientPhone && <div className="flex"><span className="w-28 text-gray-500">Phone:</span><span className="flex-1">{recipientPhone}</span></div>}
+                {packageDescription && <div className="flex"><span className="w-28 text-gray-500">Description:</span><span className="flex-1">{packageDescription}</span></div>}
                 {(packageWeight || packageDimensions) && (
-                  <div className="flex">
-                    <span className="w-28 text-gray-500">Package:</span>
-                    <span className="flex-1">
-                      {packageWeight && `${packageWeight}kg`}
-                      {packageWeight && packageDimensions && ' • '}
-                      {packageDimensions && `${packageDimensions}cm`}
-                    </span>
-                  </div>
+                  <div className="flex"><span className="w-28 text-gray-500">Package:</span><span className="flex-1">{packageWeight && `${packageWeight}kg`}{packageWeight && packageDimensions && ' • '}{packageDimensions && `${packageDimensions}cm`}</span></div>
                 )}
-                <div className="flex">
-                  <span className="w-28 text-gray-500">Options:</span>
-                  <span className="flex-1">
-                    {requiresSignature && <span className="inline-block mr-2">📝 Signature</span>}
-                    {isFragile && <span className="inline-block">⚠️ Fragile</span>}
-                    {!requiresSignature && !isFragile && <span className="text-gray-400">None</span>}
-                  </span>
-                </div>
+                <div className="flex"><span className="w-28 text-gray-500">Options:</span><span className="flex-1">{requiresSignature && <span className="inline-block mr-2">📝 Signature</span>}{isFragile && <span className="inline-block">⚠️ Fragile</span>}{!requiresSignature && !isFragile && <span className="text-gray-400">None</span>}</span></div>
               </div>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-3 w-full"
-                onClick={() => navigate('/package-delivery', { state: { deliveryType: deliveryType } })}
-              >
+              <Button variant="outline" size="sm" className="mt-3 w-full" onClick={() => navigate('/package-delivery', { state: { deliveryType: deliveryType } })}>
                 Edit Details
               </Button>
             </div>
@@ -604,17 +443,8 @@ const handleMockOrder = async () => {
             <Separator />
             <div className="p-4 space-y-3">
               <h3 className="font-semibold">Delivery Address</h3>
-              <Input
-                placeholder="Street address *"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-              />
-              <Textarea
-                placeholder="Notes (optional)"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={2}
-              />
+              <Input placeholder="Street address *" value={address} onChange={(e) => setAddress(e.target.value)} />
+              <Textarea placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
             </div>
           </>
         )}
@@ -623,122 +453,103 @@ const handleMockOrder = async () => {
 
         {/* Price Summary */}
         <div className="p-4 space-y-2">
-          {deliveryType === 'food' && (
-            <div className="flex justify-between">
-              <span>Subtotal</span>
-              <span>R{formatPrice(subtotal)}</span>
-            </div>
-          )}
-
-          <PromoCode
-            subtotal={deliveryType === 'food' ? getNumericPrice(subtotal) : orderTotal}
-            onApply={handleApplyPromo}
-            onRemove={handleRemovePromo}
-          />
-
-          {promoDiscount > 0 && (
-            <div className="flex justify-between text-green">
-              <span>Discount ({promoMessage})</span>
-              <span>-R{formatPrice(promoDiscount)}</span>
-            </div>
-          )}
-
-          {deliveryType === 'food' && (
-            <div className="flex justify-between">
-              <span>Delivery Fee</span>
-              <span>R{formatPrice(DELIVERY_FEE)}</span>
-            </div>
-          )}
-
+          {deliveryType === 'food' && <div className="flex justify-between"><span>Subtotal</span><span>R{formatPrice(subtotal)}</span></div>}
+          <PromoCode subtotal={deliveryType === 'food' ? getNumericPrice(subtotal) : orderTotal} onApply={handleApplyPromo} onRemove={handleRemovePromo} />
+          {promoDiscount > 0 && <div className="flex justify-between text-green"><span>Discount ({promoMessage})</span><span>-R{formatPrice(promoDiscount)}</span></div>}
+          {deliveryType === 'food' && <div className="flex justify-between"><span>Delivery Fee</span><span>R{formatPrice(DELIVERY_FEE)}</span></div>}
           {deliveryType !== 'food' && quote && (
             <div className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <span>Base delivery fee</span>
-                <span>R{deliveryType === 'package' ? 50 : deliveryType === 'document' ? 35 : 60}</span>
-              </div>
-              {packageWeight > 0 && (
-                <div className="flex justify-between">
-                  <span>Weight charge (R5/kg)</span>
-                  <span>R{(parseFloat(packageWeight) * 5).toFixed(2)}</span>
-                </div>
-              )}
-              {requiresSignature && (
-                <div className="flex justify-between">
-                  <span>Signature required</span>
-                  <span>R10.00</span>
-                </div>
-              )}
-              {isFragile && (
-                <div className="flex justify-between">
-                  <span>Fragile handling</span>
-                  <span>R15.00</span>
-                </div>
-              )}
+              <div className="flex justify-between"><span>Base delivery fee</span><span>R{deliveryType === 'package' ? 50 : deliveryType === 'document' ? 35 : 60}</span></div>
+              {packageWeight > 0 && <div className="flex justify-between"><span>Weight charge (R5/kg)</span><span>R{(parseFloat(packageWeight) * 5).toFixed(2)}</span></div>}
+              {requiresSignature && <div className="flex justify-between"><span>Signature required</span><span>R10.00</span></div>}
+              {isFragile && <div className="flex justify-between"><span>Fragile handling</span><span>R15.00</span></div>}
             </div>
           )}
-
           <Separator />
-
-          <div className="flex justify-between font-bold text-lg">
-            <span>Total</span>
-            <span className="text-green">R{formatPrice(discountedTotal)}</span>
-          </div>
+          <div className="flex justify-between font-bold text-lg"><span>Total</span><span className="text-green">R{formatPrice(discountedTotal)}</span></div>
         </div>
 
-        {/* Payment Options */}
-        <div className="px-4 pb-2">
-          <button
-            onClick={() => setShowPaymentOptions(!showPaymentOptions)}
-            className="text-sm text-blue-600"
-          >
-            {showPaymentOptions ? '▼ Hide test card info' : '▶ Show test card info'}
-          </button>
-        </div>
-
-        {showPaymentOptions && (
-          <div className="px-4 pb-4">
-            <div className="bg-blue-50 p-3 rounded-lg text-sm">
-              <p className="font-semibold mb-2">💳 Yoco Test Cards</p>
-              <p>• Visa: 4111 1111 1111 1111</p>
-              <p>• Mastercard: 5555 5555 5555 4444</p>
-              <p>• Amex: 3782 822463 10005</p>
-              <p className="text-xs text-gray-500 mt-2">Any future expiry date & any CVV</p>
-            </div>
+        {/* FOR PACKAGES: Show different button (Submit for Approval, no payment) */}
+        {deliveryType !== 'food' && (
+          <div className="p-4 pt-0">
+            <button
+              onClick={handlePlaceOrder}
+              disabled={placing || !canCheckout()}
+              className="w-full py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {placing ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  <span className="text-sm">{loadingStep || "Submitting..."}</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-4 w-4" />
+                  Submit Package Request (No Payment Now)
+                </>
+              )}
+            </button>
+            <p className="text-xs text-center text-gray-400 mt-3">
+              You'll pay after admin approves your package
+            </p>
           </div>
         )}
 
-        <div className="p-4 pt-0 space-y-2">
-          <button
-            onClick={handlePlaceOrder}
-            disabled={placing || !canCheckout()}
-            className="w-full py-3 bg-green text-white rounded-lg font-medium hover:bg-green/90 transition disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {placing ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                <span className="text-sm">{loadingStep || "Processing..."}</span>
-              </>
-            ) : (
-              <>
-                <Lock className="h-4 w-4" />
-                Pay R{formatPrice(discountedTotal)} Securely
-              </>
+        {/* FOR FOOD: Show payment buttons */}
+        {deliveryType === 'food' && (
+          <>
+            <div className="px-4 pb-2">
+              <button onClick={() => setShowPaymentOptions(!showPaymentOptions)} className="text-sm text-blue-600">
+                {showPaymentOptions ? '▼ Hide test card info' : '▶ Show test card info'}
+              </button>
+            </div>
+
+            {showPaymentOptions && (
+              <div className="px-4 pb-4">
+                <div className="bg-blue-50 p-3 rounded-lg text-sm">
+                  <p className="font-semibold mb-2">💳 Yoco Test Cards</p>
+                  <p>• Visa: 4111 1111 1111 1111</p>
+                  <p>• Mastercard: 5555 5555 5555 4444</p>
+                  <p>• Amex: 3782 822463 10005</p>
+                  <p className="text-xs text-gray-500 mt-2">Any future expiry date & any CVV</p>
+                </div>
+              </div>
             )}
-          </button>
 
-          <button
-            onClick={handleMockOrder}
-            disabled={placing || !canCheckout()}
-            className="w-full py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition disabled:opacity-50 border border-gray-300"
-          >
-            {placing ? 'Processing...' : `🎮 Demo Mode (No Charge) • R${formatPrice(discountedTotal)}`}
-          </button>
+            <div className="p-4 pt-0 space-y-2">
+              <button
+                onClick={handlePlaceOrder}
+                disabled={placing || !canCheckout()}
+                className="w-full py-3 bg-green text-white rounded-lg font-medium hover:bg-green/90 transition disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {placing ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span className="text-sm">{loadingStep || "Processing..."}</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="h-4 w-4" />
+                    Pay R{formatPrice(discountedTotal)} Securely
+                  </>
+                )}
+              </button>
 
-          <p className="text-xs text-center text-gray-400">
-            <Lock className="w-3 h-3 inline mr-1" />
-            Secure payment by Yoco
-          </p>
-        </div>
+              <button
+                onClick={handleMockOrder}
+                disabled={placing || !canCheckout()}
+                className="w-full py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition disabled:opacity-50 border border-gray-300"
+              >
+                {placing ? 'Processing...' : `🎮 Demo Mode (No Charge) • R${formatPrice(discountedTotal)}`}
+              </button>
+
+              <p className="text-xs text-center text-gray-400">
+                <Lock className="w-3 h-3 inline mr-1" />
+                Secure payment by Yoco
+              </p>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

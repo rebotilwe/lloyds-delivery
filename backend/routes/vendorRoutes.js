@@ -211,7 +211,7 @@ router.get("/analytics", async (req, res) => {
 });
 
 /* =========================
-   UPDATE ORDER STATUS
+   UPDATE ORDER STATUS (FIXED - removed undefined order reference)
 ========================= */
 router.put("/orders/:id/status", async (req, res) => {
   try {
@@ -223,6 +223,14 @@ router.put("/orders/:id/status", async (req, res) => {
     if (!restaurant) {
       return res.status(404).json({ message: "Restaurant not found" });
     }
+
+    // Get order details before updating (for notification)
+    const orderDetails = await db.query(
+      "SELECT total FROM orders WHERE id = $1",
+      [orderId]
+    );
+    
+    const orderTotal = orderDetails.rows[0]?.total || 0;
 
     await db.query(
       `UPDATE orders
@@ -247,7 +255,7 @@ router.put("/orders/:id/status", async (req, res) => {
       io.emit("order-ready-for-driver", {
         orderId: parseInt(orderId),
         restaurantName: restaurant.name,
-        orderTotal: order.total,
+        orderTotal: orderTotal,  // FIXED: using orderTotal from database
         timestamp: new Date(),
       });
     }

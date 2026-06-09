@@ -31,24 +31,24 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-// Restaurant document types
-const restaurantDocumentTypes = [
-  { key: 'health_certificate', label: 'Health & Safety Certificate', icon: Shield, required: true },
-  { key: 'halaal_certificate', label: 'Halaal Certificate', icon: Award, required: false },
-  { key: 'business_license', label: 'Business License', icon: FileText, required: true },
-  { key: 'vat_registration', label: 'VAT Registration', icon: FileText, required: false },
-  { key: 'bank_confirmation', label: 'Bank Confirmation Letter', icon: CreditCard, required: true },
-];
+// Restaurant document types - COMMENTED OUT FOR NOW
+// const restaurantDocumentTypes = [
+//   { key: 'health_certificate', label: 'Health & Safety Certificate', icon: Shield, required: true },
+//   { key: 'halaal_certificate', label: 'Halaal Certificate', icon: Award, required: false },
+//   { key: 'business_license', label: 'Business License', icon: FileText, required: true },
+//   { key: 'vat_registration', label: 'VAT Registration', icon: FileText, required: false },
+//   { key: 'bank_confirmation', label: 'Bank Confirmation Letter', icon: CreditCard, required: true },
+// ];
 
 export default function VendorManagement({ vendors = [], onRefresh }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showDocumentsModal, setShowDocumentsModal] = useState(false);
+  // const [showDocumentsModal, setShowDocumentsModal] = useState(false); // COMMENTED OUT
   const [updating, setUpdating] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadingFor, setUploadingFor] = useState(null);
+  // const [uploading, setUploading] = useState(false); // COMMENTED OUT
+  // const [uploadingFor, setUploadingFor] = useState(null); // COMMENTED OUT
   const [editForm, setEditForm] = useState({
     name: '',
     email: '',
@@ -59,8 +59,8 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
     bank_account_number: '',
     bank_branch_code: ''
   });
-  const [restaurantDocuments, setRestaurantDocuments] = useState({});
-  const [viewingDoc, setViewingDoc] = useState(null);
+  // const [restaurantDocuments, setRestaurantDocuments] = useState({}); // COMMENTED OUT
+  // const [viewingDoc, setViewingDoc] = useState(null); // COMMENTED OUT
 
   // Safety checks - use empty array if vendors is undefined
   const safeVendors = vendors || [];
@@ -129,81 +129,27 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
     }
   };
 
-  const handleViewDocuments = (vendor) => {
-    setSelectedVendor(vendor);
-    // Load existing documents from vendor data
-    const docs = {};
-    restaurantDocumentTypes.forEach(doc => {
-      docs[doc.key] = vendor[doc.key] || null;
-    });
-    setRestaurantDocuments(docs);
-    setShowDocumentsModal(true);
-  };
+  // COMMENTED OUT - Document upload functions
+  // const handleViewDocuments = (vendor) => {
+  //   setSelectedVendor(vendor);
+  //   const docs = {};
+  //   restaurantDocumentTypes.forEach(doc => {
+  //     docs[doc.key] = vendor[doc.key] || null;
+  //   });
+  //   setRestaurantDocuments(docs);
+  //   setShowDocumentsModal(true);
+  // };
 
-  // FIXED: Better error handling and debugging for document upload
-  const handleDocumentUpload = async (documentKey, file) => {
-    if (!file) {
-      toast.error('No file selected');
-      return;
-    }
-    
-    setUploading(true);
-    setUploadingFor(documentKey);
-    
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('document_key', documentKey);
-    
-    console.log('Uploading document:', {
-      documentKey,
-      vendorId: selectedVendor?.id,
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type
-    });
-    
-    try {
-      const response = await api.post(`/vendor/admin/upload-document/${selectedVendor.id}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 30000, // 30 second timeout
-      });
-      
-      console.log('Upload response:', response.data);
-      
-      if (response.data.url) {
-        setRestaurantDocuments(prev => ({ ...prev, [documentKey]: response.data.url }));
-        toast.success(`${restaurantDocumentTypes.find(d => d.key === documentKey)?.label} uploaded successfully`);
-        if (onRefresh) onRefresh();
-      } else {
-        throw new Error('No URL returned from server');
-      }
-    } catch (error) {
-      console.error('Upload error details:', error);
-      console.error('Error response:', error.response);
-      
-      if (error.response?.status === 404) {
-        toast.error('Upload endpoint not found. Please check if the backend route is configured.');
-      } else if (error.response?.status === 401) {
-        toast.error('Unauthorized. Please log in again.');
-      } else if (error.response?.status === 403) {
-        toast.error('You do not have permission to upload documents.');
-      } else if (error.code === 'ECONNABORTED') {
-        toast.error('Upload timed out. Please try again with a smaller file.');
-      } else {
-        toast.error(error.response?.data?.message || 'Failed to upload document. Please try again.');
-      }
-    } finally {
-      setUploading(false);
-      setUploadingFor(null);
-    }
-  };
+  // const handleDocumentUpload = async (documentKey, file) => {
+  //   // Upload logic commented out
+  // };
 
-  const getDocumentUrl = (url) => {
-    if (!url) return null;
-    if (url.startsWith('http')) return url;
-    if (url.startsWith('/uploads')) return `${import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com'}${url}`;
-    return url;
-  };
+  // const getDocumentUrl = (url) => {
+  //   if (!url) return null;
+  //   if (url.startsWith('http')) return url;
+  //   if (url.startsWith('/uploads')) return `${import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com'}${url}`;
+  //   return url;
+  // };
 
   return (
     <div className="space-y-4">
@@ -303,14 +249,15 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
                   <Badge className="bg-green-100 text-green-800 text-[10px] sm:text-xs whitespace-nowrap">Active</Badge>
-                  <Button 
+                  {/* Documents Button - COMMENTED OUT */}
+                  {/* <Button 
                     size="sm" 
                     variant="outline" 
                     onClick={() => handleViewDocuments(vendor)}
                     className="text-xs"
                   >
                     <FileText className="w-3 h-3 mr-1" /> Documents
-                  </Button>
+                  </Button> */}
                   <Button 
                     size="sm" 
                     variant="outline" 
@@ -354,14 +301,15 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                   <p className="text-xs text-gray-500 truncate">{vendor.email}</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button 
+                  {/* Documents Button - COMMENTED OUT */}
+                  {/* <Button 
                     size="sm" 
                     variant="outline" 
                     onClick={() => handleViewDocuments(vendor)}
                     className="text-xs"
                   >
                     <FileText className="w-3 h-3 mr-1" /> Documents
-                  </Button>
+                  </Button> */}
                   <Button 
                     size="sm" 
                     variant="outline" 
@@ -445,13 +393,14 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                 </div>
               )}
               <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                <Button 
+                {/* View Documents Button - COMMENTED OUT */}
+                {/* <Button 
                   onClick={() => handleViewDocuments(selectedVendor)}
                   className="flex-1 bg-purple-600 text-white text-sm"
                 >
                   <FileText className="w-4 h-4 mr-2" />
                   View Documents
-                </Button>
+                </Button> */}
                 <Button 
                   onClick={() => handleEditVendor(selectedVendor)}
                   className="flex-1 bg-blue-600 text-white text-sm"
@@ -484,151 +433,15 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
         </DialogContent>
       </Dialog>
 
-      {/* Documents Modal */}
-      <Dialog open={showDocumentsModal} onOpenChange={setShowDocumentsModal}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-purple-500" />
-              Restaurant Documents
-            </DialogTitle>
-            <p className="text-xs text-gray-500 mt-1">
-              {selectedVendor?.name} - Upload required certificates and documents
-            </p>
-          </DialogHeader>
-          <div className="space-y-4">
-            {restaurantDocumentTypes.map((doc) => {
-              const Icon = doc.icon;
-              const docUrl = getDocumentUrl(restaurantDocuments[doc.key]);
-              const isUploaded = !!docUrl;
-              const isUploadingThis = uploadingFor === doc.key;
-              
-              return (
-                <div key={doc.key} className="border rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Icon className="w-4 h-4 text-gray-500" />
-                      <span className="text-sm font-medium">
-                        {doc.label}
-                        {doc.required && <span className="text-red-500 ml-1">*</span>}
-                      </span>
-                    </div>
-                    {isUploaded && (
-                      <Badge variant="outline" className="text-green-600 text-xs">
-                        <CheckCircle className="w-3 h-3 mr-1" />
-                        Uploaded
-                      </Badge>
-                    )}
-                  </div>
-                 <div className="flex gap-2">
-  <input
-    id={`file-${doc.key}`}
-    type="file"
-    className="hidden"
-    accept=".pdf,.jpg,.jpeg,.png"
-    disabled={uploading}
-    onChange={(e) => {
-      const file = e.target.files?.[0];
+      {/* Documents Modal - COMMENTED OUT */}
+      {/* <Dialog open={showDocumentsModal} onOpenChange={setShowDocumentsModal}>
+        ... Document upload modal content ...
+      </Dialog> */}
 
-      console.log("Selected file:", file);
-
-      if (file) {
-        handleDocumentUpload(doc.key, file);
-      }
-    }}
-  />
-
-  <Button
-    type="button"
-    size="sm"
-    variant="outline"
-    className="flex-1"
-    disabled={uploading}
-    onClick={() => {
-      console.log("Upload clicked:", doc.key);
-
-      const input = document.getElementById(`file-${doc.key}`);
-
-      if (!input) {
-        console.error("File input not found:", `file-${doc.key}`);
-        return;
-      }
-
-      input.click();
-    }}
-  >
-    {isUploadingThis ? (
-      <div className="flex items-center justify-center">
-        <div className="w-4 h-4 border-2 border-gray-300 border-t-green rounded-full animate-spin mr-2" />
-        Uploading...
-      </div>
-    ) : (
-      <>
-        <Upload className="w-3 h-3 mr-1" />
-        {isUploaded ? "Replace" : "Upload"}
-      </>
-    )}
-  </Button>
-
-  {isUploaded && (
-    <Button
-      size="sm"
-      variant="outline"
-      onClick={() => window.open(docUrl, "_blank")}
-    >
-      <Download className="w-3 h-3 mr-1" />
-      View
-    </Button>
-  )}
-</div>
-                  
-                  {!isUploaded && doc.required && (
-                    <p className="text-xs text-red-500 mt-1">
-                      Required document - please upload
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-            
-            <div className="bg-blue-50 p-3 rounded-lg mt-2">
-              <p className="text-xs text-blue-700 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" />
-                All documents will be reviewed by admin before vendor approval
-              </p>
-            </div>
-            
-            <Button onClick={() => setShowDocumentsModal(false)} className="w-full bg-green text-white">
-              Done
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Document Preview Modal */}
-      <Dialog open={!!viewingDoc} onOpenChange={() => setViewingDoc(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Document Preview</DialogTitle>
-          </DialogHeader>
-          {viewingDoc && (
-            <div>
-              {viewingDoc.match(/\.(jpe?g|png|gif|webp)$/i) ? (
-                <img src={viewingDoc} alt="Document" className="w-full rounded-lg object-contain" style={{ maxHeight: '60vh' }} />
-              ) : (
-                <iframe src={viewingDoc} className="w-full rounded-lg" style={{ height: '60vh' }} title="Document" />
-              )}
-              <div className="flex justify-end gap-2 mt-4">
-                <Button variant="outline" onClick={() => window.open(viewingDoc, '_blank')}>
-                  <Download className="w-4 h-4 mr-2" />
-                  Download
-                </Button>
-                <Button onClick={() => setViewingDoc(null)}>Close</Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Document Preview Modal - COMMENTED OUT */}
+      {/* <Dialog open={!!viewingDoc} onOpenChange={() => setViewingDoc(null)}>
+        ... Document preview modal content ...
+      </Dialog> */}
 
       {/* Edit Vendor Modal */}
       <Dialog open={showEditModal} onOpenChange={setShowEditModal}>

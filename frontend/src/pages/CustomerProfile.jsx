@@ -7,12 +7,34 @@ import { User, Mail, Phone, Save, Key, LogOut, Eye, EyeOff, Shield, AlertCircle,
 import { toast } from 'sonner';
 import { api } from '@/api/client';
 
+// Phone number validation function
+const validatePhoneNumber = (phone) => {
+  if (!phone) return true; // Empty is allowed (optional field)
+  // Remove any non-digit characters for validation
+  const digits = phone.replace(/\D/g, '');
+  // South African phone numbers: 10 digits (starting with 0) or 11 digits (starting with 27)
+  if (digits.length === 10 && digits.startsWith('0')) return true;
+  if (digits.length === 11 && digits.startsWith('27')) return true;
+  if (digits.length === 9) return true; // Local format without prefix
+  return false;
+};
+
+// Format phone number for display
+const formatPhoneNumber = (value) => {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)} ${digits.slice(3)}`;
+  if (digits.length <= 10) return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 10)}`;
+  return `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 9)} ${digits.slice(9, 11)}`;
+};
+
 export default function CustomerProfile() {
   const { user, setUser, logout } = useAuth();
   const [loading, setLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [mobileView, setMobileView] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -44,9 +66,32 @@ export default function CustomerProfile() {
     }
   }, [user]);
 
+  // Handle phone number change with validation and formatting
+  const handlePhoneChange = (e) => {
+    const rawValue = e.target.value;
+    // Only allow numeric input
+    const digitsOnly = rawValue.replace(/\D/g, '');
+    const formatted = formatPhoneNumber(digitsOnly);
+    
+    setFormData({ ...formData, phone: formatted });
+    
+    // Validate and show error if needed
+    if (formatted && !validatePhoneNumber(formatted)) {
+      setPhoneError('Please enter a valid South African phone number (e.g., 0712345678 or 27712345678)');
+    } else {
+      setPhoneError('');
+    }
+  };
+
   const handleUpdateProfile = async () => {
     if (!formData.name.trim()) {
       toast.error('Please enter your name');
+      return;
+    }
+    
+    // Validate phone number if provided
+    if (formData.phone && !validatePhoneNumber(formData.phone)) {
+      toast.error('Please enter a valid phone number');
       return;
     }
 
@@ -174,16 +219,24 @@ export default function CustomerProfile() {
                 <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <Input
                   value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  className="pl-10 text-sm sm:text-base"
-                  placeholder="Your phone number"
+                  onChange={handlePhoneChange}
+                  className={`pl-10 text-sm sm:text-base ${phoneError ? 'border-red-500 focus:ring-red-500' : ''}`}
+                  placeholder="e.g., 0712345678"
+                  type="tel"
                 />
               </div>
+              {phoneError && (
+                <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  {phoneError}
+                </p>
+              )}
+              <p className="text-xs text-gray-500 mt-1">South African format (e.g., 0712345678 or 27712345678)</p>
             </div>
 
             <Button
               onClick={handleUpdateProfile}
-              disabled={loading}
+              disabled={loading || !!phoneError}
               className="w-full bg-green hover:bg-green/90 text-white text-sm sm:text-base h-10 sm:h-11"
             >
               {loading ? (

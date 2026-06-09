@@ -6,12 +6,13 @@ import {
   Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, 
   AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
   Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car,
-  Lock
+  Lock, Loader2, XCircle
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -38,11 +39,12 @@ const FOOD_STATUS_STEPS = [
 
 const PACKAGE_STATUS_STEPS = [
   { key: 'pending_approval', label: 'Pending', step: 1 },
-  { key: 'pending_driver', label: 'Driver Search', step: 2 },
-  { key: 'assigned', label: 'Driver Assigned', step: 3 },
-  { key: 'picked_up', label: 'Picked Up', step: 4 },
-  { key: 'on_the_way', label: 'On Way', step: 5 },
-  { key: 'delivered', label: 'Delivered', step: 6 },
+  { key: 'rejected', label: 'Rejected', step: 2 },
+  { key: 'pending_driver', label: 'Driver Search', step: 3 },
+  { key: 'assigned', label: 'Driver Assigned', step: 4 },
+  { key: 'picked_up', label: 'Picked Up', step: 5 },
+  { key: 'on_the_way', label: 'On Way', step: 6 },
+  { key: 'delivered', label: 'Delivered', step: 7 },
 ];
 
 const getStatusSteps = (order) => {
@@ -157,6 +159,227 @@ function DriverInfoCard({ driver, isPackage }) {
   );
 }
 
+// Cancellation Reason Modal Component
+function CancellationModal({ isOpen, onClose, onConfirm, orderId, orderType }) {
+  const [reason, setReason] = useState('');
+  const [otherReason, setOtherReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const cancellationReasons = [
+    { value: 'changed_mind', label: 'Changed my mind' },
+    { value: 'long_delivery', label: 'Delivery time too long' },
+    { value: 'wrong_address', label: 'Wrong delivery address' },
+    { value: 'found_cheaper', label: 'Found a cheaper option' },
+    { value: 'payment_issue', label: 'Payment issue' },
+    { value: 'other', label: 'Other' },
+  ];
+
+  const handleConfirm = async () => {
+    if (!reason) {
+      toast.error('Please select a reason for cancellation');
+      return;
+    }
+
+    const finalReason = reason === 'other' ? otherReason : cancellationReasons.find(r => r.value === reason)?.label;
+    
+    if (reason === 'other' && !otherReason.trim()) {
+      toast.error('Please provide a reason');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await onConfirm(orderId, finalReason);
+      onClose();
+    } catch (err) {
+      console.error('Cancellation error:', err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-red-500" />
+            Cancel {orderType === 'package' ? 'Delivery' : 'Order'} #{orderId}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium mb-2 block">Please tell us why you're cancelling:</label>
+            <div className="space-y-2">
+              {cancellationReasons.map((cancellationReason) => (
+                <label key={cancellationReason.value} className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="cancellationReason"
+                    value={cancellationReason.value}
+                    checked={reason === cancellationReason.value}
+                    onChange={(e) => setReason(e.target.value)}
+                    className="w-4 h-4 text-red-500"
+                  />
+                  <span className="text-sm">{cancellationReason.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {reason === 'other' && (
+            <div>
+              <label className="text-sm font-medium mb-1 block">Please specify:</label>
+              <Textarea
+                placeholder="Tell us why you're cancelling..."
+                value={otherReason}
+                onChange={(e) => setOtherReason(e.target.value)}
+                rows={3}
+                className="mt-1"
+              />
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <Button
+              onClick={handleConfirm}
+              disabled={submitting}
+              className="flex-1 bg-red-600 text-white hover:bg-red-700"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Confirm Cancellation
+            </Button>
+            <Button onClick={onClose} variant="outline" className="flex-1">
+              Go Back
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// Driver Rating Modal Component
+function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver }) {
+  const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (rating === 0) {
+      toast.error('Please select a rating');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await api.post('/orders/reviews/create', {
+        order_id: order.id,
+        driver_id: driver.id,
+        customer_id: order.customer_id,
+        rating: rating,
+        comment: comment,
+        type: 'driver'
+      });
+      
+      toast.success('Thank you for rating your driver!');
+      onSubmitted();
+      onClose();
+    } catch (error) {
+      console.error('Rating error:', error);
+      toast.error('Failed to submit rating');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Star className="w-5 h-5 text-yellow-500" />
+            Rate Your Driver
+          </DialogTitle>
+        </DialogHeader>
+        
+        <div className="space-y-4">
+          {/* Driver Info */}
+          <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-lg">
+              {driver.name?.charAt(0).toUpperCase() || 'D'}
+            </div>
+            <div>
+              <p className="font-semibold">{driver.name}</p>
+              <p className="text-xs text-gray-500">Your delivery driver</p>
+            </div>
+          </div>
+          
+          {/* Star Rating */}
+          <div className="text-center">
+            <p className="text-sm font-medium mb-2">How was your delivery experience?</p>
+            <div className="flex justify-center gap-1">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setRating(star)}
+                  onMouseEnter={() => setHoverRating(star)}
+                  onMouseLeave={() => setHoverRating(0)}
+                  className="focus:outline-none transition-transform hover:scale-110"
+                >
+                  <Star
+                    className={`w-8 h-8 ${
+                      (hoverRating || rating) >= star
+                        ? 'fill-yellow-400 text-yellow-400'
+                        : 'text-gray-300'
+                    } transition-colors`}
+                  />
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              {rating === 1 && 'Poor'}
+              {rating === 2 && 'Fair'}
+              {rating === 3 && 'Good'}
+              {rating === 4 && 'Very Good'}
+              {rating === 5 && 'Excellent!'}
+            </p>
+          </div>
+          
+          {/* Comment */}
+          <div>
+            <label className="text-sm font-medium">Leave a comment (optional)</label>
+            <Textarea
+              placeholder="Share your experience with this driver..."
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              rows={3}
+              className="mt-1"
+            />
+          </div>
+          
+          {/* Buttons */}
+          <div className="flex gap-3 pt-2">
+            <Button
+              onClick={handleSubmit}
+              disabled={submitting || rating === 0}
+              className="flex-1 bg-yellow-500 text-white hover:bg-yellow-600"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Submit Rating
+            </Button>
+            <Button onClick={onClose} variant="outline" className="flex-1">
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Live Map Component
 let L = null;
 
@@ -247,17 +470,21 @@ function LiveMap({ driverLocation, orderStatus }) {
 // Active order card component (supports both food and packages)
 function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLocation }) {
   const [expanded, setExpanded] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancellingOrderId, setCancellingOrderId] = useState(null);
   const currentStep = getCurrentStep(order);
   const steps = getStatusSteps(order);
   const isPackage = order.delivery_type && order.delivery_type !== 'food';
+  const isRejected = order.status === 'rejected';
 
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
   const itemCount = items.length;
-  const canCancel = order.status === 'pending' || order.status === 'confirmed' || order.status === 'pending_approval';
+  const canCancel = (order.status === 'pending' || order.status === 'confirmed' || order.status === 'pending_approval') && !isRejected;
   const showMap = order.status === 'on_the_way';
   const needsPayment = isPackage && order.payment_status === 'pending_payment' && order.status === 'pending_driver';
 
   const getEstimatedTime = () => {
+    if (isRejected) return 'Request rejected';
     if (isPackage) {
       if (order.status === 'assigned') return 'Driver assigned to pickup';
       if (order.status === 'picked_up') return 'Package picked up, en route';
@@ -272,6 +499,9 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
   };
 
   const getStatusMessage = () => {
+    if (isRejected) {
+      return '❌ This delivery request has been rejected by admin.';
+    }
     if (isPackage) {
       if (order.status === 'pending_approval') return '⏳ Awaiting admin approval';
       if (order.status === 'pending_driver' && order.payment_status === 'pending_payment') return '✅ Approved! Please complete payment to continue';
@@ -334,315 +564,358 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
   };
 
   return (
-    <Card className="overflow-hidden border-2 border-green/20 shadow-md">
-      <div className={`${isPackage ? 'bg-gradient-to-r from-purple-600 to-purple-500' : 'bg-gradient-to-r from-green to-green/80'} px-3 sm:px-4 py-2 flex items-center justify-between`}>
-        <div className="flex items-center gap-1 sm:gap-2">
-          {isPackage ? (
-            <Package className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
-          ) : (
-            <Truck className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
+    <>
+      <Card className={`overflow-hidden border-2 ${isRejected ? 'border-red-500/50' : 'border-green/20'} shadow-md`}>
+        <div className={`${isRejected ? 'bg-gradient-to-r from-red-600 to-red-500' : (isPackage ? 'bg-gradient-to-r from-purple-600 to-purple-500' : 'bg-gradient-to-r from-green to-green/80')} px-3 sm:px-4 py-2 flex items-center justify-between`}>
+          <div className="flex items-center gap-1 sm:gap-2">
+            {isRejected ? (
+              <XCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
+            ) : isPackage ? (
+              <Package className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
+            ) : (
+              <Truck className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
+            )}
+            <span className="text-white text-xs sm:text-sm font-semibold">
+              {isRejected ? 'Request Rejected' : (isPackage ? 'Package Delivery' : 'Live Order')}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <ClockIcon className="w-3 h-3 text-white" />
+            <span className="text-white/80 text-[10px] sm:text-xs">
+              {getEstimatedTime()}
+            </span>
+          </div>
+        </div>
+        
+        <CardContent className="p-3 sm:p-4 space-y-3 sm:space-y-4">
+          {/* Order Tracker - hide for rejected orders */}
+          {!isRejected && (
+            <div className="relative overflow-x-auto pb-2 -mx-1 px-1">
+              <div className="flex justify-between min-w-[500px] sm:min-w-0">
+                {steps.map((step) => (
+                  <div key={step.key} className="flex flex-col items-center flex-1">
+                    <div className={cn(
+                      "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold transition-all",
+                      currentStep >= step.step 
+                        ? "bg-green text-white" 
+                        : "bg-gray-200 text-gray-400"
+                    )}>
+                      {currentStep > step.step ? (
+                        <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4" />
+                      ) : (
+                        <span className="text-[10px] sm:text-xs">{step.step}</span>
+                      )}
+                    </div>
+                    <span className={cn(
+                      "text-[9px] sm:text-xs mt-1 text-center whitespace-nowrap",
+                      currentStep >= step.step ? "text-green font-medium" : "text-gray-400"
+                    )}>
+                      {step.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
-          <span className="text-white text-xs sm:text-sm font-semibold">
-            {isPackage ? 'Package Delivery' : 'Live Order'}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <ClockIcon className="w-3 h-3 text-white" />
-          <span className="text-white/80 text-[10px] sm:text-xs">
-            {getEstimatedTime()}
-          </span>
-        </div>
-      </div>
-      
-      <CardContent className="p-3 sm:p-4 space-y-3 sm:space-y-4">
-        {/* Order Tracker */}
-        <div className="relative overflow-x-auto pb-2 -mx-1 px-1">
-          <div className="flex justify-between min-w-[500px] sm:min-w-0">
-            {steps.map((step) => (
-              <div key={step.key} className="flex flex-col items-center flex-1">
-                <div className={cn(
-                  "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold transition-all",
-                  currentStep >= step.step 
-                    ? "bg-green text-white" 
-                    : "bg-gray-200 text-gray-400"
-                )}>
-                  {currentStep > step.step ? (
-                    <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4" />
-                  ) : (
-                    <span className="text-[10px] sm:text-xs">{step.step}</span>
+
+          {/* Status Message */}
+          {getStatusMessage() && (
+            <div className={`${isRejected ? 'bg-red-50' : (isPackage ? 'bg-purple-50' : 'bg-blue-50')} p-2 rounded-lg text-center`}>
+              <p className={`text-[10px] sm:text-xs ${isRejected ? 'text-red-700' : (isPackage ? 'text-purple-700' : 'text-blue-700')}`}>
+                {getStatusMessage()}
+              </p>
+            </div>
+          )}
+
+          {/* Rejection Reason Display */}
+          {isRejected && order.admin_rejection_reason && (
+            <div className="bg-red-100 border border-red-300 rounded-lg p-3">
+              <p className="text-xs font-semibold text-red-800 mb-1 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                Rejection Reason:
+              </p>
+              <p className="text-sm text-red-700">{order.admin_rejection_reason}</p>
+              <p className="text-[10px] text-red-500 mt-2">
+                This request was rejected by admin. Please contact support if you believe this is an error.
+              </p>
+            </div>
+          )}
+
+          {/* Driver Info Card - hide for rejected */}
+          {!isRejected && (order.driver_id || order.driver_name) && (
+            <DriverInfoCard driver={{
+              id: order.driver_id,
+              name: order.driver_name,
+              phone: order.driver_phone,
+              vehicle_type: order.driver_vehicle_type
+            }} isPackage={isPackage} />
+          )}
+
+          {/* Order Details */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 text-sm">
+            <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
+              <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">Total</p>
+              <p className="font-bold text-green text-sm sm:text-lg">R{Number(order.total).toFixed(2)}</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
+              <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">
+                {isPackage ? 'Package ID' : 'Items'}
+              </p>
+              <p className="font-semibold text-xs sm:text-sm">
+                {isPackage ? `#${order.id}` : `${itemCount} item(s)`}
+              </p>
+            </div>
+          </div>
+
+          {/* Package Details - For Non-Food Deliveries */}
+          {isPackage && !isRejected && (
+            <div className="bg-purple-50 rounded-lg p-3">
+              <p className="text-xs font-semibold text-purple-800 mb-2 flex items-center gap-1">
+                <Package className="w-3 h-3" />
+                Package Details
+              </p>
+              
+              {/* Pickup Address */}
+              {order.pickup_address && (
+                <div className="flex items-start gap-2 mb-2">
+                  <MapPin className="w-3 h-3 text-green mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-[10px] text-gray-500">Pickup Address</p>
+                    <p className="text-xs font-medium">{order.pickup_address}</p>
+                  </div>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="h-6 text-xs ml-auto shrink-0"
+                    onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.pickup_address)}`, '_blank')}
+                  >
+                    <Navigation className="w-2.5 h-2.5 mr-1" />
+                    Navigate
+                  </Button>
+                </div>
+              )}
+              
+              {/* Recipient Info */}
+              {order.recipient_name && (
+                <div className="flex flex-wrap items-center gap-3 mb-2">
+                  <div className="flex items-center gap-1">
+                    <User className="w-3 h-3 text-gray-500" />
+                    <span className="text-xs">Recipient: {order.recipient_name}</span>
+                  </div>
+                  {order.recipient_phone && (
+                    <a 
+                      href={`tel:${order.recipient_phone}`} 
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                    >
+                      <Phone className="w-3 h-3" />
+                      Call Recipient
+                    </a>
                   )}
                 </div>
-                <span className={cn(
-                  "text-[9px] sm:text-xs mt-1 text-center whitespace-nowrap",
-                  currentStep >= step.step ? "text-green font-medium" : "text-gray-400"
-                )}>
-                  {step.label}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Status Message */}
-        {getStatusMessage() && (
-          <div className={`${isPackage ? 'bg-purple-50' : 'bg-blue-50'} p-2 rounded-lg text-center`}>
-            <p className={`text-[10px] sm:text-xs ${isPackage ? 'text-purple-700' : 'text-blue-700'}`}>
-              {getStatusMessage()}
-            </p>
-          </div>
-        )}
-
-        {/* Driver Info Card */}
-        {(order.driver_id || order.driver_name) && (
-          <DriverInfoCard driver={{
-            id: order.driver_id,
-            name: order.driver_name,
-            phone: order.driver_phone,
-            vehicle_type: order.driver_vehicle_type
-          }} isPackage={isPackage} />
-        )}
-
-        {/* Order Details */}
-        <div className="grid grid-cols-2 gap-2 sm:gap-3 text-sm">
-          <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
-            <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">Total</p>
-            <p className="font-bold text-green text-sm sm:text-lg">R{Number(order.total).toFixed(2)}</p>
-          </div>
-          <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
-            <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">
-              {isPackage ? 'Package ID' : 'Items'}
-            </p>
-            <p className="font-semibold text-xs sm:text-sm">
-              {isPackage ? `#${order.id}` : `${itemCount} item(s)`}
-            </p>
-          </div>
-        </div>
-
-        {/* Package Details - For Non-Food Deliveries */}
-        {isPackage && (
-          <div className="bg-purple-50 rounded-lg p-3">
-            <p className="text-xs font-semibold text-purple-800 mb-2 flex items-center gap-1">
-              <Package className="w-3 h-3" />
-              Package Details
-            </p>
-            
-            {/* Pickup Address */}
-            {order.pickup_address && (
-              <div className="flex items-start gap-2 mb-2">
-                <MapPin className="w-3 h-3 text-green mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-[10px] text-gray-500">Pickup Address</p>
-                  <p className="text-xs font-medium">{order.pickup_address}</p>
-                </div>
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  className="h-6 text-xs ml-auto shrink-0"
-                  onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.pickup_address)}`, '_blank')}
-                >
-                  <Navigation className="w-2.5 h-2.5 mr-1" />
-                  Navigate
-                </Button>
-              </div>
-            )}
-            
-            {/* Recipient Info */}
-            {order.recipient_name && (
-              <div className="flex flex-wrap items-center gap-3 mb-2">
-                <div className="flex items-center gap-1">
-                  <User className="w-3 h-3 text-gray-500" />
-                  <span className="text-xs">Recipient: {order.recipient_name}</span>
-                </div>
-                {order.recipient_phone && (
-                  <a 
-                    href={`tel:${order.recipient_phone}`} 
-                    className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                  >
-                    <Phone className="w-3 h-3" />
-                    Call Recipient
-                  </a>
+              )}
+              
+              {/* Package Specs */}
+              <div className="flex flex-wrap gap-3 text-xs mt-2">
+                {order.package_weight && (
+                  <span className="flex items-center gap-1">
+                    <span>⚖️</span> {order.package_weight}kg
+                  </span>
+                )}
+                {order.package_dimensions && (
+                  <span className="flex items-center gap-1">
+                    <span>📏</span> {order.package_dimensions}
+                  </span>
+                )}
+                {order.requires_signature && (
+                  <span className="flex items-center gap-1 text-blue-600">
+                    <span>📝</span> Signature Required
+                  </span>
+                )}
+                {order.is_fragile && (
+                  <span className="flex items-center gap-1 text-orange-600">
+                    <span>⚠️</span> Fragile Item
+                  </span>
                 )}
               </div>
-            )}
-            
-            {/* Package Specs */}
-            <div className="flex flex-wrap gap-3 text-xs mt-2">
-              {order.package_weight && (
-                <span className="flex items-center gap-1">
-                  <span>⚖️</span> {order.package_weight}kg
-                </span>
-              )}
-              {order.package_dimensions && (
-                <span className="flex items-center gap-1">
-                  <span>📏</span> {order.package_dimensions}
-                </span>
-              )}
-              {order.requires_signature && (
-                <span className="flex items-center gap-1 text-blue-600">
-                  <span>📝</span> Signature Required
-                </span>
-              )}
-              {order.is_fragile && (
-                <span className="flex items-center gap-1 text-orange-600">
-                  <span>⚠️</span> Fragile Item
-                </span>
+              
+              {/* Package Description */}
+              {order.package_description && (
+                <p className="text-xs text-gray-600 mt-2 pt-1 border-t border-purple-200">
+                  📦 {order.package_description}
+                </p>
               )}
             </div>
-            
-            {/* Package Description */}
-            {order.package_description && (
-              <p className="text-xs text-gray-600 mt-2 pt-1 border-t border-purple-200">
-                📦 {order.package_description}
+          )}
+
+          {/* Delivery Address */}
+          <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
+            <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-[10px] text-gray-500">
+                {isPackage ? 'Delivery Address' : 'Delivery Address'}
               </p>
-            )}
-          </div>
-        )}
-
-        {/* Delivery Address */}
-        <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
-          <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 mt-0.5 shrink-0" />
-          <div className="flex-1">
-            <p className="text-[10px] text-gray-500">
-              {isPackage ? 'Delivery Address' : 'Delivery Address'}
-            </p>
-            <span className="text-xs sm:text-sm break-words">{order.delivery_address || 'No address provided'}</span>
-          </div>
-          <Button 
-            size="sm" 
-            variant="outline" 
-            className="h-7 text-xs shrink-0"
-            onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
-          >
-            <Navigation className="w-3 h-3 mr-1" />
-            Navigate
-          </Button>
-        </div>
-
-        {/* Live Map - only for food deliveries on the way */}
-        {showMap && !isPackage && driverLocation && (
-          <LiveMap driverLocation={driverLocation} orderStatus={order.status} />
-        )}
-
-        {/* Track Package Button - for packages on the way */}
-        {isPackage && order.status === 'on_the_way' && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full border-purple-300 text-purple-600 hover:bg-purple-50"
-            onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
-          >
-            <Navigation className="w-3 h-3 mr-1" />
-            Track Package
-          </Button>
-        )}
-
-        {/* Pay Now Button - For approved packages waiting for payment */}
-        {needsPayment && (
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              className="flex-1 bg-yellow-500 text-white hover:bg-yellow-600"
-              onClick={handleDirectPayment}
-            >
-              <Lock className="w-3 h-3 mr-1" />
-              Pay Now • R{Number(order.total).toFixed(2)}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex-1 border-green-500 text-green-600 hover:bg-green-50"
-              onClick={handleYocoPayment}
-            >
-              💳 Pay with Card
-            </Button>
-          </div>
-        )}
-
-        {/* Action Buttons */}
-        <div className="flex gap-2">
-          {canCancel && order.status !== 'delivered' && !needsPayment && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-9"
-              onClick={() => onCancel(order.id)}
-            >
-              Cancel {isPackage ? 'Delivery' : 'Order'}
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-1 border-green-300 text-green-600 hover:bg-green-50 text-xs sm:text-sm h-8 sm:h-9"
-            onClick={() => onReorder(order)}
-          >
-            <RotateCcw className="w-3 h-3 mr-1" />
-            {isPackage ? 'Book Again' : 'Order Again'}
-          </Button>
-          {/* Report Issue Button - only for delivered orders */}
-          {order.status === 'delivered' && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs sm:text-sm h-8 sm:h-9"
-              onClick={() => onReportIssue(order)}
-            >
-              <AlertCircle className="w-3 h-3 mr-1" />
-              Report Issue
-            </Button>
-          )}
-        </div>
-
-        {/* Order Items Expandable - only for food */}
-        {!isPackage && items.length > 0 && (
-          <button
-            onClick={() => setExpanded(!expanded)}
-            className="flex items-center justify-between w-full text-xs sm:text-sm text-gray-500 hover:text-gray-700"
-          >
-            <span>View order details</span>
-            {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4" />}
-          </button>
-        )}
-
-        {!isPackage && expanded && items.length > 0 && (
-          <div className="space-y-2 pt-2 border-t">
-            {items.map((item, i) => (
-              <div key={i} className="flex justify-between text-xs sm:text-sm">
-                <span className="text-gray-600">{item.quantity}x {item.name}</span>
-                <span className="font-medium">R{(item.price * item.quantity).toFixed(2)}</span>
-              </div>
-            ))}
-            <div className="flex justify-between text-xs sm:text-sm pt-2 border-t">
-              <span className="text-gray-600">Delivery fee</span>
-              <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
+              <span className="text-xs sm:text-sm break-words">{order.delivery_address || 'No address provided'}</span>
             </div>
-            {order.discount_applied > 0 && (
-              <div className="flex justify-between text-xs sm:text-sm text-green">
-                <span>Discount</span>
-                <span>-R{Number(order.discount_applied).toFixed(2)}</span>
-              </div>
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="h-7 text-xs shrink-0"
+              onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
+            >
+              <Navigation className="w-3 h-3 mr-1" />
+              Navigate
+            </Button>
+          </div>
+
+          {/* Live Map - only for food deliveries on the way */}
+          {showMap && !isPackage && !isRejected && driverLocation && (
+            <LiveMap driverLocation={driverLocation} orderStatus={order.status} />
+          )}
+
+          {/* Track Package Button - for packages on the way */}
+          {!isRejected && isPackage && order.status === 'on_the_way' && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full border-purple-300 text-purple-600 hover:bg-purple-50"
+              onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
+            >
+              <Navigation className="w-3 h-3 mr-1" />
+              Track Package
+            </Button>
+          )}
+
+          {/* Pay Now Button - For approved packages waiting for payment */}
+          {!isRejected && needsPayment && (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="flex-1 bg-yellow-500 text-white hover:bg-yellow-600"
+                onClick={handleDirectPayment}
+              >
+                <Lock className="w-3 h-3 mr-1" />
+                Pay Now • R{Number(order.total).toFixed(2)}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 border-green-500 text-green-600 hover:bg-green-50"
+                onClick={handleYocoPayment}
+              >
+                💳 Pay with Card
+              </Button>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-2">
+            {canCancel && order.status !== 'delivered' && !needsPayment && !isRejected && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-9"
+                onClick={() => {
+                  setCancellingOrderId(order.id);
+                  setShowCancelModal(true);
+                }}
+              >
+                Cancel {isPackage ? 'Delivery' : 'Order'}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 border-green-300 text-green-600 hover:bg-green-50 text-xs sm:text-sm h-8 sm:h-9"
+              onClick={() => onReorder(order)}
+            >
+              <RotateCcw className="w-3 h-3 mr-1" />
+              {isPackage ? 'Book Again' : 'Order Again'}
+            </Button>
+            {/* Report Issue Button - only for delivered orders */}
+            {order.status === 'delivered' && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs sm:text-sm h-8 sm:h-9"
+                onClick={() => onReportIssue(order)}
+              >
+                <AlertCircle className="w-3 h-3 mr-1" />
+                Report Issue
+              </Button>
             )}
           </div>
-        )}
-      </CardContent>
-    </Card>
+
+          {/* Order Items Expandable - only for food */}
+          {!isPackage && !isRejected && items.length > 0 && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="flex items-center justify-between w-full text-xs sm:text-sm text-gray-500 hover:text-gray-700"
+            >
+              <span>View order details</span>
+              {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4" />}
+            </button>
+          )}
+
+          {!isPackage && !isRejected && expanded && items.length > 0 && (
+            <div className="space-y-2 pt-2 border-t">
+              {items.map((item, i) => (
+                <div key={i} className="flex justify-between text-xs sm:text-sm">
+                  <span className="text-gray-600">{item.quantity}x {item.name}</span>
+                  <span className="font-medium">R{(item.price * item.quantity).toFixed(2)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between text-xs sm:text-sm pt-2 border-t">
+                <span className="text-gray-600">Delivery fee</span>
+                <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
+              </div>
+              {order.discount_applied > 0 && (
+                <div className="flex justify-between text-xs sm:text-sm text-green">
+                  <span>Discount</span>
+                  <span>-R{Number(order.discount_applied).toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      
+      {/* Cancellation Modal */}
+      <CancellationModal
+        isOpen={showCancelModal}
+        onClose={() => {
+          setShowCancelModal(false);
+          setCancellingOrderId(null);
+        }}
+        onConfirm={onCancel}
+        orderId={cancellingOrderId}
+        orderType={isPackage ? 'package' : 'food'}
+      />
+    </>
   );
 }
 
 // Order history card component (supports both food and packages)
-function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
+function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
   const [expanded, setExpanded] = useState(false);
   const isPackage = order.delivery_type && order.delivery_type !== 'food';
+  const isRejected = order.status === 'rejected';
   
   const getStatusColor = (status) => {
     switch(status) {
       case 'delivered': return 'text-green-600 bg-green-50';
       case 'cancelled': return 'text-red-600 bg-red-50';
+      case 'rejected': return 'text-red-600 bg-red-100';
       default: return 'text-yellow-600 bg-yellow-50';
     }
   };
 
+  const getStatusLabel = (status) => {
+    if (status === 'rejected') return 'Rejected';
+    return formatOrderStatus(status);
+  };
+
   const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+  const hasDriverRating = order.driver_rated !== undefined ? !order.driver_rated : true;
 
   return (
     <Card className="overflow-hidden">
@@ -661,7 +934,7 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-gray-900 text-sm sm:text-base truncate">
-                {isPackage ? 'Package Delivery' : (order.restaurant_name || 'Restaurant')}
+                {isPackage ? (isRejected ? '❌ Package Delivery (Rejected)' : 'Package Delivery') : (order.restaurant_name || 'Restaurant')}
               </h3>
               <div className="flex items-center gap-2 mt-0.5">
                 <p className="text-[10px] sm:text-xs text-gray-500">
@@ -675,7 +948,7 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
           </div>
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <span className={`px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[9px] sm:text-xs font-medium ${getStatusColor(order.status)} whitespace-nowrap`}>
-              {formatOrderStatus(order.status)}
+              {getStatusLabel(order.status)}
             </span>
             <span className="font-bold text-green text-xs sm:text-sm whitespace-nowrap">R{Number(order.total).toFixed(2)}</span>
             {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />}
@@ -685,6 +958,14 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
       
       {expanded && (
         <CardContent className="pt-0 space-y-3 border-t px-3 sm:px-4">
+          {/* Rejection Reason in History */}
+          {isRejected && order.admin_rejection_reason && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-3">
+              <p className="text-xs font-semibold text-red-800 mb-1">Rejection Reason:</p>
+              <p className="text-sm text-red-700">{order.admin_rejection_reason}</p>
+            </div>
+          )}
+
           {/* Package details in history */}
           {isPackage && (
             <div className="space-y-2 pt-3">
@@ -761,7 +1042,7 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
             </div>
           )}
           
-          <div className="flex gap-2 pt-2">
+          <div className="flex gap-2 pt-2 flex-wrap">
             {order.status === 'delivered' && !order.reviewed && !isPackage && (
               <Button
                 size="sm"
@@ -769,7 +1050,18 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder }) {
                 className="flex-1 border-yellow-400 text-yellow-600 hover:bg-yellow-50 text-xs sm:text-sm h-8 sm:h-9"
                 onClick={() => onReviewOrder(order)}
               >
-                <Star className="w-3 h-3 sm:w-4 sm:h-4 mr-1" /> Rate
+                <Star className="w-3 h-3 sm:w-4 sm:h-4 mr-1" /> Rate Restaurant
+              </Button>
+            )}
+            {/* Rate Driver Button - for delivered orders with a driver */}
+            {order.status === 'delivered' && order.driver_id && hasDriverRating && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 border-blue-400 text-blue-600 hover:bg-blue-50 text-xs sm:text-sm h-8 sm:h-9"
+                onClick={() => onRateDriver(order, { id: order.driver_id, name: order.driver_name })}
+              >
+                <Star className="w-3 h-3 mr-1" /> Rate Driver
               </Button>
             )}
             <Button
@@ -806,6 +1098,13 @@ export default function CustomerOrders() {
   const [userTickets, setUserTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [orderTab, setOrderTab] = useState('active');
+  const [showRejectionAlert, setShowRejectionAlert] = useState(false);
+  const [rejectedOrder, setRejectedOrder] = useState(null);
+  
+  // Driver Rating States
+  const [showDriverRatingModal, setShowDriverRatingModal] = useState(false);
+  const [selectedDriverForRating, setSelectedDriverForRating] = useState(null);
+  const [selectedOrderForRating, setSelectedOrderForRating] = useState(null);
 
   // Listen for driver location updates
   useEffect(() => {
@@ -820,6 +1119,23 @@ export default function CustomerOrders() {
       };
     }
   }, [socket, online]);
+
+  // Listen for rejection alerts via socket
+  useEffect(() => {
+    if (socket && online) {
+      socket.on('order-rejected', (data) => {
+        console.log('Order rejected:', data);
+        setRejectedOrder(data);
+        setShowRejectionAlert(true);
+        toast.error(`❌ Your package request #${data.orderId} was rejected. Reason: ${data.reason}`);
+        refetch();
+      });
+      
+      return () => {
+        socket.off('order-rejected');
+      };
+    }
+  }, [socket, online, refetch]);
 
   // Fetch orders
   const { data: orders = [], isLoading, error, refetch } = useQuery({
@@ -861,15 +1177,16 @@ export default function CustomerOrders() {
     }
   }, [showTicketsModal]);
 
-  // Handle order cancellation
-  const handleCancelOrder = async (orderId) => {
-    if (!window.confirm('Are you sure you want to cancel this order?')) return;
-    
+  // Handle order cancellation with reason
+  const handleCancelOrder = async (orderId, reason) => {
     try {
       const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/cancel/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customer_id: user?.id }),
+        body: JSON.stringify({ 
+          customer_id: user?.id,
+          cancellation_reason: reason 
+        }),
       });
       
       const data = await response.json();
@@ -891,11 +1208,9 @@ export default function CustomerOrders() {
     const isPackage = order.delivery_type && order.delivery_type !== 'food';
     
     if (isPackage) {
-      // For packages, navigate to package delivery page
       navigate('/package-delivery');
       toast.info('Fill in the package delivery form to book again');
     } else {
-      // For food, add items to cart
       const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
       
       if (window.confirm(`Add items from ${order.restaurant_name} to your cart? This will replace your current cart.`)) {
@@ -922,6 +1237,13 @@ export default function CustomerOrders() {
     setSelectedOrderForIssue(order);
     setShowIssueModal(true);
   };
+  
+  // Handle Driver Rating
+  const handleRateDriver = (order, driver) => {
+    setSelectedOrderForRating(order);
+    setSelectedDriverForRating(driver);
+    setShowDriverRatingModal(true);
+  };
 
   // Socket connection for real-time updates
   useEffect(() => {
@@ -933,7 +1255,13 @@ export default function CustomerOrders() {
       const handleStatusUpdate = (data) => {
         console.log('Status update received:', data);
         setLiveUpdates(prev => ({ ...prev, [data.orderId]: data.status }));
-        toast.info(`Order #${data.orderId} updated to ${formatOrderStatus(data.status)}`);
+        
+        if (data.status === 'rejected') {
+          toast.error(`❌ Your package request #${data.orderId} was rejected. Check the order details for reason.`);
+          setShowRejectionAlert(true);
+        } else {
+          toast.info(`Order #${data.orderId} updated to ${formatOrderStatus(data.status)}`);
+        }
         refetch();
       };
       
@@ -946,9 +1274,9 @@ export default function CustomerOrders() {
   }, [socket, user, orders, online, refetch]);
 
   // Filter orders
-  const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'pending_approval', 'pending_driver', 'assigned'];
+  const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'pending_approval', 'pending_driver', 'assigned', 'rejected'];
   const activeOrders = orders.filter(o => activeStatuses.includes(o.status));
-  const pastOrders = orders.filter(o => !activeStatuses.includes(o.status));
+  const pastOrders = orders.filter(o => !activeStatuses.includes(o.status) || o.status === 'cancelled');
   
   // Mark active orders as viewed when they load
   useEffect(() => {
@@ -1007,6 +1335,27 @@ export default function CustomerOrders() {
 
   return (
     <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
+      {/* Rejection Alert Banner */}
+      {showRejectionAlert && rejectedOrder && (
+        <div className="mb-4 bg-red-50 border border-red-300 rounded-lg p-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-red-500" />
+            <div>
+              <p className="text-sm font-semibold text-red-800">Package Request Rejected</p>
+              <p className="text-xs text-red-600">Order #{rejectedOrder.orderId} was rejected. Reason: {rejectedOrder.reason}</p>
+            </div>
+          </div>
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="border-red-300 text-red-600 hover:bg-red-100"
+            onClick={() => setShowRejectionAlert(false)}
+          >
+            Dismiss
+          </Button>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0 mb-4 sm:mb-6">
         <h1 className="text-xl sm:text-2xl font-bold">My Orders</h1>
         <div className="flex items-center gap-2">
@@ -1126,7 +1475,7 @@ export default function CustomerOrders() {
               </div>
               
               <div className="space-y-2 sm:space-y-3">
-                {filteredPastOrders.length === 0 ? (
+                {displayedPastOrders.length === 0 ? (
                   <div className="text-center py-8 bg-gray-50 rounded-lg">
                     <p className="text-sm text-gray-500">No orders match your search</p>
                   </div>
@@ -1138,6 +1487,7 @@ export default function CustomerOrders() {
                         order={order} 
                         onReviewOrder={handleReviewOrder}
                         onReorder={handleReorder}
+                        onRateDriver={handleRateDriver}
                       />
                     ))}
                     
@@ -1169,6 +1519,21 @@ export default function CustomerOrders() {
           }}
         />
       )}
+
+      {/* Driver Rating Modal */}
+      <DriverRatingModal
+        isOpen={showDriverRatingModal}
+        onClose={() => {
+          setShowDriverRatingModal(false);
+          setSelectedDriverForRating(null);
+          setSelectedOrderForRating(null);
+        }}
+        onSubmitted={() => {
+          refetch();
+        }}
+        order={selectedOrderForRating}
+        driver={selectedDriverForRating}
+      />
 
       {/* Report Issue Modal */}
       {showIssueModal && selectedOrderForIssue && (

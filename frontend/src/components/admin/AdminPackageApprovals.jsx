@@ -11,8 +11,10 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { useSocket } from '@/context/SocketContext';
 
 export default function AdminPackageApprovals() {
+  const { socket, online } = useSocket();
   const [pendingPackages, setPendingPackages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPackage, setSelectedPackage] = useState(null);
@@ -37,12 +39,9 @@ export default function AdminPackageApprovals() {
     }
   };
 
-  // FIXED: Approve package WITHOUT creating payment link
   const approvePackage = async (orderId) => {
     setProcessing(true);
     try {
-      // Simply approve the package - update status from 'pending_approval' to 'pending_driver'
-      // Payment will be handled by the customer later
       await api.put(`/orders/admin/approve-package/${orderId}`, { action: 'approve' });
       
       toast.success('Package approved! Customer can now pay and driver will be notified.', {
@@ -68,11 +67,22 @@ export default function AdminPackageApprovals() {
     
     setProcessing(true);
     try {
+      // Reject the package
       await api.put(`/orders/admin/approve-package/${orderId}`, { 
         action: 'reject', 
         rejection_reason: rejectionReason 
       });
-      toast.success('Package rejected');
+      
+      // Send socket notification to customer
+      if (socket && online) {
+        socket.emit('order-rejected', {
+          orderId: orderId,
+          reason: rejectionReason,
+          timestamp: new Date()
+        });
+      }
+      
+      toast.success('Package rejected successfully');
       fetchPendingPackages();
       setShowModal(false);
       setSelectedPackage(null);
@@ -273,6 +283,7 @@ export default function AdminPackageApprovals() {
                   rows={2}
                   className="mt-1"
                 />
+                <p className="text-xs text-gray-400 mt-1">This reason will be shown to the customer</p>
               </div>
 
               <div className="flex gap-3 pt-2">
@@ -291,7 +302,7 @@ export default function AdminPackageApprovals() {
                   className="flex-1"
                 >
                   <XCircle className="w-4 h-4 mr-2" />
-                  Reject
+                  Reject Package
                 </Button>
               </div>
             </div>

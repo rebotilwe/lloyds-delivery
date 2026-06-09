@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { Store, User, Truck } from 'lucide-react';
+import { Store, User, Truck, Eye, EyeOff } from 'lucide-react';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -18,6 +18,7 @@ export default function Signup() {
     restaurant_address: '',
   });
 
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
@@ -109,16 +110,14 @@ export default function Signup() {
         }
       }
 
-      // In Signup.jsx - after successful signup
-const roleMessage = {
-  customer: 'Account created successfully! Please login.',
-  driver: 'Driver application submitted. Await admin approval. You will be notified once approved.',
-  vendor: 'Restaurant registered successfully! Please login.',
-};
+      const roleMessage = {
+        customer: 'Account created successfully! Please login.',
+        driver: 'Driver application submitted. Await admin approval. You will be notified once approved.',
+        vendor: 'Restaurant registered successfully! Please login.',
+      };
 
-toast.success(roleMessage[form.role] || 'Account created successfully!');
-// Always redirect to login, don't auto-login
-navigate('/login');
+      toast.success(roleMessage[form.role] || 'Account created successfully!');
+      navigate('/login');
 
     } catch (err) {
       console.error(err);
@@ -225,14 +224,27 @@ navigate('/login');
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Password *
             </label>
-            <Input
-              name="password"
-              type="password"
-              placeholder="••••••••"
-              value={form.password}
-              onChange={handleChange}
-              className="w-full"
-            />
+            <div className="relative">
+              <Input
+                name="password"
+                type={showPassword ? "text" : "password"}
+                placeholder="••••••••"
+                value={form.password}
+                onChange={handleChange}
+                className="w-full pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 transition"
+              >
+                {showPassword ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
             <p className="text-xs text-gray-400 mt-1">Minimum 6 characters</p>
           </div>
 

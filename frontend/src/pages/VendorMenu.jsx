@@ -286,7 +286,7 @@ export default function VendorMenu() {
         </div>
       )}
 
-      {/* Add/Edit Modal */}
+      {/* Add/Edit Modal - Fixed Dropdown */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -335,12 +335,22 @@ export default function VendorMenu() {
                   value={formData.category}
                   onValueChange={(val) => setFormData({ ...formData, category: val })}
                 >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
+                  <SelectTrigger className="mt-1 w-full bg-white border-gray-300">
+                    <SelectValue placeholder="Select a category" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent 
+                    className="bg-white border-gray-200 shadow-lg z-50"
+                    position="popper"
+                    sideOffset={5}
+                  >
                     {categories.map(c => (
-                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                      <SelectItem 
+                        key={c} 
+                        value={c}
+                        className="text-gray-900 hover:bg-gray-100 cursor-pointer py-2 px-3"
+                      >
+                        {c}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

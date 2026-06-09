@@ -22,17 +22,32 @@ import {
   Save,
   User,
   CreditCard,
-  Building2
+  Building2,
+  FileText,
+  Upload,
+  Download,
+  Shield,
+  Award
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+// Restaurant document types
+const restaurantDocumentTypes = [
+  { key: 'health_certificate', label: 'Health & Safety Certificate', icon: Shield, required: true },
+  { key: 'halaal_certificate', label: 'Halaal Certificate', icon: Award, required: false },
+  { key: 'business_license', label: 'Business License', icon: FileText, required: true },
+  { key: 'vat_registration', label: 'VAT Registration', icon: FileText, required: false },
+  { key: 'bank_confirmation', label: 'Bank Confirmation Letter', icon: CreditCard, required: true },
+];
 
 export default function VendorManagement({ vendors = [], onRefresh }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDocumentsModal, setShowDocumentsModal] = useState(false);
   const [updating, setUpdating] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [editForm, setEditForm] = useState({
     name: '',
     email: '',
@@ -43,6 +58,8 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
     bank_account_number: '',
     bank_branch_code: ''
   });
+  const [restaurantDocuments, setRestaurantDocuments] = useState({});
+  const [viewingDoc, setViewingDoc] = useState(null);
 
   // Safety checks - use empty array if vendors is undefined
   const safeVendors = vendors || [];
@@ -109,6 +126,51 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
     } finally {
       setUpdating(false);
     }
+  };
+
+  const handleViewDocuments = (vendor) => {
+    setSelectedVendor(vendor);
+    // Load existing documents from vendor data
+    const docs = {};
+    restaurantDocumentTypes.forEach(doc => {
+      docs[doc.key] = vendor[doc.key] || null;
+    });
+    setRestaurantDocuments(docs);
+    setShowDocumentsModal(true);
+  };
+
+  const handleDocumentUpload = async (documentKey, file) => {
+    if (!file) return;
+    
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('document_key', documentKey);
+    formData.append('vendor_id', selectedVendor.id);
+    
+    try {
+      const response = await api.post(`/vendors/${selectedVendor.id}/upload-document`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      if (response.data.url) {
+        setRestaurantDocuments(prev => ({ ...prev, [documentKey]: response.data.url }));
+        toast.success(`${restaurantDocumentTypes.find(d => d.key === documentKey)?.label} uploaded successfully`);
+        if (onRefresh) onRefresh();
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error('Failed to upload document');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const getDocumentUrl = (url) => {
+    if (!url) return null;
+    if (url.startsWith('http')) return url;
+    if (url.startsWith('/uploads')) return `${import.meta.env.VITE_API_URL || ''}${url}`;
+    return url;
   };
 
   return (
@@ -212,6 +274,14 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                   <Button 
                     size="sm" 
                     variant="outline" 
+                    onClick={() => handleViewDocuments(vendor)}
+                    className="text-xs"
+                  >
+                    <FileText className="w-3 h-3 mr-1" /> Documents
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
                     onClick={() => handleEditVendor(vendor)}
                     className="text-xs"
                   >
@@ -252,6 +322,14 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                   <p className="text-xs text-gray-500 truncate">{vendor.email}</p>
                 </div>
                 <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => handleViewDocuments(vendor)}
+                    className="text-xs"
+                  >
+                    <FileText className="w-3 h-3 mr-1" /> Documents
+                  </Button>
                   <Button 
                     size="sm" 
                     variant="outline" 
@@ -336,6 +414,13 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
               )}
               <div className="flex flex-col sm:flex-row gap-2 pt-2">
                 <Button 
+                  onClick={() => handleViewDocuments(selectedVendor)}
+                  className="flex-1 bg-purple-600 text-white text-sm"
+                >
+                  <FileText className="w-4 h-4 mr-2" />
+                  View Documents
+                </Button>
+                <Button 
                   onClick={() => handleEditVendor(selectedVendor)}
                   className="flex-1 bg-blue-600 text-white text-sm"
                 >
@@ -361,6 +446,121 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                     Suspend Vendor
                   </Button>
                 )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Documents Modal */}
+      <Dialog open={showDocumentsModal} onOpenChange={setShowDocumentsModal}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-purple-500" />
+              Restaurant Documents
+            </DialogTitle>
+            <p className="text-xs text-gray-500 mt-1">
+              {selectedVendor?.name} - Upload required certificates and documents
+            </p>
+          </DialogHeader>
+          <div className="space-y-4">
+            {restaurantDocumentTypes.map((doc) => {
+              const Icon = doc.icon;
+              const docUrl = getDocumentUrl(restaurantDocuments[doc.key]);
+              const isUploaded = !!docUrl;
+              
+              return (
+                <div key={doc.key} className="border rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Icon className="w-4 h-4 text-gray-500" />
+                      <span className="text-sm font-medium">
+                        {doc.label}
+                        {doc.required && <span className="text-red-500 ml-1">*</span>}
+                      </span>
+                    </div>
+                    {isUploaded && (
+                      <Badge variant="outline" className="text-green-600 text-xs">
+                        <CheckCircle className="w-3 h-3 mr-1" />
+                        Uploaded
+                      </Badge>
+                    )}
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <label className={`flex-1 cursor-pointer ${uploading ? 'opacity-50' : ''}`}>
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => {
+                          if (e.target.files?.[0]) {
+                            handleDocumentUpload(doc.key, e.target.files[0]);
+                          }
+                        }}
+                        disabled={uploading}
+                      />
+                      <Button size="sm" variant="outline" className="w-full" as="span" disabled={uploading}>
+                        <Upload className="w-3 h-3 mr-1" />
+                        {uploading ? 'Uploading...' : (isUploaded ? 'Replace' : 'Upload')}
+                      </Button>
+                    </label>
+                    
+                    {isUploaded && (
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => window.open(docUrl, '_blank')}
+                      >
+                        <Download className="w-3 h-3 mr-1" />
+                        View
+                      </Button>
+                    )}
+                  </div>
+                  
+                  {!isUploaded && doc.required && (
+                    <p className="text-xs text-red-500 mt-1">
+                      Required document - please upload
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+            
+            <div className="bg-blue-50 p-3 rounded-lg mt-2">
+              <p className="text-xs text-blue-700 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                All documents will be reviewed by admin before vendor approval
+              </p>
+            </div>
+            
+            <Button onClick={() => setShowDocumentsModal(false)} className="w-full bg-green text-white">
+              Done
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Document Preview Modal */}
+      <Dialog open={!!viewingDoc} onOpenChange={() => setViewingDoc(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Document Preview</DialogTitle>
+          </DialogHeader>
+          {viewingDoc && (
+            <div>
+              {viewingDoc.match(/\.(jpe?g|png|gif|webp)$/i) ? (
+                <img src={viewingDoc} alt="Document" className="w-full rounded-lg object-contain" style={{ maxHeight: '60vh' }} />
+              ) : (
+                <iframe src={viewingDoc} className="w-full rounded-lg" style={{ height: '60vh' }} title="Document" />
+              )}
+              <div className="flex justify-end gap-2 mt-4">
+                <Button variant="outline" onClick={() => window.open(viewingDoc, '_blank')}>
+                  <Download className="w-4 h-4 mr-2" />
+                  Download
+                </Button>
+                <Button onClick={() => setViewingDoc(null)}>Close</Button>
               </div>
             </div>
           )}

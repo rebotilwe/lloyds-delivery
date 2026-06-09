@@ -6,6 +6,8 @@ import { verifyToken, authorizeRoles } from "../middleware/authMiddleware.js";
 const router = express.Router();
 
 // GET all users - include ALL balance fields
+
+// GET all users - include document fields
 router.get("/", async (req, res) => {
   try {
     const results = await db.query(
@@ -15,7 +17,8 @@ router.get("/", async (req, res) => {
               vendor_total_earnings, vendor_available_balance, vendor_withdrawn_total,
               id_copy, pdp, profile_photo, car_license, vehicle_registration,
               car_make, car_model, car_year, car_color, license_plate, vehicle_type, vehicle_engine_cc,
-              bank_name, bank_account_name, bank_account_number, bank_branch_code
+              bank_name, bank_account_name, bank_account_number, bank_branch_code,
+              health_certificate, halaal_certificate, business_license, vat_registration, bank_confirmation
        FROM users ORDER BY created_at DESC`
     );
     res.json(results.rows);
@@ -25,7 +28,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET user by ID - include ALL balance fields
+// GET user by ID - include document fields
 router.get("/:id", async (req, res) => {
   try {
     const results = await db.query(
@@ -35,7 +38,8 @@ router.get("/:id", async (req, res) => {
               vendor_total_earnings, vendor_available_balance, vendor_withdrawn_total,
               id_copy, pdp, profile_photo, car_license, vehicle_registration,
               car_make, car_model, car_year, car_color, license_plate, vehicle_type, vehicle_engine_cc,
-              bank_name, bank_account_name, bank_account_number, bank_branch_code
+              bank_name, bank_account_name, bank_account_number, bank_branch_code,
+              health_certificate, halaal_certificate, business_license, vat_registration, bank_confirmation
        FROM users WHERE id = $1`,
       [req.params.id]
     );
@@ -48,7 +52,6 @@ router.get("/:id", async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
 // UPDATE user - support both driver and vendor balance fields
 router.put("/:id", async (req, res) => {
   try {

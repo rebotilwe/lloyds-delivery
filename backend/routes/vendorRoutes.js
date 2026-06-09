@@ -1,9 +1,52 @@
 import express from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import { createClient } from '@supabase/supabase-js';
 import db from "../config/db.js";
 import { verifyToken, authorizeRoles } from "../middleware/authMiddleware.js";
 import { sendOrderStatusUpdate, sendRefundEmail } from "../services/emailService.js";
 
 const router = express.Router();
+
+// Initialize Supabase client (optional)
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
+
+// Configure multer for document uploads
+const documentStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(process.cwd(), 'uploads', 'vendor-documents');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `vendor-${req.params.vendorId}-${req.body.document_key}-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const documentFileFilter = (req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|gif|webp|pdf/;
+  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = allowedTypes.test(file.mimetype);
+  
+  if (mimetype && extname) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only images and PDF files are allowed'));
+  }
+};
+
+const uploadDocument = multer({ 
+  storage: documentStorage, 
+  fileFilter: documentFileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+});
 
 // Apply vendor authentication to all routes
 router.use(verifyToken);
@@ -64,7 +107,6 @@ router.post("/setup-restaurant", async (req, res) => {
     console.log("🏪 Setting up restaurant for vendor:", req.user.id);
     console.log("📦 Received data:", { name, address, phone, cuisine_type });
 
-    // Check if vendor already has a restaurant
     const existing = await db.query(
       "SELECT id FROM restaurants WHERE owner_id = $1",
       [req.user.id]
@@ -92,7 +134,7 @@ router.post("/setup-restaurant", async (req, res) => {
         phone || null, 
         delivery_fee || 20, 
         req.user.id,
-        12.5  // Default markup percentage
+        12.5
       ]
     );
 
@@ -211,7 +253,7 @@ router.get("/analytics", async (req, res) => {
 });
 
 /* =========================
-   UPDATE ORDER STATUS (FIXED - removed undefined order reference)
+   UPDATE ORDER STATUS
 ========================= */
 router.put("/orders/:id/status", async (req, res) => {
   try {
@@ -224,7 +266,6 @@ router.put("/orders/:id/status", async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found" });
     }
 
-    // Get order details before updating (for notification)
     const orderDetails = await db.query(
       "SELECT total FROM orders WHERE id = $1",
       [orderId]
@@ -241,7 +282,6 @@ router.put("/orders/:id/status", async (req, res) => {
       [status, estimated_prep_time, rejection_reason, orderId, restaurant.id]
     );
 
-    // Notify customer via socket
     if (io) {
       io.to(`order_${orderId}`).emit("order-status-update", {
         orderId: parseInt(orderId),
@@ -250,12 +290,11 @@ router.put("/orders/:id/status", async (req, res) => {
       });
     }
 
-    // Notify drivers if order is ready for pickup
     if (status === 'ready_for_pickup' && io) {
       io.emit("order-ready-for-driver", {
         orderId: parseInt(orderId),
         restaurantName: restaurant.name,
-        orderTotal: orderTotal,  // FIXED: using orderTotal from database
+        orderTotal: orderTotal,
         timestamp: new Date(),
       });
     }
@@ -268,7 +307,7 @@ router.put("/orders/:id/status", async (req, res) => {
 });
 
 /* =========================
-   GET VENDOR MENU (WITH APPROVAL STATUS)
+   GET VENDOR MENU
 ========================= */
 router.get("/menu", async (req, res) => {
   try {
@@ -298,7 +337,7 @@ router.get("/menu", async (req, res) => {
 });
 
 /* =========================
-   ADD MENU ITEM (PENDING APPROVAL)
+   ADD MENU ITEM
 ========================= */
 router.post("/menu", async (req, res) => {
   try {
@@ -313,7 +352,6 @@ router.post("/menu", async (req, res) => {
       return res.status(400).json({ message: "Name and price are required" });
     }
 
-    // Add with pending approval status
     const result = await db.query(
       `INSERT INTO menu_items 
        (restaurant_id, name, description, price, category, image_url, 
@@ -323,7 +361,6 @@ router.post("/menu", async (req, res) => {
       [restaurant.id, name, description, price, category, image_url]
     );
 
-    // Notify admin about new menu item pending approval
     const io = req.app.get("io");
     if (io) {
       io.emit("admin-notification", {
@@ -348,7 +385,7 @@ router.post("/menu", async (req, res) => {
 });
 
 /* =========================
-   UPDATE MENU ITEM (REQUIRES RE-APPROVAL)
+   UPDATE MENU ITEM
 ========================= */
 router.put("/menu/:id", async (req, res) => {
   try {
@@ -360,7 +397,6 @@ router.put("/menu/:id", async (req, res) => {
       return res.status(404).json({ message: "Restaurant not found" });
     }
 
-    // Check current approval status
     const currentItem = await db.query(
       "SELECT approval_status FROM menu_items WHERE id = $1 AND restaurant_id = $2",
       [menuItemId, restaurant.id]
@@ -370,7 +406,6 @@ router.put("/menu/:id", async (req, res) => {
       return res.status(404).json({ message: "Menu item not found" });
     }
 
-    // Update and set status back to pending for re-approval
     const result = await db.query(
       `UPDATE menu_items 
        SET name = COALESCE($1, name),
@@ -393,7 +428,6 @@ router.put("/menu/:id", async (req, res) => {
       return res.status(404).json({ message: "Menu item not found" });
     }
 
-    // Notify admin about update pending approval
     const io = req.app.get("io");
     if (io) {
       io.emit("admin-notification", {
@@ -417,7 +451,7 @@ router.put("/menu/:id", async (req, res) => {
 });
 
 /* =========================
-   DELETE MENU ITEM (Only if not approved or pending)
+   DELETE MENU ITEM
 ========================= */
 router.delete("/menu/:id", async (req, res) => {
   try {
@@ -569,7 +603,6 @@ router.post("/request-withdrawal", async (req, res) => {
       });
     }
     
-    // Get or update bank details
     if (bank_name && account_number) {
       await db.query(
         `UPDATE users SET 
@@ -600,7 +633,6 @@ router.post("/request-withdrawal", async (req, res) => {
        bankDetails.account_number, bankDetails.branch_code]
     );
     
-    // Reduce available balance
     await db.query(
       "UPDATE users SET vendor_available_balance = vendor_available_balance - $1 WHERE id = $2",
       [amount, vendorId]
@@ -616,5 +648,158 @@ router.post("/request-withdrawal", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
+// ==================== ADMIN: VENDOR DOCUMENT MANAGEMENT ====================
+
+/* =========================
+   ADMIN: UPLOAD VENDOR DOCUMENT
+========================= */
+router.post(
+  "/:vendorId/upload-document",
+  verifyToken,
+  authorizeRoles("admin"),
+  uploadDocument.single("file"),
+  async (req, res) => {
+    try {
+      const { vendorId } = req.params;
+      const { document_key } = req.body;
+      const file = req.file;
+      
+      console.log(`📤 Admin uploading ${document_key} for vendor ${vendorId}`);
+      
+      if (!file || !vendorId || !document_key) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+      
+      const allowedDocuments = [
+        'health_certificate', 
+        'halaal_certificate', 
+        'business_license', 
+        'vat_registration', 
+        'bank_confirmation'
+      ];
+      
+      if (!allowedDocuments.includes(document_key)) {
+        return res.status(400).json({ message: "Invalid document key" });
+      }
+      
+      let fileUrl;
+      
+      if (supabase) {
+        const fileExt = file.originalname.split('.').pop();
+        const fileName = `vendors/${vendorId}/${document_key}-${Date.now()}.${fileExt}`;
+        
+        const { data, error } = await supabase.storage
+          .from('vendor-docs')
+          .upload(fileName, file.buffer, {
+            contentType: file.mimetype,
+            cacheControl: '3600',
+            upsert: true
+          });
+        
+        if (error) {
+          console.error(`Upload error:`, error);
+          return res.status(500).json({ message: "Failed to upload to storage" });
+        }
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from('vendor-docs')
+          .getPublicUrl(fileName);
+        
+        fileUrl = publicUrl;
+      } else {
+        fileUrl = `${req.protocol}://${req.get('host')}/uploads/vendor-documents/${file.filename}`;
+      }
+      
+      await db.query(
+        `UPDATE users SET ${document_key} = $1 WHERE id = $2 AND role = 'vendor'`,
+        [fileUrl, vendorId]
+      );
+      
+      console.log(`✅ Uploaded ${document_key} for vendor ${vendorId}`);
+      
+      res.json({ 
+        success: true, 
+        url: fileUrl,
+        message: `${document_key} uploaded successfully`
+      });
+      
+    } catch (err) {
+      console.error("Upload error:", err);
+      res.status(500).json({ message: "Server error: " + err.message });
+    }
+  }
+);
+
+/* =========================
+   ADMIN: GET VENDOR DOCUMENTS
+========================= */
+router.get(
+  "/:vendorId/documents",
+  verifyToken,
+  authorizeRoles("admin"),
+  async (req, res) => {
+    try {
+      const { vendorId } = req.params;
+      
+      const result = await db.query(
+        `SELECT 
+          health_certificate, 
+          halaal_certificate, 
+          business_license, 
+          vat_registration, 
+          bank_confirmation
+         FROM users 
+         WHERE id = $1 AND role = 'vendor'`,
+        [vendorId]
+      );
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "Vendor not found" });
+      }
+      
+      res.json(result.rows[0]);
+    } catch (err) {
+      console.error("Error fetching documents:", err);
+      res.status(500).json({ message: "Server error: " + err.message });
+    }
+  }
+);
+
+/* =========================
+   ADMIN: DELETE VENDOR DOCUMENT
+========================= */
+router.delete(
+  "/:vendorId/documents/:documentKey",
+  verifyToken,
+  authorizeRoles("admin"),
+  async (req, res) => {
+    try {
+      const { vendorId, documentKey } = req.params;
+      
+      const allowedDocuments = [
+        'health_certificate', 
+        'halaal_certificate', 
+        'business_license', 
+        'vat_registration', 
+        'bank_confirmation'
+      ];
+      
+      if (!allowedDocuments.includes(documentKey)) {
+        return res.status(400).json({ message: "Invalid document key" });
+      }
+      
+      await db.query(
+        `UPDATE users SET ${documentKey} = NULL WHERE id = $1 AND role = 'vendor'`,
+        [vendorId]
+      );
+      
+      res.json({ message: `${documentKey} deleted successfully` });
+    } catch (err) {
+      console.error("Error deleting document:", err);
+      res.status(500).json({ message: "Server error: " + err.message });
+    }
+  }
+);
 
 export default router;

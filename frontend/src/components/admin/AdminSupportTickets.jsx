@@ -124,15 +124,15 @@ export default function AdminSupportTickets() {
         </div>
         <div className="flex gap-2">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-40 bg-white border-gray-300">
               <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Tickets</SelectItem>
-              <SelectItem value="open">Open</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="resolved">Resolved</SelectItem>
-              <SelectItem value="closed">Closed</SelectItem>
+            <SelectContent className="bg-white border-gray-200 shadow-lg">
+              <SelectItem value="all" className="text-gray-900 hover:bg-gray-100">All Tickets</SelectItem>
+              <SelectItem value="open" className="text-gray-900 hover:bg-gray-100">Open</SelectItem>
+              <SelectItem value="in_progress" className="text-gray-900 hover:bg-gray-100">In Progress</SelectItem>
+              <SelectItem value="resolved" className="text-gray-900 hover:bg-gray-100">Resolved</SelectItem>
+              <SelectItem value="closed" className="text-gray-900 hover:bg-gray-100">Closed</SelectItem>
             </SelectContent>
           </Select>
           <Button onClick={fetchTickets} variant="outline" size="sm">
@@ -264,38 +264,60 @@ export default function AdminSupportTickets() {
                 <p className="text-xs text-gray-600 mt-1">{selectedTicket.description}</p>
               </div>
 
-              {/* Admin Response */}
+              {/* Status Dropdown */}
               <div>
-                <Label>Status</Label>
+                <Label className="text-sm font-medium text-gray-700">Status</Label>
                 <Select value={newStatus} onValueChange={setNewStatus}>
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger className="mt-1 w-full bg-white border-gray-300">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="open">Open</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="resolved">Resolved</SelectItem>
-                    <SelectItem value="closed">Closed</SelectItem>
+                  <SelectContent className="bg-white border-gray-200 shadow-lg">
+                    <SelectItem value="open" className="text-gray-900 hover:bg-gray-100 cursor-pointer">
+                      <span className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                        Open
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="in_progress" className="text-gray-900 hover:bg-gray-100 cursor-pointer">
+                      <span className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+                        In Progress
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="resolved" className="text-gray-900 hover:bg-gray-100 cursor-pointer">
+                      <span className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                        Resolved
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="closed" className="text-gray-900 hover:bg-gray-100 cursor-pointer">
+                      <span className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-gray-500"></span>
+                        Closed
+                      </span>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
+              {/* Response Textarea */}
               <div>
-                <Label>Response to Customer</Label>
+                <Label className="text-sm font-medium text-gray-700">Response to Customer</Label>
                 <Textarea
                   placeholder="Type your response here..."
                   value={adminResponse}
                   onChange={(e) => setAdminResponse(e.target.value)}
                   rows={4}
-                  className="mt-1"
+                  className="mt-1 resize-none"
                 />
               </div>
 
+              {/* Buttons */}
               <div className="flex gap-3 pt-2">
                 <Button 
                   onClick={updateTicket} 
                   disabled={updating}
-                  className="flex-1 bg-green text-white"
+                  className="flex-1 bg-green text-white hover:bg-green/90"
                 >
                   {updating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
                   Update & Notify Customer

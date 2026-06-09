@@ -6,7 +6,7 @@ import {
   Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, 
   AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
   Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car,
-  Filter
+  Lock
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -255,6 +255,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
   const itemCount = items.length;
   const canCancel = order.status === 'pending' || order.status === 'confirmed' || order.status === 'pending_approval';
   const showMap = order.status === 'on_the_way';
+  const needsPayment = isPackage && order.payment_status === 'pending_payment' && order.status === 'pending_driver';
 
   const getEstimatedTime = () => {
     if (isPackage) {
@@ -273,6 +274,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
   const getStatusMessage = () => {
     if (isPackage) {
       if (order.status === 'pending_approval') return '⏳ Awaiting admin approval';
+      if (order.status === 'pending_driver' && order.payment_status === 'pending_payment') return '✅ Approved! Please complete payment to continue';
       if (order.status === 'pending_driver') return '🔍 Looking for a driver';
       if (order.status === 'assigned') return '✅ Driver assigned to your package';
       if (order.status === 'picked_up') return '📦 Package picked up';
@@ -285,6 +287,23 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
     if (order.status === 'ready_for_pickup') return '🍔 Order ready! Driver assigned';
     if (order.status === 'picked_up') return '🚚 Driver has picked up your order';
     return '';
+  };
+
+  const handlePayment = async () => {
+    try {
+      toast.loading('Preparing payment...');
+      const response = await api.post(`/orders/checkout`, {
+        amount: order.total,
+        orderId: order.id
+      });
+      toast.dismiss();
+      if (response.data.redirectUrl) {
+        window.location.href = response.data.redirectUrl;
+      }
+    } catch (err) {
+      toast.dismiss();
+      toast.error('Failed to initiate payment');
+    }
   };
 
   return (
@@ -490,9 +509,21 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
           </Button>
         )}
 
+        {/* Pay Now Button - For approved packages waiting for payment */}
+        {needsPayment && (
+          <Button
+            size="sm"
+            className="w-full bg-yellow-500 text-white hover:bg-yellow-600"
+            onClick={handlePayment}
+          >
+            <Lock className="w-3 h-3 mr-1" />
+            Pay Now • R{Number(order.total).toFixed(2)}
+          </Button>
+        )}
+
         {/* Action Buttons */}
         <div className="flex gap-2">
-          {canCancel && order.status !== 'delivered' && (
+          {canCancel && order.status !== 'delivered' && !needsPayment && (
             <Button
               variant="outline"
               size="sm"

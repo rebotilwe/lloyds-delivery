@@ -67,8 +67,8 @@ export default function AdminPackageApprovals() {
     
     setProcessing(true);
     try {
-      // Reject the package
-      await api.put(`/orders/admin/approve-package/${orderId}`, { 
+      // Reject the package with the reason
+      const response = await api.put(`/orders/admin/approve-package/${orderId}`, { 
         action: 'reject', 
         rejection_reason: rejectionReason 
       });
@@ -82,14 +82,14 @@ export default function AdminPackageApprovals() {
         });
       }
       
-      toast.success('Package rejected successfully');
+      toast.success('Package rejected successfully. Customer has been notified.');
       fetchPendingPackages();
       setShowModal(false);
       setSelectedPackage(null);
       setRejectionReason('');
     } catch (error) {
       console.error('Error rejecting package:', error);
-      toast.error('Failed to reject package');
+      toast.error(error.response?.data?.message || 'Failed to reject package');
     } finally {
       setProcessing(false);
     }
@@ -98,7 +98,7 @@ export default function AdminPackageApprovals() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-green" />
+        <Loader2 className="w-8 h-8 animate-spin text-green-600" />
       </div>
     );
   }
@@ -175,7 +175,7 @@ export default function AdminPackageApprovals() {
                       <div>
                         <p className="text-xs text-gray-500">Pickup Address</p>
                         <p className="font-medium flex items-start gap-1">
-                          <MapPin className="w-3 h-3 text-green mt-0.5 shrink-0" />
+                          <MapPin className="w-3 h-3 text-green-600 mt-0.5 shrink-0" />
                           {pkg.pickup_address || 'Not specified'}
                         </p>
                       </div>
@@ -198,7 +198,7 @@ export default function AdminPackageApprovals() {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-lg font-bold text-green">R{parseFloat(pkg.total).toFixed(2)}</p>
+                    <p className="text-lg font-bold text-green-600">R{parseFloat(pkg.total).toFixed(2)}</p>
                     <p className="text-xs text-gray-400">
                       {format(new Date(pkg.created_at), 'dd MMM HH:mm')}
                     </p>
@@ -269,28 +269,30 @@ export default function AdminPackageApprovals() {
 
               <div className="bg-green-50 p-3 rounded-lg">
                 <p className="font-semibold text-sm">Payment Amount</p>
-                <p className="text-2xl font-bold text-green">R{parseFloat(selectedPackage.total).toFixed(2)}</p>
+                <p className="text-2xl font-bold text-green-600">R{parseFloat(selectedPackage.total).toFixed(2)}</p>
                 <p className="text-xs text-gray-500 mt-1">Customer will pay after approval</p>
               </div>
 
               {/* Rejection Reason Input */}
               <div>
-                <label className="text-sm font-medium">Rejection Reason (if rejecting)</label>
+                <label className="text-sm font-medium block mb-2">Rejection Reason (required if rejecting)</label>
                 <Textarea
-                  placeholder="Enter reason for rejection..."
+                  placeholder="Enter reason for rejection. This will be shown to the customer..."
                   value={rejectionReason}
                   onChange={(e) => setRejectionReason(e.target.value)}
-                  rows={2}
+                  rows={3}
                   className="mt-1"
                 />
-                <p className="text-xs text-gray-400 mt-1">This reason will be shown to the customer</p>
+                <p className="text-xs text-amber-600 mt-1">
+                  ⚠️ This reason will be displayed to the customer so they understand why their request was rejected.
+                </p>
               </div>
 
               <div className="flex gap-3 pt-2">
                 <Button 
                   onClick={() => approvePackage(selectedPackage.id)} 
                   disabled={processing}
-                  className="flex-1 bg-green text-white"
+                  className="flex-1 bg-green-600 text-white hover:bg-green-700"
                 >
                   {processing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
                   Approve Package

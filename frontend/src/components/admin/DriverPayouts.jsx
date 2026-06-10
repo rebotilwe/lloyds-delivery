@@ -295,81 +295,95 @@ export default function DriverPayouts() {
       </div>
 
       {/* Create Payout Modal */}
-      <Dialog open={showPayoutModal} onOpenChange={setShowPayoutModal}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create Driver Payout</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Select Driver</label>
-              <Select onValueChange={(id) => {
-                const driver = drivers.find(d => d.id?.toString() === id);
-                setSelectedDriver(driver);
-              }}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a driver" />
-                </SelectTrigger>
-                <SelectContent>
-                  {drivers.map(driver => (
-                    <SelectItem key={driver.id} value={driver.id?.toString() || ''}>
-                      {driver.name} - R{formatCurrency(driver.pending_balance)} pending
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {selectedDriver && (
-              <div className="bg-gray-50 p-3 rounded-lg">
-                <p className="text-sm text-gray-600">Available Balance</p>
-                <p className="text-xl font-bold text-green">
-                  R{formatCurrency(selectedDriver.pending_balance)}
-                </p>
+   <Dialog open={showPayoutModal} onOpenChange={setShowPayoutModal}>
+  <DialogContent className="max-w-md">
+    <DialogHeader>
+      <DialogTitle>Create Driver Payout</DialogTitle>
+    </DialogHeader>
+    <div className="space-y-4">
+      <div>
+        <label className="text-sm font-medium">Select Driver</label>
+        <Select onValueChange={(id) => {
+          const driver = drivers.find(d => d.id?.toString() === id);
+          setSelectedDriver(driver);
+        }}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="Choose a driver" />
+          </SelectTrigger>
+          <SelectContent 
+            className="z-[9999] bg-white border shadow-lg rounded-md"
+            position="popper"
+            sideOffset={5}
+          >
+            {drivers.length === 0 ? (
+              <div className="p-2 text-center text-gray-500 text-sm">
+                No drivers available
               </div>
+            ) : (
+              drivers.map(driver => (
+                <SelectItem 
+                  key={driver.id} 
+                  value={driver.id?.toString() || ''}
+                  className="cursor-pointer"
+                >
+                  {driver.name} - R{formatCurrency(driver.pending_balance)} pending
+                </SelectItem>
+              ))
             )}
+          </SelectContent>
+        </Select>
+      </div>
 
-            <div>
-              <label className="text-sm font-medium">Payout Amount (R)</label>
-              <Input
-                type="number"
-                step="0.01"
-                placeholder="Enter amount"
-                value={payoutAmount}
-                onChange={(e) => setPayoutAmount(e.target.value)}
-              />
-            </div>
+      {selectedDriver && (
+        <div className="bg-gray-50 p-3 rounded-lg">
+          <p className="text-sm text-gray-600">Available Balance</p>
+          <p className="text-xl font-bold text-green">
+            R{formatCurrency(selectedDriver.pending_balance)}
+          </p>
+        </div>
+      )}
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium">Period Start</label>
-                <Input
-                  type="date"
-                  value={payoutPeriod.start}
-                  onChange={(e) => setPayoutPeriod({ ...payoutPeriod, start: e.target.value })}
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Period End</label>
-                <Input
-                  type="date"
-                  value={payoutPeriod.end}
-                  onChange={(e) => setPayoutPeriod({ ...payoutPeriod, end: e.target.value })}
-                />
-              </div>
-            </div>
+      <div>
+        <label className="text-sm font-medium">Payout Amount (R)</label>
+        <Input
+          type="number"
+          step="0.01"
+          placeholder="Enter amount"
+          value={payoutAmount}
+          onChange={(e) => setPayoutAmount(e.target.value)}
+        />
+      </div>
 
-            <div className="flex gap-3 pt-2">
-              <Button onClick={createPayout} className="flex-1 bg-green text-white">
-                Create Payout
-              </Button>
-              <Button onClick={() => setShowPayoutModal(false)} variant="outline" className="flex-1">
-                Cancel
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-sm font-medium">Period Start</label>
+          <Input
+            type="date"
+            value={payoutPeriod.start}
+            onChange={(e) => setPayoutPeriod({ ...payoutPeriod, start: e.target.value })}
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium">Period End</label>
+          <Input
+            type="date"
+            value={payoutPeriod.end}
+            onChange={(e) => setPayoutPeriod({ ...payoutPeriod, end: e.target.value })}
+          />
+        </div>
+      </div>
+
+      <div className="flex gap-3 pt-2">
+        <Button onClick={createPayout} className="flex-1 bg-green text-white">
+          Create Payout
+        </Button>
+        <Button onClick={() => setShowPayoutModal(false)} variant="outline" className="flex-1">
+          Cancel
+        </Button>
+      </div>
+    </div>
+  </DialogContent>
+</Dialog>
     </div>
   );
 }

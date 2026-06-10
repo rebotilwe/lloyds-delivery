@@ -6,7 +6,7 @@ import {
   Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, 
   AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
   Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car,
-  Lock, Loader2, XCircle
+  Lock, Loader2, XCircle, Headset, Send
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -139,6 +139,133 @@ class ErrorBoundary extends React.Component {
     }
     return this.props.children;
   }
+}
+
+// Support/Complaint Modal Component
+function SupportModal({ isOpen, onClose, user }) {
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [type, setType] = useState('complaint');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!subject.trim()) {
+      toast.error('Please enter a subject');
+      return;
+    }
+    if (!message.trim()) {
+      toast.error('Please enter your message');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await api.post('/support/create-ticket', {
+        customer_id: user?.id,
+        customer_name: user?.name || user?.full_name,
+        customer_email: user?.email,
+        subject: subject,
+        description: message,
+        issue_type: type,
+        order_id: null
+      });
+      
+      toast.success('Support ticket created! We will respond within 24 hours.');
+      onClose();
+      setSubject('');
+      setMessage('');
+      setType('complaint');
+    } catch (error) {
+      console.error('Error creating ticket:', error);
+      toast.error('Failed to create support ticket. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Headset className="w-5 h-5 text-green-600" />
+            Customer Support
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="bg-blue-50 p-3 rounded-lg text-sm text-blue-800">
+            <p className="font-medium mb-1">How can we help you?</p>
+            <p className="text-xs">Our support team typically responds within 24 hours.</p>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium mb-2 block">Issue Type</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { value: 'complaint', label: '📢 Complaint', icon: '⚠️' },
+                { value: 'inquiry', label: '❓ Inquiry', icon: '❓' },
+                { value: 'support', label: '🛠️ Support', icon: '🔧' },
+                { value: 'feedback', label: '💡 Feedback', icon: '💡' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => setType(option.value)}
+                  className={`p-2 rounded-lg border text-sm transition ${
+                    type === option.value
+                      ? 'border-green-500 bg-green-50 text-green-700 font-medium'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium mb-2 block">Subject</label>
+            <Input
+              placeholder="Brief summary of your issue"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              maxLength={100}
+            />
+            <p className="text-xs text-gray-400 mt-1">{subject.length}/100</p>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium mb-2 block">Message</label>
+            <Textarea
+              placeholder="Please provide details about your issue or question..."
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              rows={5}
+            />
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <Button 
+              onClick={handleSubmit} 
+              disabled={submitting || !subject || !message}
+              className="flex-1 bg-green-600 text-white hover:bg-green-700"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
+              Submit Ticket
+            </Button>
+            <Button onClick={onClose} variant="outline" className="flex-1">
+              Cancel
+            </Button>
+          </div>
+
+          <div className="text-center pt-2">
+            <p className="text-xs text-gray-400">
+              Or email us directly at: <a href="mailto:support@lloydsdelivery.com" className="text-green-600">support@lloydsdelivery.com</a>
+            </p>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // Driver Info Card Component
@@ -345,7 +472,6 @@ function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver, userId
         </DialogHeader>
         
         <div className="space-y-4">
-          {/* Driver Info */}
           <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-3">
             <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-lg">
               {driver?.name?.charAt(0).toUpperCase() || 'D'}
@@ -356,7 +482,6 @@ function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver, userId
             </div>
           </div>
           
-          {/* Star Rating */}
           <div className="text-center">
             <p className="text-sm font-medium mb-2">How was your delivery experience?</p>
             <div className="flex justify-center gap-1">
@@ -388,7 +513,6 @@ function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver, userId
             </p>
           </div>
           
-          {/* Comment */}
           <div>
             <label className="text-sm font-medium">Leave a comment (optional)</label>
             <Textarea
@@ -400,7 +524,6 @@ function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver, userId
             />
           </div>
           
-          {/* Buttons */}
           <div className="flex gap-3 pt-2">
             <Button
               onClick={handleSubmit}
@@ -534,7 +657,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
       if (order.status === 'on_the_way') return 'Arriving soon';
       return 'Waiting for driver assignment';
     }
-    // Food estimates
     if (order.status === 'on_the_way') return 'Arriving soon';
     if (order.status === 'confirmed') return 'Preparing (15-25 min)';
     if (order.status === 'preparing') return 'Almost ready (10-15 min)';
@@ -555,14 +677,12 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
       if (order.status === 'delivered') return '✅ Package delivered';
       return '';
     }
-    // Food status messages
     if (order.status === 'confirmed') return '⏱️ Restaurant is preparing your order';
     if (order.status === 'ready_for_pickup') return '🍔 Order ready! Driver assigned';
     if (order.status === 'picked_up') return '🚚 Driver has picked up your order';
     return '';
   };
 
-  // Direct payment handler (bypasses Yoco for testing)
   const handleDirectPayment = async () => {
     try {
       toast.loading('Processing payment...');
@@ -586,7 +706,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
     }
   };
 
-  // Yoco payment handler
   const handleYocoPayment = async () => {
     try {
       toast.loading('Preparing payment...');
@@ -631,7 +750,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
         </div>
         
         <CardContent className="p-3 sm:p-4 space-y-3 sm:space-y-4">
-          {/* Order Tracker - hide for rejected orders */}
           {!isRejected && (
             <div className="relative overflow-x-auto pb-2 -mx-1 px-1">
               <div className="flex justify-between min-w-[500px] sm:min-w-0">
@@ -661,7 +779,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             </div>
           )}
 
-          {/* Status Message */}
           {getStatusMessage() && (
             <div className={`${isRejected ? 'bg-red-50' : (isPackage ? 'bg-purple-50' : 'bg-blue-50')} p-2 rounded-lg text-center`}>
               <p className={`text-[10px] sm:text-xs ${isRejected ? 'text-red-700' : (isPackage ? 'text-purple-700' : 'text-blue-700')}`}>
@@ -670,21 +787,35 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             </div>
           )}
 
-          {/* Rejection Reason Display */}
-          {isRejected && order.admin_rejection_reason && (
-            <div className="bg-red-100 border border-red-300 rounded-lg p-3">
-              <p className="text-xs font-semibold text-red-800 mb-1 flex items-center gap-1">
-                <AlertCircle className="w-3 h-3" />
-                Rejection Reason:
-              </p>
-              <p className="text-sm text-red-700">{order.admin_rejection_reason}</p>
-              <p className="text-[10px] text-red-500 mt-2">
-                This request was rejected by admin. Please contact support if you believe this is an error.
-              </p>
+          {/* Enhanced Rejection Reason Display */}
+          {isRejected && (
+            <div className="bg-red-100 border-l-4 border-red-600 rounded-lg p-4">
+              <div className="flex items-start gap-3">
+                <div className="shrink-0">
+                  <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
+                    <AlertCircle className="w-4 h-4 text-white" />
+                  </div>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-red-800 mb-1">Delivery Request Rejected</p>
+                  {order.admin_rejection_reason ? (
+                    <>
+                      <p className="text-sm text-red-700 mb-2 font-medium">{order.admin_rejection_reason}</p>
+                      <p className="text-xs text-red-600">
+                        Your package delivery request has been reviewed and rejected by an administrator.
+                        Please contact support if you have any questions.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-red-700">
+                      Your package delivery request has been rejected. Please contact support for more information.
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Driver Info Card - hide for rejected */}
           {!isRejected && (order.driver_id || order.driver_name) && (
             <DriverInfoCard driver={{
               id: order.driver_id,
@@ -694,7 +825,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             }} isPackage={isPackage} />
           )}
 
-          {/* Order Details */}
           <div className="grid grid-cols-2 gap-2 sm:gap-3 text-sm">
             <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
               <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">Total</p>
@@ -710,7 +840,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             </div>
           </div>
 
-          {/* Package Details - For Non-Food Deliveries */}
           {isPackage && !isRejected && (
             <div className="bg-purple-50 rounded-lg p-3">
               <p className="text-xs font-semibold text-purple-800 mb-2 flex items-center gap-1">
@@ -718,7 +847,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
                 Package Details
               </p>
               
-              {/* Pickup Address */}
               {order.pickup_address && (
                 <div className="flex items-start gap-2 mb-2">
                   <MapPin className="w-3 h-3 text-green-600 mt-0.5 shrink-0" />
@@ -738,7 +866,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
                 </div>
               )}
               
-              {/* Recipient Info */}
               {order.recipient_name && (
                 <div className="flex flex-wrap items-center gap-3 mb-2">
                   <div className="flex items-center gap-1">
@@ -757,7 +884,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
                 </div>
               )}
               
-              {/* Package Specs */}
               <div className="flex flex-wrap gap-3 text-xs mt-2">
                 {order.package_weight && (
                   <span className="flex items-center gap-1">
@@ -781,7 +907,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
                 )}
               </div>
               
-              {/* Package Description */}
               {order.package_description && (
                 <p className="text-xs text-gray-600 mt-2 pt-1 border-t border-purple-200">
                   📦 {order.package_description}
@@ -790,7 +915,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             </div>
           )}
 
-          {/* Delivery Address */}
           <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
             <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 mt-0.5 shrink-0" />
             <div className="flex-1">
@@ -810,12 +934,10 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             </Button>
           </div>
 
-          {/* Live Map - only for food deliveries on the way */}
           {showMap && !isPackage && !isRejected && driverLocation && (
             <LiveMap driverLocation={driverLocation} orderStatus={order.status} />
           )}
 
-          {/* Track Package Button - for packages on the way */}
           {!isRejected && isPackage && order.status === 'on_the_way' && (
             <Button
               size="sm"
@@ -828,7 +950,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             </Button>
           )}
 
-          {/* Pay Now Button - For approved packages waiting for payment */}
           {!isRejected && needsPayment && (
             <div className="flex gap-2">
               <Button
@@ -850,7 +971,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             </div>
           )}
 
-          {/* Action Buttons */}
           <div className="flex gap-2">
             {canCancel && order.status !== 'delivered' && !needsPayment && !isRejected && (
               <Button
@@ -874,7 +994,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
               <RotateCcw className="w-3 h-3 mr-1" />
               {isPackage ? 'Book Again' : 'Order Again'}
             </Button>
-            {/* Report Issue Button - only for delivered orders */}
             {order.status === 'delivered' && (
               <Button
                 variant="outline"
@@ -888,7 +1007,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             )}
           </div>
 
-          {/* Order Items Expandable - only for food */}
           {!isPackage && !isRejected && items.length > 0 && (
             <button
               onClick={() => setExpanded(!expanded)}
@@ -922,7 +1040,6 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
         </CardContent>
       </Card>
       
-      {/* Cancellation Modal */}
       <CancellationModal
         isOpen={showCancelModal}
         onClose={() => {
@@ -1001,15 +1118,30 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
       
       {expanded && (
         <CardContent className="pt-0 space-y-3 border-t px-3 sm:px-4">
-          {/* Rejection Reason in History */}
-          {isRejected && order.admin_rejection_reason && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-3">
-              <p className="text-xs font-semibold text-red-800 mb-1">Rejection Reason:</p>
-              <p className="text-sm text-red-700">{order.admin_rejection_reason}</p>
+          {/* Enhanced Rejection Reason in History */}
+          {isRejected && (
+            <div className="bg-red-50 border-l-4 border-red-600 rounded-lg p-4 mt-3">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-red-800 mb-1">Request Rejected</p>
+                  {order.admin_rejection_reason ? (
+                    <>
+                      <p className="text-sm text-red-700 mb-2 font-medium">{order.admin_rejection_reason}</p>
+                      <p className="text-xs text-red-600">
+                        If you believe this is an error, please contact support.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-red-700">
+                      Your request was rejected. Please contact support for more information.
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Package details in history */}
           {isPackage && (
             <div className="space-y-2 pt-3">
               {order.pickup_address && (
@@ -1040,7 +1172,6 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
             </div>
           )}
 
-          {/* Food items in history */}
           {!isPackage && (
             <div className="space-y-1 pt-3">
               {items.map((item, i) => (
@@ -1069,7 +1200,6 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
             </div>
           )}
           
-          {/* Driver Info in History */}
           {order.driver_name && (
             <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
               <Truck className="w-3 h-3" />
@@ -1096,7 +1226,6 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
                 <Star className="w-3 h-3 sm:w-4 sm:h-4 mr-1" /> Rate Restaurant
               </Button>
             )}
-            {/* Rate Driver Button - for delivered orders with a driver */}
             {order.status === 'delivered' && order.driver_id && hasDriverRating && (
               <Button
                 size="sm"
@@ -1129,7 +1258,6 @@ function CustomerOrdersComponent() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { addToCart } = useCart();
-  const queryClient = useQueryClient();
   const [liveUpdates, setLiveUpdates] = useState({});
   const [driverLocation, setDriverLocation] = useState(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -1144,20 +1272,18 @@ function CustomerOrdersComponent() {
   const [orderTab, setOrderTab] = useState('active');
   const [showRejectionAlert, setShowRejectionAlert] = useState(false);
   const [rejectedOrder, setRejectedOrder] = useState(null);
+  const [showSupportModal, setShowSupportModal] = useState(false);
   
-  // Driver Rating States
   const [showDriverRatingModal, setShowDriverRatingModal] = useState(false);
   const [selectedDriverForRating, setSelectedDriverForRating] = useState(null);
   const [selectedOrderForRating, setSelectedOrderForRating] = useState(null);
 
-  // Fetch orders
   const { data: orders = [], isLoading, error, refetch } = useQuery({
     queryKey: ['customerOrders', user?.id],
     queryFn: async () => {
       if (!user?.id) return [];
       try {
         const response = await api.get(`/orders/customer/${user.id}`);
-        console.log('Customer orders response:', response);
         if (Array.isArray(response)) {
           return response;
         }
@@ -1174,11 +1300,16 @@ function CustomerOrdersComponent() {
     refetchInterval: 30000,
   });
 
-  // Listen for driver location updates
+  // Sort orders by created_at (newest first)
+  const sortedOrders = [...orders].sort((a, b) => {
+    const dateA = new Date(a.created_at);
+    const dateB = new Date(b.created_at);
+    return dateB - dateA; // Descending - newest first
+  });
+
   useEffect(() => {
     if (socket && online) {
       socket.on('driver-location-update', (data) => {
-        console.log('Driver location update:', data);
         setDriverLocation({ lat: data.lat, lng: data.lng });
       });
       
@@ -1188,11 +1319,9 @@ function CustomerOrdersComponent() {
     }
   }, [socket, online]);
 
-  // Listen for rejection alerts via socket
   useEffect(() => {
     if (socket && online) {
       socket.on('order-rejected', (data) => {
-        console.log('Order rejected:', data);
         setRejectedOrder(data);
         setShowRejectionAlert(true);
         toast.error(`❌ Your package request #${data.orderId} was rejected. Reason: ${data.reason}`);
@@ -1205,7 +1334,6 @@ function CustomerOrdersComponent() {
     }
   }, [socket, online, refetch]);
 
-  // Fetch user tickets when modal opens
   const fetchUserTickets = async () => {
     try {
       const response = await api.get('/support/my-tickets');
@@ -1221,7 +1349,6 @@ function CustomerOrdersComponent() {
     }
   }, [showTicketsModal]);
 
-  // Handle order cancellation with reason
   const handleCancelOrder = async (orderId, reason) => {
     try {
       const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/cancel/${orderId}`, {
@@ -1247,7 +1374,6 @@ function CustomerOrdersComponent() {
     }
   };
 
-  // Handle reorder
   const handleReorder = (order) => {
     const isPackage = order.delivery_type && order.delivery_type !== 'food';
     
@@ -1282,22 +1408,19 @@ function CustomerOrdersComponent() {
     setShowIssueModal(true);
   };
   
-  // Handle Driver Rating
   const handleRateDriver = (order, driver) => {
     setSelectedOrderForRating(order);
     setSelectedDriverForRating(driver);
     setShowDriverRatingModal(true);
   };
 
-  // Socket connection for real-time updates
   useEffect(() => {
-    if (socket && user?.id && online && orders.length > 0) {
-      orders.forEach(order => {
+    if (socket && user?.id && online && sortedOrders.length > 0) {
+      sortedOrders.forEach(order => {
         socket.emit('join-order', order.id);
       });
       
       const handleStatusUpdate = (data) => {
-        console.log('Status update received:', data);
         setLiveUpdates(prev => ({ ...prev, [data.orderId]: data.status }));
         
         if (data.status === 'rejected') {
@@ -1315,14 +1438,12 @@ function CustomerOrdersComponent() {
         socket.off('order-status-update', handleStatusUpdate);
       };
     }
-  }, [socket, user, orders, online, refetch]);
+  }, [socket, user, sortedOrders, online, refetch]);
 
-  // Filter orders
   const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'pending_approval', 'pending_driver', 'assigned', 'rejected'];
-  const activeOrders = orders.filter(o => activeStatuses.includes(o.status));
-  const pastOrders = orders.filter(o => !activeStatuses.includes(o.status) || o.status === 'cancelled');
+  const activeOrders = sortedOrders.filter(o => activeStatuses.includes(o.status));
+  const pastOrders = sortedOrders.filter(o => !activeStatuses.includes(o.status) || o.status === 'cancelled');
   
-  // Mark active orders as viewed when they load
   useEffect(() => {
     if (activeOrders.length > 0) {
       const orderIds = activeOrders.map(o => o.id);
@@ -1330,20 +1451,17 @@ function CustomerOrdersComponent() {
     }
   }, [activeOrders]);
   
-  // Filter past orders by search term
   const filteredPastOrders = pastOrders.filter(order => 
     (order.restaurant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
      order.id?.toString().includes(searchTerm) ||
      (order.delivery_type === 'package' && 'package'.includes(searchTerm.toLowerCase())))
   );
   
-  // Pagination
   const displayedPastOrders = filteredPastOrders.slice(0, visibleCount);
   const hasMore = filteredPastOrders.length > visibleCount;
 
   const loadMore = () => setVisibleCount(prev => prev + 10);
 
-  // Quick filter chips
   const quickFilters = [
     { label: 'All Orders', value: '', icon: Package },
     { label: '📦 Packages', value: 'package', icon: Package },
@@ -1379,30 +1497,47 @@ function CustomerOrdersComponent() {
 
   return (
     <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
-      {/* Rejection Alert Banner */}
+      {/* Support Modal */}
+      <SupportModal
+        isOpen={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
+        user={user}
+      />
+
       {showRejectionAlert && rejectedOrder && (
-        <div className="mb-4 bg-red-50 border border-red-300 rounded-lg p-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-red-500" />
-            <div>
+        <div className="mb-4 bg-red-50 border-l-4 border-red-600 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
               <p className="text-sm font-semibold text-red-800">Package Request Rejected</p>
-              <p className="text-xs text-red-600">Order #{rejectedOrder.orderId} was rejected. Reason: {rejectedOrder.reason}</p>
+              <p className="text-sm text-red-700 mt-1">Order #{rejectedOrder.orderId} was rejected.</p>
+              <p className="text-sm font-medium text-red-800 mt-2">Reason:</p>
+              <p className="text-sm text-red-700">{rejectedOrder.reason}</p>
+              <Button 
+                size="sm" 
+                variant="outline" 
+                className="mt-3 border-red-300 text-red-600 hover:bg-red-100"
+                onClick={() => setShowRejectionAlert(false)}
+              >
+                Dismiss
+              </Button>
             </div>
           </div>
-          <Button 
-            size="sm" 
-            variant="outline" 
-            className="border-red-300 text-red-600 hover:bg-red-100"
-            onClick={() => setShowRejectionAlert(false)}
-          >
-            Dismiss
-          </Button>
         </div>
       )}
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0 mb-4 sm:mb-6">
         <h1 className="text-xl sm:text-2xl font-bold">My Orders</h1>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowSupportModal(true)}
+            className="text-xs"
+          >
+            <Headset className="w-3 h-3 mr-1" />
+            Support
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -1420,7 +1555,6 @@ function CustomerOrdersComponent() {
         </div>
       </div>
 
-      {/* Order Type Tabs */}
       <div className="mb-4">
         <Tabs value={orderTab} onValueChange={setOrderTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2">
@@ -1434,7 +1568,7 @@ function CustomerOrdersComponent() {
         </Tabs>
       </div>
 
-      {orders.length === 0 ? (
+      {sortedOrders.length === 0 ? (
         <div className="text-center py-8 sm:py-12 bg-white rounded-xl border">
           <Package className="w-12 h-12 sm:w-16 sm:h-16 text-gray-300 mx-auto mb-3 sm:mb-4" />
           <p className="text-sm sm:text-base text-gray-500">No orders yet</p>
@@ -1451,7 +1585,6 @@ function CustomerOrdersComponent() {
         </div>
       ) : (
         <div className="space-y-6 sm:space-y-8">
-          {/* Active Orders Tab */}
           {orderTab === 'active' && (
             activeOrders.length > 0 ? (
               <div className="space-y-3 sm:space-y-4">
@@ -1478,10 +1611,8 @@ function CustomerOrdersComponent() {
             )
           )}
 
-          {/* Order History Tab */}
           {orderTab === 'history' && (
             <div>
-              {/* Quick Filter Chips */}
               <div className="flex flex-wrap gap-2 mb-4">
                 {quickFilters.map((filter) => (
                   <Badge
@@ -1499,7 +1630,6 @@ function CustomerOrdersComponent() {
                 ))}
               </div>
 
-              {/* Search Bar */}
               <div className="relative w-full mb-4">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400" />
                 <Input
@@ -1564,7 +1694,6 @@ function CustomerOrdersComponent() {
         />
       )}
 
-      {/* Driver Rating Modal */}
       <DriverRatingModal
         isOpen={showDriverRatingModal}
         onClose={() => {
@@ -1580,7 +1709,6 @@ function CustomerOrdersComponent() {
         userId={user?.id}
       />
 
-      {/* Report Issue Modal */}
       {showIssueModal && selectedOrderForIssue && (
         <ReportIssueModal
           order={selectedOrderForIssue}
@@ -1596,7 +1724,6 @@ function CustomerOrdersComponent() {
         />
       )}
 
-      {/* Tickets Modal */}
       <Dialog open={showTicketsModal} onOpenChange={setShowTicketsModal}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1642,7 +1769,6 @@ function CustomerOrdersComponent() {
         </DialogContent>
       </Dialog>
 
-      {/* Ticket Response Modal */}
       {selectedTicket && (
         <TicketResponseModal
           isOpen={!!selectedTicket}

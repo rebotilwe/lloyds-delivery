@@ -18,12 +18,10 @@ const deliveryTypes = {
 // Phone number validation function
 const validatePhoneNumber = (phone) => {
   if (!phone) return false;
-  // Remove any non-digit characters for validation
   const digits = phone.replace(/\D/g, '');
-  // South African phone numbers: 10 digits (starting with 0) or 11 digits (starting with 27)
   if (digits.length === 10 && digits.startsWith('0')) return true;
   if (digits.length === 11 && digits.startsWith('27')) return true;
-  if (digits.length === 9) return true; // Local format
+  if (digits.length === 9) return true;
   return false;
 };
 
@@ -59,33 +57,39 @@ export default function PackageDelivery() {
 
   const deliveryInfo = deliveryTypes[deliveryType] || deliveryTypes.package;
 
-  // Validate form before calculating quote
+  // Helper function to calculate total without validation
+  const calculateTotal = () => {
+    const basePrice = deliveryInfo.basePrice;
+    const weightNum = parseFloat(formData.weight) || 0;
+    const weightPrice = weightNum * 5;
+    const signatureFee = formData.requires_signature ? 10 : 0;
+    const fragileFee = formData.is_fragile ? 15 : 0;
+    const total = basePrice + weightPrice + signatureFee + fragileFee;
+    return Math.max(20, total);
+  };
+
+  // Validate form (without auto-calculating)
   const validateForm = () => {
     const newErrors = {};
     
-    // Validate pickup address
     if (!formData.pickup_address.trim()) {
       newErrors.pickup_address = 'Pickup address is required';
     }
     
-    // Validate delivery address
     if (!formData.delivery_address.trim()) {
       newErrors.delivery_address = 'Delivery address is required';
     }
     
-    // Validate recipient name (REQUIRED)
     if (!formData.recipient_name.trim()) {
       newErrors.recipient_name = 'Recipient name is required';
     }
     
-    // Validate recipient phone (REQUIRED with format validation)
     if (!formData.recipient_phone.trim()) {
       newErrors.recipient_phone = 'Recipient phone number is required';
     } else if (!validatePhoneNumber(formData.recipient_phone)) {
       newErrors.recipient_phone = 'Please enter a valid South African phone number (e.g., 0712345678 or 27712345678)';
     }
     
-    // Validate weight with max limit
     const weightNum = parseFloat(formData.weight);
     if (formData.weight && (isNaN(weightNum) || weightNum < 0)) {
       newErrors.weight = 'Please enter a valid weight';
@@ -93,7 +97,6 @@ export default function PackageDelivery() {
       newErrors.weight = `Maximum weight allowed is ${deliveryInfo.maxWeight}kg for ${deliveryInfo.label}`;
     }
     
-    // Validate dimensions format
     if (formData.dimensions) {
       const dimensionMatch = formData.dimensions.match(/^(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)$/i);
       if (!dimensionMatch) {
@@ -111,18 +114,24 @@ export default function PackageDelivery() {
     return Object.keys(newErrors).length === 0;
   };
 
+  // Calculate quote with proper validation
   const calculateQuote = () => {
     if (!validateForm()) {
       toast.error('Please fix the errors before calculating quote');
       return;
     }
     
-    const basePrice = deliveryInfo.basePrice;
-    const weightPrice = (parseFloat(formData.weight) || 0) * 5;
-    const signatureFee = formData.requires_signature ? 10 : 0;
-    const fragileFee = formData.is_fragile ? 15 : 0;
-    const total = basePrice + weightPrice + signatureFee + fragileFee;
-    setQuote({ total: Math.max(20, total) });
+    const total = calculateTotal();
+    setQuote({ total });
+  };
+
+  // Update quote when checkboxes change (without full validation)
+  const updateQuoteForOptions = () => {
+    // Only update quote if we have a quote already
+    if (quote) {
+      const total = calculateTotal();
+      setQuote({ total });
+    }
   };
 
   const handlePhoneChange = (e) => {
@@ -131,7 +140,6 @@ export default function PackageDelivery() {
     const formatted = formatPhoneNumber(digitsOnly);
     setFormData({ ...formData, recipient_phone: formatted });
     
-    // Clear error when user starts typing
     if (errors.recipient_phone && formatted) {
       setErrors({ ...errors, recipient_phone: '' });
     }
@@ -139,10 +147,14 @@ export default function PackageDelivery() {
 
   const handleWeightChange = (e) => {
     const value = e.target.value;
-    // Only allow numbers and decimal point
     if (value === '' || /^\d*\.?\d*$/.test(value)) {
       setFormData({ ...formData, weight: value });
       if (errors.weight) setErrors({ ...errors, weight: '' });
+      // Update quote if we have one
+      if (quote) {
+        const total = calculateTotal();
+        setQuote({ total });
+      }
     }
   };
 
@@ -150,6 +162,26 @@ export default function PackageDelivery() {
     const value = e.target.value;
     setFormData({ ...formData, dimensions: value });
     if (errors.dimensions) setErrors({ ...errors, dimensions: '' });
+  };
+
+  const handleSignatureChange = (e) => {
+    const checked = e.target.checked;
+    setFormData({ ...formData, requires_signature: checked });
+    // Update quote immediately
+    if (quote) {
+      const total = calculateTotal();
+      setQuote({ total });
+    }
+  };
+
+  const handleFragileChange = (e) => {
+    const checked = e.target.checked;
+    setFormData({ ...formData, is_fragile: checked });
+    // Update quote immediately
+    if (quote) {
+      const total = calculateTotal();
+      setQuote({ total });
+    }
   };
 
   const handleSubmit = async () => {
@@ -220,6 +252,15 @@ export default function PackageDelivery() {
     }
   };
 
+  // Calculate display values for breakdown
+  const basePrice = deliveryInfo.basePrice;
+  const weightNum = parseFloat(formData.weight) || 0;
+  const weightPrice = weightNum * 5;
+  const signatureFee = formData.requires_signature ? 10 : 0;
+  const fragileFee = formData.is_fragile ? 15 : 0;
+  const displayTotal = basePrice + weightPrice + signatureFee + fragileFee;
+  const finalTotal = Math.max(20, displayTotal);
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-2">{deliveryInfo.label}</h1>
@@ -249,7 +290,7 @@ export default function PackageDelivery() {
         <Card className={`border ${errors.pickup_address ? 'border-red-500' : 'border-gray-200'}`}>
           <CardContent className="p-5">
             <Label className="flex items-center gap-2 mb-3">
-              <MapPin className="w-4 h-4 text-green" />
+              <MapPin className="w-4 h-4 text-green-600" />
               Pickup Address *
             </Label>
             <Input
@@ -321,7 +362,7 @@ export default function PackageDelivery() {
           <Card className={`border ${errors.weight ? 'border-red-500' : 'border-gray-200'}`}>
             <CardContent className="p-5">
               <Label className="flex items-center gap-2">
-                <Weight className="w-4 h-4 text-green" />
+                <Weight className="w-4 h-4 text-green-600" />
                 Weight (kg) <span className="text-xs text-gray-400">(Max: {deliveryInfo.maxWeight}kg)</span>
               </Label>
               <Input
@@ -338,7 +379,7 @@ export default function PackageDelivery() {
           <Card className={`border ${errors.dimensions ? 'border-red-500' : 'border-gray-200'}`}>
             <CardContent className="p-5">
               <Label className="flex items-center gap-2">
-                <Ruler className="w-4 h-4 text-green" />
+                <Ruler className="w-4 h-4 text-green-600" />
                 Dimensions (cm) <span className="text-xs text-gray-400">(L x W x H)</span>
               </Label>
               <Input
@@ -354,7 +395,7 @@ export default function PackageDelivery() {
           </Card>
         </div>
 
-        {/* Options */}
+        {/* Options - FIXED: Using separate handlers that update quote */}
         <div className="grid grid-cols-2 gap-4">
           <Card>
             <CardContent className="p-4">
@@ -362,10 +403,7 @@ export default function PackageDelivery() {
                 <input
                   type="checkbox"
                   checked={formData.requires_signature}
-                  onChange={(e) => { 
-                    setFormData({ ...formData, requires_signature: e.target.checked });
-                    calculateQuote();
-                  }}
+                  onChange={handleSignatureChange}
                   className="w-4 h-4"
                 />
                 <span className="text-sm">📝 Requires Signature (+R10)</span>
@@ -378,10 +416,7 @@ export default function PackageDelivery() {
                 <input
                   type="checkbox"
                   checked={formData.is_fragile}
-                  onChange={(e) => { 
-                    setFormData({ ...formData, is_fragile: e.target.checked });
-                    calculateQuote();
-                  }}
+                  onChange={handleFragileChange}
                   className="w-4 h-4"
                 />
                 <span className="text-sm">⚠️ Fragile Item (+R15)</span>
@@ -410,17 +445,18 @@ export default function PackageDelivery() {
             {quote ? (
               <div className="text-center">
                 <p className="text-sm text-gray-600">Estimated Total</p>
-                <p className="text-3xl font-bold text-green">R{quote.total.toFixed(2)}</p>
+                <p className="text-3xl font-bold text-green-600">R{quote.total.toFixed(2)}</p>
                 <div className="text-xs text-gray-500 mt-2 space-y-1">
                   <p>Base fee: R{deliveryInfo.basePrice}</p>
-                  {formData.weight > 0 && <p>Weight charge: R{(parseFloat(formData.weight) * 5).toFixed(2)}</p>}
-                  {formData.requires_signature && <p>Signature fee: R10.00</p>}
-                  {formData.is_fragile && <p>Fragile handling: R15.00</p>}
+                  {weightNum > 0 && <p>Weight charge ({weightNum}kg): R{weightPrice.toFixed(2)}</p>}
+                  {formData.requires_signature && <p>Signature fee: +R10.00</p>}
+                  {formData.is_fragile && <p>Fragile handling: +R15.00</p>}
+                  <p className="text-gray-400 text-[10px] mt-1">Minimum charge: R20</p>
                 </div>
                 <Button 
                   onClick={handleSubmit}
                   disabled={loading}
-                  className="mt-4 bg-green text-white w-full"
+                  className="mt-4 bg-green-600 text-white w-full"
                 >
                   {loading ? 'Processing...' : `Submit Package Request • R${quote.total.toFixed(2)}`}
                 </Button>
@@ -429,7 +465,7 @@ export default function PackageDelivery() {
                 </p>
               </div>
             ) : (
-              <Button onClick={calculateQuote} className="w-full bg-green text-white">
+              <Button onClick={calculateQuote} className="w-full bg-green-600 text-white">
                 Calculate Quote
               </Button>
             )}

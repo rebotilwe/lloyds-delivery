@@ -101,6 +101,46 @@ const statusColors = {
   closed: 'bg-gray-100 text-gray-800',
 };
 
+// Error Boundary Component
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('CustomerOrders Error:', error, errorInfo);
+    this.setState({ errorInfo });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-8">
+          <div className="text-center py-12 bg-red-50 rounded-xl border border-red-200">
+            <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+            <h2 className="text-lg font-semibold text-red-800 mb-2">Something went wrong</h2>
+            <p className="text-sm text-red-600 mb-4">{this.state.error?.message || 'Failed to load orders'}</p>
+            <div className="flex gap-2 justify-center">
+              <Button onClick={() => window.location.reload()} className="bg-red-600 text-white">
+                Refresh Page
+              </Button>
+              <Button onClick={() => window.location.href = '/'} variant="outline">
+                Go Home
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // Driver Info Card Component
 function DriverInfoCard({ driver, isPackage }) {
   if (!driver || !driver.id) return null;
@@ -150,7 +190,7 @@ function DriverInfoCard({ driver, isPackage }) {
             {driver.vehicle_type === 'car' ? (
               <Car className="w-5 h-5 text-blue-500" />
             ) : (
-              <Bike className="w-5 h-5 text-green" />
+              <Bike className="w-5 h-5 text-green-600" />
             )}
           </div>
         )}
@@ -260,7 +300,7 @@ function CancellationModal({ isOpen, onClose, onConfirm, orderId, orderType }) {
 }
 
 // Driver Rating Modal Component
-function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver }) {
+function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver, userId }) {
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [comment, setComment] = useState('');
@@ -275,9 +315,9 @@ function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver }) {
     setSubmitting(true);
     try {
       await api.post('/orders/reviews/create', {
-        order_id: order.id,
-        driver_id: driver.id,
-        customer_id: order.customer_id,
+        order_id: order?.id,
+        driver_id: driver?.id,
+        customer_id: order?.customer_id || userId,
         rating: rating,
         comment: comment,
         type: 'driver'
@@ -288,7 +328,7 @@ function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver }) {
       onClose();
     } catch (error) {
       console.error('Rating error:', error);
-      toast.error('Failed to submit rating');
+      toast.error(error.response?.data?.message || 'Failed to submit rating');
     } finally {
       setSubmitting(false);
     }
@@ -308,10 +348,10 @@ function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver }) {
           {/* Driver Info */}
           <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-3">
             <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-lg">
-              {driver.name?.charAt(0).toUpperCase() || 'D'}
+              {driver?.name?.charAt(0).toUpperCase() || 'D'}
             </div>
             <div>
-              <p className="font-semibold">{driver.name}</p>
+              <p className="font-semibold">{driver?.name || 'Driver'}</p>
               <p className="text-xs text-gray-500">Your delivery driver</p>
             </div>
           </div>
@@ -394,12 +434,15 @@ function LiveMap({ driverLocation, orderStatus }) {
       import('leaflet').then((leaflet) => {
         L = leaflet.default;
         setMapLoaded(true);
+      }).catch(err => {
+        console.error('Failed to load Leaflet:', err);
+        setMapLoaded(false);
       });
     }
   }, []);
 
   useEffect(() => {
-    if (mapLoaded && mapContainerRef.current && !mapRef.current) {
+    if (mapLoaded && mapContainerRef.current && !mapRef.current && L) {
       mapRef.current = L.map(mapContainerRef.current).setView([-29.65, 31.05], 13);
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
@@ -414,7 +457,7 @@ function LiveMap({ driverLocation, orderStatus }) {
         mapRef.current = null;
       }
     };
-  }, [mapLoaded]);
+  }, [mapLoaded, L]);
 
   useEffect(() => {
     if (!mapRef.current || !L || !mapLoaded) return;
@@ -440,7 +483,7 @@ function LiveMap({ driverLocation, orderStatus }) {
   if (!mapLoaded) {
     return (
       <div className="h-40 sm:h-48 bg-gray-100 rounded-lg flex items-center justify-center">
-        <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-green"></div>
+        <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-green-600"></div>
         <span className="ml-2 text-xs text-gray-500">Loading map...</span>
       </div>
     );
@@ -453,8 +496,8 @@ function LiveMap({ driverLocation, orderStatus }) {
   return (
     <div className="mt-3">
       <div className="flex items-center gap-2 mb-2">
-        <Navigation className="w-3 h-3 sm:w-4 sm:h-4 text-green animate-pulse" />
-        <span className="text-xs font-medium text-green">Live Driver Location</span>
+        <Navigation className="w-3 h-3 sm:w-4 sm:h-4 text-green-600 animate-pulse" />
+        <span className="text-xs font-medium text-green-600">Live Driver Location</span>
       </div>
       <div 
         ref={mapContainerRef} 
@@ -565,8 +608,8 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
 
   return (
     <>
-      <Card className={`overflow-hidden border-2 ${isRejected ? 'border-red-500/50' : 'border-green/20'} shadow-md`}>
-        <div className={`${isRejected ? 'bg-gradient-to-r from-red-600 to-red-500' : (isPackage ? 'bg-gradient-to-r from-purple-600 to-purple-500' : 'bg-gradient-to-r from-green to-green/80')} px-3 sm:px-4 py-2 flex items-center justify-between`}>
+      <Card className={`overflow-hidden border-2 ${isRejected ? 'border-red-500/50' : 'border-green-600/20'} shadow-md`}>
+        <div className={`${isRejected ? 'bg-gradient-to-r from-red-600 to-red-500' : (isPackage ? 'bg-gradient-to-r from-purple-600 to-purple-500' : 'bg-gradient-to-r from-green-600 to-green-600/80')} px-3 sm:px-4 py-2 flex items-center justify-between`}>
           <div className="flex items-center gap-1 sm:gap-2">
             {isRejected ? (
               <XCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
@@ -597,7 +640,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
                     <div className={cn(
                       "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold transition-all",
                       currentStep >= step.step 
-                        ? "bg-green text-white" 
+                        ? "bg-green-600 text-white" 
                         : "bg-gray-200 text-gray-400"
                     )}>
                       {currentStep > step.step ? (
@@ -608,7 +651,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
                     </div>
                     <span className={cn(
                       "text-[9px] sm:text-xs mt-1 text-center whitespace-nowrap",
-                      currentStep >= step.step ? "text-green font-medium" : "text-gray-400"
+                      currentStep >= step.step ? "text-green-600 font-medium" : "text-gray-400"
                     )}>
                       {step.label}
                     </span>
@@ -655,7 +698,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
           <div className="grid grid-cols-2 gap-2 sm:gap-3 text-sm">
             <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
               <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">Total</p>
-              <p className="font-bold text-green text-sm sm:text-lg">R{Number(order.total).toFixed(2)}</p>
+              <p className="font-bold text-green-600 text-sm sm:text-lg">R{Number(order.total).toFixed(2)}</p>
             </div>
             <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
               <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">
@@ -678,7 +721,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
               {/* Pickup Address */}
               {order.pickup_address && (
                 <div className="flex items-start gap-2 mb-2">
-                  <MapPin className="w-3 h-3 text-green mt-0.5 shrink-0" />
+                  <MapPin className="w-3 h-3 text-green-600 mt-0.5 shrink-0" />
                   <div>
                     <p className="text-[10px] text-gray-500">Pickup Address</p>
                     <p className="text-xs font-medium">{order.pickup_address}</p>
@@ -799,7 +842,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
               <Button
                 size="sm"
                 variant="outline"
-                className="flex-1 border-green-500 text-green-600 hover:bg-green-50"
+                className="flex-1 border-green-600 text-green-600 hover:bg-green-50"
                 onClick={handleYocoPayment}
               >
                 💳 Pay with Card
@@ -825,7 +868,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             <Button
               variant="outline"
               size="sm"
-              className="flex-1 border-green-300 text-green-600 hover:bg-green-50 text-xs sm:text-sm h-8 sm:h-9"
+              className="flex-1 border-green-600 text-green-600 hover:bg-green-50 text-xs sm:text-sm h-8 sm:h-9"
               onClick={() => onReorder(order)}
             >
               <RotateCcw className="w-3 h-3 mr-1" />
@@ -869,7 +912,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
                 <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
               </div>
               {order.discount_applied > 0 && (
-                <div className="flex justify-between text-xs sm:text-sm text-green">
+                <div className="flex justify-between text-xs sm:text-sm text-green-600">
                   <span>Discount</span>
                   <span>-R{Number(order.discount_applied).toFixed(2)}</span>
                 </div>
@@ -950,7 +993,7 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
             <span className={`px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[9px] sm:text-xs font-medium ${getStatusColor(order.status)} whitespace-nowrap`}>
               {getStatusLabel(order.status)}
             </span>
-            <span className="font-bold text-green text-xs sm:text-sm whitespace-nowrap">R{Number(order.total).toFixed(2)}</span>
+            <span className="font-bold text-green-600 text-xs sm:text-sm whitespace-nowrap">R{Number(order.total).toFixed(2)}</span>
             {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />}
           </div>
         </div>
@@ -971,7 +1014,7 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
             <div className="space-y-2 pt-3">
               {order.pickup_address && (
                 <div className="flex items-start gap-2">
-                  <MapPin className="w-3 h-3 text-green mt-0.5 shrink-0" />
+                  <MapPin className="w-3 h-3 text-green-600 mt-0.5 shrink-0" />
                   <div className="flex-1">
                     <p className="text-[10px] text-gray-500">Pickup Address</p>
                     <p className="text-xs">{order.pickup_address}</p>
@@ -1014,7 +1057,7 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
             <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
           </div>
           {order.discount_applied > 0 && (
-            <div className="flex justify-between text-xs sm:text-sm text-green">
+            <div className="flex justify-between text-xs sm:text-sm text-green-600">
               <span>Discount</span>
               <span>-R{Number(order.discount_applied).toFixed(2)}</span>
             </div>
@@ -1067,7 +1110,7 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
             <Button
               size="sm"
               variant="outline"
-              className="flex-1 border-green-300 text-green-600 hover:bg-green-50 text-xs sm:text-sm h-8 sm:h-9"
+              className="flex-1 border-green-600 text-green-600 hover:bg-green-50 text-xs sm:text-sm h-8 sm:h-9"
               onClick={() => onReorder(order)}
             >
               <RotateCcw className="w-3 h-3 mr-1" />
@@ -1080,7 +1123,8 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
   );
 }
 
-export default function CustomerOrders() {
+// Main CustomerOrders Component
+function CustomerOrdersComponent() {
   const { socket, online } = useSocket();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -1105,6 +1149,30 @@ export default function CustomerOrders() {
   const [showDriverRatingModal, setShowDriverRatingModal] = useState(false);
   const [selectedDriverForRating, setSelectedDriverForRating] = useState(null);
   const [selectedOrderForRating, setSelectedOrderForRating] = useState(null);
+
+  // Fetch orders
+  const { data: orders = [], isLoading, error, refetch } = useQuery({
+    queryKey: ['customerOrders', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [];
+      try {
+        const response = await api.get(`/orders/customer/${user.id}`);
+        console.log('Customer orders response:', response);
+        if (Array.isArray(response)) {
+          return response;
+        }
+        if (response && response.data && Array.isArray(response.data)) {
+          return response.data;
+        }
+        return [];
+      } catch (err) {
+        console.error('Error fetching orders:', err);
+        return [];
+      }
+    },
+    enabled: !!user?.id,
+    refetchInterval: 30000,
+  });
 
   // Listen for driver location updates
   useEffect(() => {
@@ -1136,30 +1204,6 @@ export default function CustomerOrders() {
       };
     }
   }, [socket, online, refetch]);
-
-  // Fetch orders
-  const { data: orders = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['customerOrders', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return [];
-      try {
-        const response = await api.get(`/orders/customer/${user.id}`);
-        console.log('Customer orders response:', response);
-        if (Array.isArray(response)) {
-          return response;
-        }
-        if (response && response.data && Array.isArray(response.data)) {
-          return response.data;
-        }
-        return [];
-      } catch (err) {
-        console.error('Error fetching orders:', err);
-        return [];
-      }
-    },
-    enabled: !!user?.id,
-    refetchInterval: 30000,
-  });
 
   // Fetch user tickets when modal opens
   const fetchUserTickets = async () => {
@@ -1324,7 +1368,7 @@ export default function CustomerOrders() {
           <p className="text-sm sm:text-base text-gray-500">Failed to load orders</p>
           <button 
             onClick={() => refetch()} 
-            className="mt-3 sm:mt-4 text-green hover:underline text-sm sm:text-base"
+            className="mt-3 sm:mt-4 text-green-600 hover:underline text-sm sm:text-base"
           >
             Try again
           </button>
@@ -1396,7 +1440,7 @@ export default function CustomerOrders() {
           <p className="text-sm sm:text-base text-gray-500">No orders yet</p>
           <p className="text-xs sm:text-sm text-gray-400 mt-1">Browse restaurants or book a package delivery</p>
           <div className="flex flex-col sm:flex-row gap-2 justify-center mt-4">
-            <Button onClick={() => navigate('/')} className="bg-green text-white">
+            <Button onClick={() => navigate('/')} className="bg-green-600 text-white">
               Browse Restaurants
             </Button>
             <Button onClick={() => navigate('/package-delivery')} variant="outline" className="border-purple-500 text-purple-600">
@@ -1445,7 +1489,7 @@ export default function CustomerOrders() {
                     variant={searchTerm === filter.value ? 'default' : 'outline'}
                     className={`cursor-pointer text-xs ${
                       searchTerm === filter.value 
-                        ? 'bg-green text-white' 
+                        ? 'bg-green-600 text-white' 
                         : 'hover:bg-gray-100'
                     }`}
                     onClick={() => setSearchTerm(filter.value)}
@@ -1533,6 +1577,7 @@ export default function CustomerOrders() {
         }}
         order={selectedOrderForRating}
         driver={selectedDriverForRating}
+        userId={user?.id}
       />
 
       {/* Report Issue Modal */}
@@ -1606,5 +1651,14 @@ export default function CustomerOrders() {
         />
       )}
     </div>
+  );
+}
+
+// Export with Error Boundary
+export default function CustomerOrders() {
+  return (
+    <ErrorBoundary>
+      <CustomerOrdersComponent />
+    </ErrorBoundary>
   );
 }

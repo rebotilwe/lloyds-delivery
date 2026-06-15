@@ -38,17 +38,29 @@ router.get("/financial/debug", async (req, res) => {
        WHERE status = 'delivered'`
     );
     
-    // Get driver payouts from driver_payouts table
-    const driverPayouts = await db.query(
-      `SELECT COUNT(*) as count, SUM(total_amount) as total
-       FROM driver_payouts
-       WHERE status = 'paid'`
+    // Check driver_payouts table structure
+    const driverPayoutsColumns = await db.query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_name = 'driver_payouts'`
     );
+    
+    // Get driver payouts
+    let driverPayoutsResult = { rows: [{ count: 0, total: 0 }] };
+    try {
+      driverPayoutsResult = await db.query(
+        `SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total
+         FROM driver_payouts
+         WHERE status = 'paid'`
+      );
+    } catch (err) {
+      console.error("Error fetching driver payouts:", err.message);
+    }
     
     res.json({
       delivered_orders: deliveredOrders.rows,
       summary: summary.rows[0],
-      driver_payouts_table: driverPayouts.rows[0],
+      driver_payouts_table: driverPayoutsResult.rows[0],
+      driver_payouts_columns: driverPayoutsColumns.rows.map(c => c.column_name),
       message: "Use this data to understand the financial calculations"
     });
   } catch (err) {
@@ -61,7 +73,7 @@ router.get("/financial/debug", async (req, res) => {
    EDMOND'S FINANCIAL DASHBOARD
 ========================= */
 
-// Get financial summary (UPDATED - separates food and packages)
+// Get financial summary
 router.get("/financial/summary", async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
@@ -122,23 +134,8 @@ router.get("/financial/summary", async (req, res) => {
     const operatingCosts = platformCommission * 0.3;
     
     // Net profit: Commission from food - operating costs - driver payouts from food only
-    // Note: Package driver payouts come from customer payments, not platform commission
     const netProfit = platformCommission - operatingCosts - foodDriverPayouts;
     const profitMargin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : 0;
-    
-    console.log("Financial Summary:", {
-      totalRevenue,
-      platformCommission,
-      foodDriverPayouts,
-      packageDriverPayouts,
-      totalDriverPayouts,
-      vendorPayouts,
-      operatingCosts,
-      netProfit,
-      profitMargin,
-      foodOrders: parseInt(foodCommissionResult.rows[0].order_count),
-      packageOrders: parseInt(packageResult.rows[0].order_count)
-    });
     
     res.json({
       total_revenue: totalRevenue,
@@ -155,7 +152,7 @@ router.get("/financial/summary", async (req, res) => {
   }
 });
 
-// Get revenue chart data (UPDATED)
+// Get revenue chart data
 router.get("/financial/revenue-chart", async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
@@ -222,9 +219,8 @@ router.get("/financial/payout-chart", async (req, res) => {
     let query = `
       SELECT 
         DATE(created_at) as date,
-        COALESCE(SUM(CASE WHEN delivery_type = 'food' THEN driver_earning ELSE 0 END), 0) as food_driver_payouts,
-        COALESCE(SUM(CASE WHEN delivery_type != 'food' THEN driver_earning ELSE 0 END), 0) as package_driver_payouts,
-        COALESCE(SUM(vendor_payout_amount), 0) as vendor_payouts
+        COALESCE(SUM(CASE WHEN delivery_type = 'food' THEN driver_earning ELSE 0 END), 0) as driver,
+        COALESCE(SUM(vendor_payout_amount), 0) as vendor
       FROM orders
       WHERE status = 'delivered'
     `;
@@ -238,15 +234,7 @@ router.get("/financial/payout-chart", async (req, res) => {
     query += ` GROUP BY DATE(created_at) ORDER BY date ASC`;
     
     const result = await db.query(query, params);
-    
-    // Transform data for chart
-    const chartData = result.rows.map(row => ({
-      date: row.date,
-      driver: parseFloat(row.food_driver_payouts) + parseFloat(row.package_driver_payouts),
-      vendor: parseFloat(row.vendor_payouts)
-    }));
-    
-    res.json(chartData);
+    res.json(result.rows);
   } catch (err) {
     console.error("Error fetching payout chart:", err);
     res.json([]);
@@ -307,62 +295,125 @@ router.get("/financial/top-drivers", async (req, res) => {
   }
 });
 
-// Get recent transactions (UPDATED)
+// Get recent transactions (FIXED - removed driver_name and vendor_name)
 router.get("/financial/recent-transactions", async (req, res) => {
   try {
     const { limit = 10 } = req.query;
     
-    // Combine order revenue and payout transactions
-    const result = await db.query(
+    // First, get the actual column names from driver_payouts table
+    const driverColumns = await db.query(
+      `SELECT column_name FROM information_schema.columns 
+       WHERE table_name = 'driver_payouts' AND column_name LIKE '%name%'`
+    );
+    
+    const driverNameCol = driverColumns.rows.length > 0 ? driverColumns.rows[0].column_name : 'driver_id';
+    
+    // Get orders revenue
+    const ordersResult = await db.query(
       `SELECT 
          'revenue' as type,
          id::text as reference,
          created_at as date,
          'Order #' || id || ' - ' || COALESCE(restaurant_name, 'Package') as description,
-         total as amount,
-         total as running_balance
+         total as amount
        FROM orders
        WHERE status = 'delivered'
-       
-       UNION ALL
-       
-       SELECT 
-         'driver_payout' as type,
-         id::text as reference,
-         paid_at as date,
-         'Driver payout - ' || COALESCE(driver_name, 'Unknown') as description,
-         -total_amount as amount,
-         0 as running_balance
-       FROM driver_payouts
-       WHERE status = 'paid' AND paid_at IS NOT NULL
-       
-       UNION ALL
-       
-       SELECT 
-         'vendor_payout' as type,
-         id::text as reference,
-         paid_at as date,
-         'Vendor payout - ' || COALESCE(vendor_name, 'Unknown') as description,
-         -total_amount as amount,
-         0 as running_balance
-       FROM vendor_payouts
-       WHERE status = 'paid' AND paid_at IS NOT NULL
-       
-       ORDER BY date DESC
+       ORDER BY created_at DESC
        LIMIT $1`,
       [limit]
     );
     
+    // Get driver payouts
+    let driverPayoutsResult = [];
+    try {
+      const dpResult = await db.query(
+        `SELECT 
+           'driver_payout' as type,
+           id::text as reference,
+           created_at as date,
+           'Driver payout - Driver ID: ' || driver_id as description,
+           -total_amount as amount
+         FROM driver_payouts
+         WHERE status = 'paid'
+         ORDER BY created_at DESC
+         LIMIT $1`,
+        [limit]
+      );
+      driverPayoutsResult = dpResult.rows;
+    } catch (err) {
+      console.error("Error fetching driver payouts:", err.message);
+      // Try alternative column name
+      try {
+        const dpResult = await db.query(
+          `SELECT 
+             'driver_payout' as type,
+             id::text as reference,
+             created_at as date,
+             'Driver payout' as description,
+             -amount as amount
+           FROM driver_payouts
+           WHERE status = 'paid'
+           ORDER BY created_at DESC
+           LIMIT $1`,
+          [limit]
+        );
+        driverPayoutsResult = dpResult.rows;
+      } catch (err2) {
+        console.error("Alternative also failed:", err2.message);
+      }
+    }
+    
+    // Get vendor payouts
+    let vendorPayoutsResult = [];
+    try {
+      const vpResult = await db.query(
+        `SELECT 
+           'vendor_payout' as type,
+           id::text as reference,
+           created_at as date,
+           'Vendor payout' as description,
+           -total_amount as amount
+         FROM vendor_payouts
+         WHERE status = 'paid'
+         ORDER BY created_at DESC
+         LIMIT $1`,
+        [limit]
+      );
+      vendorPayoutsResult = vpResult.rows;
+    } catch (err) {
+      console.error("Error fetching vendor payouts:", err.message);
+      try {
+        const vpResult = await db.query(
+          `SELECT 
+             'vendor_payout' as type,
+             id::text as reference,
+             created_at as date,
+             'Vendor payout' as description,
+             -amount as amount
+           FROM vendor_payouts
+           WHERE status = 'paid'
+           ORDER BY created_at DESC
+           LIMIT $1`,
+          [limit]
+        );
+        vendorPayoutsResult = vpResult.rows;
+      } catch (err2) {
+        console.error("Alternative also failed:", err2.message);
+      }
+    }
+    
+    // Combine all transactions
+    const allTransactions = [...ordersResult.rows, ...driverPayoutsResult, ...vendorPayoutsResult];
+    
+    // Sort by date
+    allTransactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+    
     // Calculate running balance
     let balance = 0;
-    const transactions = result.rows.reverse().map(t => {
-      if (t.type === 'revenue') {
-        balance += parseFloat(t.amount);
-      } else {
-        balance += parseFloat(t.amount);
-      }
+    const transactions = allTransactions.slice(0, limit).map(t => {
+      balance += parseFloat(t.amount);
       return { ...t, balance: balance };
-    }).reverse();
+    });
     
     res.json(transactions);
   } catch (err) {
@@ -371,7 +422,7 @@ router.get("/financial/recent-transactions", async (req, res) => {
   }
 });
 
-// Get Edmond's balance (UPDATED)
+// Get Edmond's balance (FIXED - using correct column names)
 router.get("/edmond/balance", async (req, res) => {
   try {
     // Total platform commission earned from food deliveries
@@ -389,15 +440,30 @@ router.get("/edmond/balance", async (req, res) => {
     );
     
     // Total paid out to drivers via driver_payouts table
-    const paidToDrivers = await db.query(
-      `SELECT COALESCE(SUM(total_amount), 0) as total
-       FROM driver_payouts
-       WHERE status = 'paid'`
-    );
+    let paidOutToDrivers = 0;
+    try {
+      const paidResult = await db.query(
+        `SELECT COALESCE(SUM(amount), 0) as total
+         FROM driver_payouts
+         WHERE status = 'paid'`
+      );
+      paidOutToDrivers = parseFloat(paidResult.rows[0].total);
+    } catch (err) {
+      console.error("Error fetching paid out drivers:", err.message);
+      try {
+        const paidResult = await db.query(
+          `SELECT COALESCE(SUM(total_amount), 0) as total
+           FROM driver_payouts
+           WHERE status = 'paid'`
+        );
+        paidOutToDrivers = parseFloat(paidResult.rows[0].total);
+      } catch (err2) {
+        console.error("Alternative also failed:", err2.message);
+      }
+    }
     
     const totalCommission = parseFloat(commissionResult.rows[0].total_commission);
     const foodDriverEarnings = parseFloat(foodDriverPayouts.rows[0].total);
-    const paidOutToDrivers = parseFloat(paidToDrivers.rows[0].total);
     const operatingCosts = totalCommission * 0.3;
     
     // Edmond's share = commission - operating costs - driver payouts (food only)

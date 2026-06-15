@@ -1,74 +1,103 @@
-import React, { useState, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
-import { api } from '@/api/client';
-import { 
-  Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, 
-  AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
-  Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car,
-  Lock, Loader2, XCircle, Headset, Send, KeyRound
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  Truck,
+  MapPin,
+  Package,
+  CheckCircle2,
+  CheckCircle,
+  Clock,
+  Loader2,
+  History,
+  DollarSign,
+  Navigation,
+  Bell,
+  User,
+  Star,
+  TrendingUp,
+  Phone,
+  Navigation as NavigateIcon,
+  RefreshCw,
+  XCircle,
+  AlertCircle,
+  Wallet,
+  CreditCard,
+  Banknote,
+  Bike,
+  Car,
+  MessageCircle,
+  KeyRound,
+  PenTool,
 } from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
+import { formatOrderStatus } from '@/lib/utils';
+import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 import { useSocket } from '@/context/SocketContext';
 import { useAuth } from '@/lib/AuthContext';
-import { useCart } from '@/lib/cartStore';
-import { toast } from 'sonner';
-import { format } from 'date-fns';
-import ReviewModal from '@/components/ReviewModal';
-import ReportIssueModal from '@/components/ReportIssueModal';
-import TicketResponseModal from '@/components/TicketResponseModal';
-import { formatOrderStatus } from '@/lib/utils';
+import { Link } from 'react-router-dom';
+import SignaturePad from '@/components/SignaturePad';
 
-// Order status steps for tracker (different for food vs package)
-const FOOD_STATUS_STEPS = [
-  { key: 'pending', label: 'Placed', step: 1 },
-  { key: 'confirmed', label: 'Confirmed', step: 2 },
-  { key: 'preparing', label: 'Preparing', step: 3 },
-  { key: 'ready_for_pickup', label: 'Ready', step: 4 },
-  { key: 'picked_up', label: 'Picked', step: 5 },
-  { key: 'on_the_way', label: 'On Way', step: 6 },
-  { key: 'delivered', label: 'Delivered', step: 7 },
-];
-
-const PACKAGE_STATUS_STEPS = [
-  { key: 'pending_approval', label: 'Pending', step: 1 },
-  { key: 'rejected', label: 'Rejected', step: 2 },
-  { key: 'pending_driver', label: 'Driver Search', step: 3 },
-  { key: 'assigned', label: 'Driver Assigned', step: 4 },
-  { key: 'picked_up', label: 'Picked Up', step: 5 },
-  { key: 'on_the_way', label: 'On Way', step: 6 },
-  { key: 'delivered', label: 'Delivered', step: 7 },
-];
-
-const getStatusSteps = (order) => {
-  const isPackage = order.delivery_type && order.delivery_type !== 'food';
-  return isPackage ? PACKAGE_STATUS_STEPS : FOOD_STATUS_STEPS;
+// STATUS FLOW - Food orders (Driver only sees ready_for_pickup and beyond)
+const FOOD_STATUS_FLOW = {
+  ready_for_pickup: 'picked_up',
+  picked_up: 'on_the_way',
+  on_the_way: 'delivered',
 };
 
-const getCurrentStep = (order) => {
-  const steps = getStatusSteps(order);
-  const step = steps.find(s => s.key === order.status);
-  return step ? step.step : 0;
+// STATUS FLOW - Package deliveries (UPDATED)
+const PACKAGE_STATUS_FLOW = {
+  pending_driver: 'assigned',
+  assigned: 'picked_up',
+  picked_up: 'on_the_way',
+  on_the_way: 'delivered',
 };
 
+// STATUS LABELS - Food orders
+const FOOD_STATUS_LABELS = {
+  ready_for_pickup: 'Accept & Pick Up',
+  picked_up: 'Start Delivery',
+  on_the_way: 'Mark Delivered',
+};
+
+// STATUS LABELS - Package deliveries
+const PACKAGE_STATUS_LABELS = {
+  pending_driver: 'Accept Package',
+  assigned: 'Pick Up Package',
+  picked_up: 'Start Delivery',
+  on_the_way: 'Mark Delivered',
+};
+
+// Helper for class names
 function cn(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
-// Helper function to mark orders as viewed
-const markOrdersAsViewed = (orderIds) => {
-  const viewed = localStorage.getItem('viewed_orders');
-  const viewedOrders = viewed ? JSON.parse(viewed) : [];
-  const newViewed = [...new Set([...viewedOrders, ...orderIds])];
-  localStorage.setItem('viewed_orders', JSON.stringify(newViewed));
-};
+// Helper to calculate distance (Haversine formula) - for display only
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+// Helper to estimate delivery time based on distance
+function estimateDeliveryTime(distanceKm) {
+  if (!distanceKm) return null;
+  const avgSpeed = 30;
+  const minutes = Math.ceil((distanceKm / avgSpeed) * 60);
+  return minutes;
+}
 
 // Helper to format phone number for WhatsApp
 const formatWhatsAppNumber = (phone) => {
@@ -83,1421 +112,739 @@ const formatWhatsAppNumber = (phone) => {
   return cleaned;
 };
 
-// Issue type labels for tickets
-const issueTypeLabels = {
-  late_delivery: '⏰ Late Delivery',
-  wrong_item: '❌ Wrong Item',
-  missing_item: '📦 Missing Item',
-  damaged_item: '💔 Damaged Item',
-  driver_issue: '🚚 Driver Issue',
-  payment_issue: '💰 Payment Issue',
-  other: '📝 Other',
-};
+export default function DriverDashboard() {
+  const { socket, online } = useSocket();
+  const { user: authUser } = useAuth();
+  const [user, setUser] = useState(null);
+  const [availableOrders, setAvailableOrders] = useState([]);
+  const [myOrders, setMyOrders] = useState([]);
+  const [declinedOrders, setDeclinedOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [isAvailable, setIsAvailable] = useState(true);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showDeclined, setShowDeclined] = useState(false);
+  const [trackingOrder, setTrackingOrder] = useState(null);
+  const [driverLocation, setDriverLocation] = useState({ lat: null, lng: null });
+  const [expandedOrders, setExpandedOrders] = useState({});
+  const [restaurantDistances, setRestaurantDistances] = useState({});
+  const [dataLoaded, setDataLoaded] = useState(false);
 
-const statusColors = {
-  open: 'bg-red-100 text-red-800',
-  in_progress: 'bg-yellow-100 text-yellow-800',
-  resolved: 'bg-green-100 text-green-800',
-  closed: 'bg-gray-100 text-gray-800',
-};
+  // Package Offer States
+  const [packageOffer, setPackageOffer] = useState(null);
+  const [showPackageOfferModal, setShowPackageOfferModal] = useState(false);
+  const [acceptingPackage, setAcceptingPackage] = useState(false);
 
-// Error Boundary Component
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
-  }
+  // Verification & Signature States
+  const [showCodeModal, setShowCodeModal] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verifyingOrder, setVerifyingOrder] = useState(false);
+  const [showPickupSignatureModal, setShowPickupSignatureModal] = useState(false);
+  const [showDeliverySignatureModal, setShowDeliverySignatureModal] = useState(false);
+  const [currentOrderForSignature, setCurrentOrderForSignature] = useState(null);
 
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
+  // WITHDRAWAL STATES
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [loadingWithdraw, setLoadingWithdraw] = useState(false);
+  const [earningsSummary, setEarningsSummary] = useState({
+    pending_balance: 0,
+    available_balance: 0,
+    total_earned: 0,
+    total_paid: 0,
+    pending_payout: 0
+  });
+  const [withdrawalHistory, setWithdrawalHistory] = useState([]);
+  const [bankDetails, setBankDetails] = useState({
+    bank_name: '',
+    account_holder: '',
+    account_number: '',
+    branch_code: '',
+  });
 
-  componentDidCatch(error, errorInfo) {
-    console.error('CustomerOrders Error:', error, errorInfo);
-    this.setState({ errorInfo });
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="max-w-3xl mx-auto px-4 py-8">
-          <div className="text-center py-12 bg-red-50 rounded-xl border border-red-200">
-            <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold text-red-800 mb-2">Something went wrong</h2>
-            <p className="text-sm text-red-600 mb-4">{this.state.error?.message || 'Failed to load orders'}</p>
-            <div className="flex gap-2 justify-center">
-              <Button onClick={() => window.location.reload()} className="bg-red-600 text-white">
-                Refresh Page
-              </Button>
-              <Button onClick={() => window.location.href = '/'} variant="outline">
-                Go Home
-              </Button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
-
-// Support/Complaint Modal Component
-function SupportModal({ isOpen, onClose, user }) {
-  const [subject, setSubject] = useState('');
-  const [message, setMessage] = useState('');
-  const [type, setType] = useState('complaint');
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async () => {
-    if (!subject.trim()) {
-      toast.error('Please enter a subject');
-      return;
-    }
-    if (!message.trim()) {
-      toast.error('Please enter your message');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await api.post('/support/create-ticket', {
-        customer_id: user?.id,
-        customer_name: user?.name || user?.full_name,
-        customer_email: user?.email,
-        subject: subject,
-        description: message,
-        issue_type: type,
-        order_id: null
-      });
-      
-      toast.success('Support ticket created! We will respond within 24 hours.');
-      onClose();
-      setSubject('');
-      setMessage('');
-      setType('complaint');
-    } catch (error) {
-      console.error('Error creating ticket:', error);
-      toast.error('Failed to create support ticket. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
+  // Helper function to safely format currency
+  const formatCurrency = (value) => {
+    const num = typeof value === 'number' ? value : parseFloat(value);
+    return !isNaN(num) ? num.toFixed(2) : '0.00';
   };
 
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Headset className="w-5 h-5 text-green-600" />
-            Customer Support
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="bg-blue-50 p-3 rounded-lg text-sm text-blue-800">
-            <p className="font-medium mb-1">How can we help you?</p>
-            <p className="text-xs">Our support team typically responds within 24 hours.</p>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium mb-2 block">Issue Type</label>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { value: 'complaint', label: '📢 Complaint', icon: '⚠️' },
-                { value: 'inquiry', label: '❓ Inquiry', icon: '❓' },
-                { value: 'support', label: '🛠️ Support', icon: '🔧' },
-                { value: 'feedback', label: '💡 Feedback', icon: '💡' },
-              ].map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setType(option.value)}
-                  className={`p-2 rounded-lg border text-sm transition ${
-                    type === option.value
-                      ? 'border-green-500 bg-green-50 text-green-700 font-medium'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium mb-2 block">Subject</label>
-            <Input
-              placeholder="Brief summary of your issue"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              maxLength={100}
-            />
-            <p className="text-xs text-gray-400 mt-1">{subject.length}/100</p>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium mb-2 block">Message</label>
-            <Textarea
-              placeholder="Please provide details about your issue or question..."
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={5}
-            />
-          </div>
-
-          <div className="flex gap-3 pt-2">
-            <Button 
-              onClick={handleSubmit} 
-              disabled={submitting || !subject || !message}
-              className="flex-1 bg-green-600 text-white hover:bg-green-700"
-            >
-              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
-              Submit Ticket
-            </Button>
-            <Button onClick={onClose} variant="outline" className="flex-1">
-              Cancel
-            </Button>
-          </div>
-
-          <div className="text-center pt-2">
-            <p className="text-xs text-gray-400">
-              Or email us directly at: <a href="mailto:support@lloydsdelivery.com" className="text-green-600">support@lloydsdelivery.com</a>
-            </p>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Driver Info Card Component
-function DriverInfoCard({ driver, isPackage }) {
-  if (!driver || !driver.id) return null;
-
-  return (
-    <div className="bg-blue-50 rounded-lg p-3 mt-3">
-      <div className="flex items-center gap-3">
-        <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-lg">
-          {driver.name?.charAt(0).toUpperCase() || 'D'}
-        </div>
-        
-        <div className="flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-semibold text-sm">{driver.name || 'Driver'}</p>
-            <Badge className="bg-green-100 text-green-700 text-[10px]">
-              <Truck className="w-2.5 h-2.5 mr-1" />
-              {isPackage ? 'Your Courier' : 'Your Driver'}
-            </Badge>
-          </div>
-          
-          <div className="flex items-center gap-3 mt-1">
-            {driver.phone && (
-              <>
-                <a 
-                  href={`tel:${driver.phone}`}
-                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors"
-                >
-                  <Phone className="w-3 h-3" />
-                  Call
-                </a>
-                <a 
-                  href={`https://wa.me/${formatWhatsAppNumber(driver.phone)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800 transition-colors"
-                >
-                  <MessageCircle className="w-3 h-3" />
-                  WhatsApp
-                </a>
-              </>
-            )}
-          </div>
-        </div>
-        
-        {driver.vehicle_type && (
-          <div className="text-right">
-            {driver.vehicle_type === 'car' ? (
-              <Car className="w-5 h-5 text-blue-500" />
-            ) : (
-              <Bike className="w-5 h-5 text-green-600" />
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Cancellation Reason Modal Component
-function CancellationModal({ isOpen, onClose, onConfirm, orderId, orderType }) {
-  const [reason, setReason] = useState('');
-  const [otherReason, setOtherReason] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  const cancellationReasons = [
-    { value: 'changed_mind', label: 'Changed my mind' },
-    { value: 'long_delivery', label: 'Delivery time too long' },
-    { value: 'wrong_address', label: 'Wrong delivery address' },
-    { value: 'found_cheaper', label: 'Found a cheaper option' },
-    { value: 'payment_issue', label: 'Payment issue' },
-    { value: 'other', label: 'Other' },
-  ];
-
-  const handleConfirm = async () => {
-    if (!reason) {
-      toast.error('Please select a reason for cancellation');
-      return;
-    }
-
-    const finalReason = reason === 'other' ? otherReason : cancellationReasons.find(r => r.value === reason)?.label;
-    
-    if (reason === 'other' && !otherReason.trim()) {
-      toast.error('Please provide a reason');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await onConfirm(orderId, finalReason);
-      onClose();
-    } catch (err) {
-      console.error('Cancellation error:', err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-red-500" />
-            Cancel {orderType === 'package' ? 'Delivery' : 'Order'} #{orderId}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium mb-2 block">Please tell us why you're cancelling:</label>
-            <div className="space-y-2">
-              {cancellationReasons.map((cancellationReason) => (
-                <label key={cancellationReason.value} className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50">
-                  <input
-                    type="radio"
-                    name="cancellationReason"
-                    value={cancellationReason.value}
-                    checked={reason === cancellationReason.value}
-                    onChange={(e) => setReason(e.target.value)}
-                    className="w-4 h-4 text-red-500"
-                  />
-                  <span className="text-sm">{cancellationReason.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {reason === 'other' && (
-            <div>
-              <label className="text-sm font-medium mb-1 block">Please specify:</label>
-              <Textarea
-                placeholder="Tell us why you're cancelling..."
-                value={otherReason}
-                onChange={(e) => setOtherReason(e.target.value)}
-                rows={3}
-                className="mt-1"
-              />
-            </div>
-          )}
-
-          <div className="flex gap-3 pt-2">
-            <Button
-              onClick={handleConfirm}
-              disabled={submitting}
-              className="flex-1 bg-red-600 text-white hover:bg-red-700"
-            >
-              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Confirm Cancellation
-            </Button>
-            <Button onClick={onClose} variant="outline" className="flex-1">
-              Go Back
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Driver Rating Modal Component
-function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver, userId }) {
-  const [rating, setRating] = useState(0);
-  const [hoverRating, setHoverRating] = useState(0);
-  const [comment, setComment] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async () => {
-    if (rating === 0) {
-      toast.error('Please select a rating');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await api.post('/orders/reviews/create', {
-        order_id: order?.id,
-        driver_id: driver?.id,
-        customer_id: order?.customer_id || userId,
-        rating: rating,
-        comment: comment,
-        type: 'driver'
-      });
-      
-      toast.success('Thank you for rating your driver!');
-      onSubmitted();
-      onClose();
-    } catch (error) {
-      console.error('Rating error:', error);
-      toast.error(error.response?.data?.message || 'Failed to submit rating');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Star className="w-5 h-5 text-yellow-500" />
-            Rate Your Driver
-          </DialogTitle>
-        </DialogHeader>
-        
-        <div className="space-y-4">
-          <div className="bg-gray-50 rounded-lg p-3 flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold text-lg">
-              {driver?.name?.charAt(0).toUpperCase() || 'D'}
-            </div>
-            <div>
-              <p className="font-semibold">{driver?.name || 'Driver'}</p>
-              <p className="text-xs text-gray-500">Your delivery driver</p>
-            </div>
-          </div>
-          
-          <div className="text-center">
-            <p className="text-sm font-medium mb-2">How was your delivery experience?</p>
-            <div className="flex justify-center gap-1">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  type="button"
-                  onClick={() => setRating(star)}
-                  onMouseEnter={() => setHoverRating(star)}
-                  onMouseLeave={() => setHoverRating(0)}
-                  className="focus:outline-none transition-transform hover:scale-110"
-                >
-                  <Star
-                    className={`w-8 h-8 ${
-                      (hoverRating || rating) >= star
-                        ? 'fill-yellow-400 text-yellow-400'
-                        : 'text-gray-300'
-                    } transition-colors`}
-                  />
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-gray-500 mt-2">
-              {rating === 1 && 'Poor'}
-              {rating === 2 && 'Fair'}
-              {rating === 3 && 'Good'}
-              {rating === 4 && 'Very Good'}
-              {rating === 5 && 'Excellent!'}
-            </p>
-          </div>
-          
-          <div>
-            <label className="text-sm font-medium">Leave a comment (optional)</label>
-            <Textarea
-              placeholder="Share your experience with this driver..."
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              rows={3}
-              className="mt-1"
-            />
-          </div>
-          
-          <div className="flex gap-3 pt-2">
-            <Button
-              onClick={handleSubmit}
-              disabled={submitting || rating === 0}
-              className="flex-1 bg-yellow-500 text-white hover:bg-yellow-600"
-            >
-              {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              Submit Rating
-            </Button>
-            <Button onClick={onClose} variant="outline" className="flex-1">
-              Cancel
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Live Map Component
-let L = null;
-
-function LiveMap({ driverLocation, orderStatus }) {
-  const mapRef = React.useRef(null);
-  const mapContainerRef = React.useRef(null);
-  const driverMarkerRef = React.useRef(null);
-  const [mapLoaded, setMapLoaded] = useState(false);
-
+  // LOAD USER
   useEffect(() => {
-    if (!L && typeof window !== 'undefined') {
-      import('leaflet').then((leaflet) => {
-        L = leaflet.default;
-        setMapLoaded(true);
-      }).catch(err => {
-        console.error('Failed to load Leaflet:', err);
-        setMapLoaded(false);
-      });
+    const stored = localStorage.getItem('user');
+    if (stored) {
+      const parsedUser = JSON.parse(stored);
+      setUser(parsedUser);
+      console.log('Driver user loaded:', parsedUser);
+    } else if (authUser) {
+      setUser(authUser);
+      console.log('Driver user from auth:', authUser);
+    }
+  }, [authUser]);
+
+  // Fetch orders when user is available
+  useEffect(() => {
+    if (user && user.id) {
+      console.log('User loaded, fetching orders...');
+      fetchOrders();
+      fetchEarningsData();
+      fetchWithdrawalHistory();
+      fetchBankDetails();
+    } else {
+      const timer = setTimeout(() => {
+        const storedUser = localStorage.getItem('user');
+        if (storedUser && !user) {
+          const parsedUser = JSON.parse(storedUser);
+          setUser(parsedUser);
+        }
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [user]);
+
+  // Load declined orders from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('declined_orders');
+    if (saved) {
+      try {
+        setDeclinedOrders(JSON.parse(saved));
+      } catch (e) {}
     }
   }, []);
 
+  // Save declined orders to localStorage
   useEffect(() => {
-    if (mapLoaded && mapContainerRef.current && !mapRef.current && L) {
-      mapRef.current = L.map(mapContainerRef.current).setView([-29.65, 31.05], 13);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
-        subdomains: 'abcd',
-        maxZoom: 19,
-      }).addTo(mapRef.current);
-    }
+    localStorage.setItem('declined_orders', JSON.stringify(declinedOrders));
+  }, [declinedOrders]);
 
-    return () => {
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
-  }, [mapLoaded, L]);
-
+  // Calculate distances for available orders
   useEffect(() => {
-    if (!mapRef.current || !L || !mapLoaded) return;
-
-    if (driverMarkerRef.current) driverMarkerRef.current.remove();
-
-    if (driverLocation?.lat && driverLocation?.lng && orderStatus === 'on_the_way') {
-      const driverIcon = L.divIcon({
-        className: 'custom-div-icon',
-        html: `<div style="background-color: #10b981; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.2);"><span style="font-size: 18px;">🚚</span></div>`,
-        iconSize: [32, 32],
-        popupAnchor: [0, -15]
+    if (availableOrders.length > 0 && driverLocation.lat && driverLocation.lng) {
+      const distances = {};
+      availableOrders.forEach(order => {
+        const restaurantLat = order.restaurant_lat || -29.65;
+        const restaurantLng = order.restaurant_lng || 31.05;
+        const distance = calculateDistance(
+          driverLocation.lat, driverLocation.lng,
+          restaurantLat, restaurantLng
+        );
+        distances[order.id] = distance;
       });
+      setRestaurantDistances(distances);
+    }
+  }, [availableOrders, driverLocation]);
+
+  // Location tracking
+  useEffect(() => {
+    if (navigator.geolocation && isAvailable) {
+      const watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setDriverLocation({ lat: latitude, lng: longitude });
+          
+          if (socket && online && trackingOrder) {
+            socket.emit('driver-location', {
+              orderId: trackingOrder,
+              lat: latitude,
+              lng: longitude,
+            });
+          }
+        },
+        (error) => {
+          console.error('Geolocation error:', error);
+          if (error.code === 1) {
+            toast.error('Please enable location services to track deliveries');
+          }
+        },
+        { enableHighAccuracy: true, interval: 5000 }
+      );
       
-      driverMarkerRef.current = L.marker([driverLocation.lat, driverLocation.lng], { icon: driverIcon })
-        .addTo(mapRef.current)
-        .bindPopup('<b>Your Driver</b><br>En route to your location!');
-      
-      mapRef.current.setView([driverLocation.lat, driverLocation.lng], 14);
+      return () => navigator.geolocation.clearWatch(watchId);
     }
-  }, [driverLocation, orderStatus, L, mapLoaded]);
+  }, [isAvailable, trackingOrder, socket, online]);
 
-  if (!mapLoaded) {
-    return (
-      <div className="h-40 sm:h-48 bg-gray-100 rounded-lg flex items-center justify-center">
-        <div className="animate-spin rounded-full h-5 w-5 sm:h-6 sm:w-6 border-b-2 border-green-600"></div>
-        <span className="ml-2 text-xs text-gray-500">Loading map...</span>
-      </div>
-    );
-  }
+  // Socket connection for order offers and package offers
+  useEffect(() => {
+    if (socket && user?.id && online) {
+      socket.emit('join-driver', user.id);
+      console.log('Driver joined socket room:', user.id);
 
-  if (!driverLocation?.lat || !driverLocation?.lng || orderStatus !== 'on_the_way') {
-    return null;
-  }
-
-  return (
-    <div className="mt-3">
-      <div className="flex items-center gap-2 mb-2">
-        <Navigation className="w-3 h-3 sm:w-4 sm:h-4 text-green-600 animate-pulse" />
-        <span className="text-xs font-medium text-green-600">Live Driver Location</span>
-      </div>
-      <div 
-        ref={mapContainerRef} 
-        className="w-full h-40 sm:h-48 rounded-lg overflow-hidden border shadow-sm"
-      />
-      <p className="text-xs text-gray-500 text-center mt-2">
-        Driver is en route to your location
-      </p>
-    </div>
-  );
-}
-
-// Active order card component (supports both food and packages)
-function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLocation }) {
-  const [expanded, setExpanded] = useState(false);
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancellingOrderId, setCancellingOrderId] = useState(null);
-  const currentStep = getCurrentStep(order);
-  const steps = getStatusSteps(order);
-  const isPackage = order.delivery_type && order.delivery_type !== 'food';
-  const isRejected = order.status === 'rejected';
-
-  const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
-  const itemCount = items.length;
-  const canCancel = (order.status === 'pending' || order.status === 'confirmed' || order.status === 'pending_approval') && !isRejected;
-  const showMap = order.status === 'on_the_way';
-  const needsPayment = isPackage && order.payment_status === 'pending_payment' && order.status === 'pending_driver';
-
-  const getEstimatedTime = () => {
-    if (isRejected) return 'Request rejected';
-    if (isPackage) {
-      if (order.status === 'assigned') return 'Driver assigned to pickup';
-      if (order.status === 'picked_up') return 'Package picked up, en route';
-      if (order.status === 'on_the_way') return 'Arriving soon';
-      return 'Waiting for driver assignment';
-    }
-    if (order.status === 'on_the_way') return 'Arriving soon';
-    if (order.status === 'confirmed') return 'Preparing (15-25 min)';
-    if (order.status === 'preparing') return 'Almost ready (10-15 min)';
-    return 'Estimated 25-35 min';
-  };
-
-  const getStatusMessage = () => {
-    if (isRejected) {
-      return '❌ This delivery request has been rejected by admin.';
-    }
-    if (isPackage) {
-      if (order.status === 'pending_approval') return '⏳ Awaiting admin approval';
-      if (order.status === 'pending_driver' && order.payment_status === 'pending_payment') return '✅ Approved! Please complete payment to continue';
-      if (order.status === 'pending_driver') return '🔍 Looking for a driver';
-      if (order.status === 'assigned') return '✅ Driver assigned to your package';
-      if (order.status === 'picked_up') return '📦 Package picked up';
-      if (order.status === 'on_the_way') return '🚚 Package en route';
-      if (order.status === 'delivered') return '✅ Package delivered';
-      return '';
-    }
-    if (order.status === 'confirmed') return '⏱️ Restaurant is preparing your order';
-    if (order.status === 'ready_for_pickup') return '🍔 Order ready! Driver assigned';
-    if (order.status === 'picked_up') return '🚚 Driver has picked up your order';
-    return '';
-  };
-
-  const handleDirectPayment = async () => {
-    try {
-      toast.loading('Processing payment...');
-      const response = await api.put(`/orders/${order.id}/payment`, {
-        payment_status: 'paid',
-        payment_transaction_id: 'direct_' + Date.now()
+      socket.on('order-ready', (data) => {
+        if (declinedOrders.includes(data.orderId)) return;
+        console.log('Order ready for pickup:', data);
+        toast.info(`🍔 Order #${data.orderId} is ready for pickup!`);
+        fetchOrders();
       });
-      toast.dismiss();
-      if (response.status === 200) {
-        toast.success('Payment successful! Driver will be notified shortly.');
-        setTimeout(() => {
-          window.location.reload();
-        }, 1500);
-      } else {
-        throw new Error('Payment failed');
-      }
-    } catch (err) {
-      toast.dismiss();
-      console.error('Payment error:', err);
-      toast.error('Payment failed. Please try again.');
-    }
-  };
 
-  const handleYocoPayment = async () => {
-    try {
-      toast.loading('Preparing payment...');
-      const response = await api.post(`/orders/checkout`, {
-        amount: order.total,
-        orderId: order.id
-      });
-      toast.dismiss();
-      if (response.data.redirectUrl) {
-        window.location.href = response.data.redirectUrl;
-      } else {
-        throw new Error('No redirect URL');
-      }
-    } catch (err) {
-      toast.dismiss();
-      toast.error('Failed to initiate payment. Please try demo payment.');
-    }
-  };
-
-  return (
-    <>
-      <Card className={`overflow-hidden border-2 ${isRejected ? 'border-red-500/50' : 'border-green-600/20'} shadow-md`}>
-        <div className={`${isRejected ? 'bg-gradient-to-r from-red-600 to-red-500' : (isPackage ? 'bg-gradient-to-r from-purple-600 to-purple-500' : 'bg-gradient-to-r from-green-600 to-green-600/80')} px-3 sm:px-4 py-2 flex items-center justify-between`}>
-          <div className="flex items-center gap-1 sm:gap-2">
-            {isRejected ? (
-              <XCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
-            ) : isPackage ? (
-              <Package className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
-            ) : (
-              <Truck className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
-            )}
-            <span className="text-white text-xs sm:text-sm font-semibold">
-              {isRejected ? 'Request Rejected' : (isPackage ? 'Package Delivery' : 'Live Order')}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <ClockIcon className="w-3 h-3 text-white" />
-            <span className="text-white/80 text-[10px] sm:text-xs">
-              {getEstimatedTime()}
-            </span>
-          </div>
-        </div>
+      socket.on('order-offered', (data) => {
+        if (declinedOrders.includes(data.orderId)) return;
+        console.log('New order offered:', data);
         
-        <CardContent className="p-3 sm:p-4 space-y-3 sm:space-y-4">
-          {!isRejected && (
-            <div className="relative overflow-x-auto pb-2 -mx-1 px-1">
-              <div className="flex justify-between min-w-[500px] sm:min-w-0">
-                {steps.map((step) => (
-                  <div key={step.key} className="flex flex-col items-center flex-1">
-                    <div className={cn(
-                      "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold transition-all",
-                      currentStep >= step.step 
-                        ? "bg-green-600 text-white" 
-                        : "bg-gray-200 text-gray-400"
-                    )}>
-                      {currentStep > step.step ? (
-                        <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4" />
-                      ) : (
-                        <span className="text-[10px] sm:text-xs">{step.step}</span>
-                      )}
-                    </div>
-                    <span className={cn(
-                      "text-[9px] sm:text-xs mt-1 text-center whitespace-nowrap",
-                      currentStep >= step.step ? "text-green-600 font-medium" : "text-gray-400"
-                    )}>
-                      {step.label}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {getStatusMessage() && (
-            <div className={`${isRejected ? 'bg-red-50' : (isPackage ? 'bg-purple-50' : 'bg-blue-50')} p-2 rounded-lg text-center`}>
-              <p className={`text-[10px] sm:text-xs ${isRejected ? 'text-red-700' : (isPackage ? 'text-purple-700' : 'text-blue-700')}`}>
-                {getStatusMessage()}
-              </p>
-            </div>
-          )}
-
-          {/* Enhanced Rejection Reason Display */}
-          {isRejected && (
-            <div className="bg-red-100 border-l-4 border-red-600 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <div className="shrink-0">
-                  <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                    <AlertCircle className="w-4 h-4 text-white" />
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-red-800 mb-1">Delivery Request Rejected</p>
-                  {order.admin_rejection_reason ? (
-                    <>
-                      <p className="text-sm text-red-700 mb-2 font-medium">{order.admin_rejection_reason}</p>
-                      <p className="text-xs text-red-600">
-                        Your package delivery request has been reviewed and rejected by an administrator.
-                        Please contact support if you have any questions.
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-sm text-red-700">
-                      Your package delivery request has been rejected. Please contact support for more information.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!isRejected && (order.driver_id || order.driver_name) && (
-            <DriverInfoCard driver={{
-              id: order.driver_id,
-              name: order.driver_name,
-              phone: order.driver_phone,
-              vehicle_type: order.driver_vehicle_type
-            }} isPackage={isPackage} />
-          )}
-
-          <div className="grid grid-cols-2 gap-2 sm:gap-3 text-sm">
-            <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
-              <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">Total</p>
-              <p className="font-bold text-green-600 text-sm sm:text-lg">R{Number(order.total).toFixed(2)}</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
-              <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">
-                {isPackage ? 'Package ID' : 'Items'}
-              </p>
-              <p className="font-semibold text-xs sm:text-sm">
-                {isPackage ? `#${order.id}` : `${itemCount} item(s)`}
-              </p>
-            </div>
-          </div>
-
-          {isPackage && !isRejected && (
-            <div className="bg-purple-50 rounded-lg p-3">
-              <p className="text-xs font-semibold text-purple-800 mb-2 flex items-center gap-1">
-                <Package className="w-3 h-3" />
-                Package Details
-              </p>
-              
-              {order.pickup_address && (
-                <div className="flex items-start gap-2 mb-2">
-                  <MapPin className="w-3 h-3 text-green-600 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-[10px] text-gray-500">Pickup Address</p>
-                    <p className="text-xs font-medium">{order.pickup_address}</p>
-                  </div>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    className="h-6 text-xs ml-auto shrink-0"
-                    onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.pickup_address)}`, '_blank')}
-                  >
-                    <Navigation className="w-2.5 h-2.5 mr-1" />
-                    Navigate
-                  </Button>
-                </div>
-              )}
-              
-              {order.recipient_name && (
-                <div className="flex flex-wrap items-center gap-3 mb-2">
-                  <div className="flex items-center gap-1">
-                    <User className="w-3 h-3 text-gray-500" />
-                    <span className="text-xs">Recipient: {order.recipient_name}</span>
-                  </div>
-                  {order.recipient_phone && (
-                    <a 
-                      href={`tel:${order.recipient_phone}`} 
-                      className="flex items-center gap-1 text-xs text-blue-600 hover:underline"
-                    >
-                      <Phone className="w-3 h-3" />
-                      Call Recipient
-                    </a>
-                  )}
-                </div>
-              )}
-              
-              <div className="flex flex-wrap gap-3 text-xs mt-2">
-                {order.package_weight && (
-                  <span className="flex items-center gap-1">
-                    <span>⚖️</span> {order.package_weight}kg
-                  </span>
-                )}
-                {order.package_dimensions && (
-                  <span className="flex items-center gap-1">
-                    <span>📏</span> {order.package_dimensions}
-                  </span>
-                )}
-                {order.requires_signature && (
-                  <span className="flex items-center gap-1 text-blue-600">
-                    <span>📝</span> Signature Required
-                  </span>
-                )}
-                {order.is_fragile && (
-                  <span className="flex items-center gap-1 text-orange-600">
-                    <span>⚠️</span> Fragile Item
-                  </span>
-                )}
-              </div>
-              
-              {order.package_description && (
-                <p className="text-xs text-gray-600 mt-2 pt-1 border-t border-purple-200">
-                  📦 {order.package_description}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Verification Code Display for Package Orders */}
-          {isPackage && order.verification_code && order.status === 'pending_driver' && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <KeyRound className="w-5 h-5 text-yellow-600" />
-                <span className="text-sm font-semibold text-yellow-800">Collection Verification Code</span>
-              </div>
-              <p className="text-3xl font-bold text-yellow-700 tracking-wider text-center font-mono">
-                {order.verification_code}
-              </p>
-              <p className="text-xs text-yellow-600 mt-2 text-center">
-                Give this code to your driver when they arrive for pickup
-              </p>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="mt-3 w-full border-yellow-300 text-yellow-700 hover:bg-yellow-50"
-                onClick={() => {
-                  navigator.clipboard.writeText(order.verification_code);
-                  toast.success('Code copied to clipboard');
-                }}
-              >
-                Copy Code
-              </Button>
-            </div>
-          )}
-
-          <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
-            <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 mt-0.5 shrink-0" />
-            <div className="flex-1">
-              <p className="text-[10px] text-gray-500">
-                {isPackage ? 'Delivery Address' : 'Delivery Address'}
-              </p>
-              <span className="text-xs sm:text-sm break-words">{order.delivery_address || 'No address provided'}</span>
-            </div>
-            <Button 
-              size="sm" 
-              variant="outline" 
-              className="h-7 text-xs shrink-0"
-              onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
-            >
-              <Navigation className="w-3 h-3 mr-1" />
-              Navigate
-            </Button>
-          </div>
-
-          {showMap && !isPackage && !isRejected && driverLocation && (
-            <LiveMap driverLocation={driverLocation} orderStatus={order.status} />
-          )}
-
-          {!isRejected && isPackage && order.status === 'on_the_way' && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full border-purple-300 text-purple-600 hover:bg-purple-50"
-              onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
-            >
-              <Navigation className="w-3 h-3 mr-1" />
-              Track Package
-            </Button>
-          )}
-
-          {!isRejected && needsPayment && (
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                className="flex-1 bg-yellow-500 text-white hover:bg-yellow-600"
-                onClick={handleDirectPayment}
-              >
-                <Lock className="w-3 h-3 mr-1" />
-                Pay Now • R{Number(order.total).toFixed(2)}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 border-green-600 text-green-600 hover:bg-green-50"
-                onClick={handleYocoPayment}
-              >
-                💳 Pay with Card
-              </Button>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            {canCancel && order.status !== 'delivered' && !needsPayment && !isRejected && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-9"
-                onClick={() => {
-                  setCancellingOrderId(order.id);
-                  setShowCancelModal(true);
-                }}
-              >
-                Cancel {isPackage ? 'Delivery' : 'Order'}
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 border-green-600 text-green-600 hover:bg-green-50 text-xs sm:text-sm h-8 sm:h-9"
-              onClick={() => onReorder(order)}
-            >
-              <RotateCcw className="w-3 h-3 mr-1" />
-              {isPackage ? 'Book Again' : 'Order Again'}
-            </Button>
-            {order.status === 'delivered' && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="flex-1 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs sm:text-sm h-8 sm:h-9"
-                onClick={() => onReportIssue(order)}
-              >
-                <AlertCircle className="w-3 h-3 mr-1" />
-                Report Issue
-              </Button>
-            )}
-          </div>
-
-          {!isPackage && !isRejected && items.length > 0 && (
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="flex items-center justify-between w-full text-xs sm:text-sm text-gray-500 hover:text-gray-700"
-            >
-              <span>View order details</span>
-              {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4" />}
-            </button>
-          )}
-
-          {!isPackage && !isRejected && expanded && items.length > 0 && (
-            <div className="space-y-2 pt-2 border-t">
-              {items.map((item, i) => (
-                <div key={i} className="flex justify-between text-xs sm:text-sm">
-                  <span className="text-gray-600">{item.quantity}x {item.name}</span>
-                  <span className="font-medium">R{(item.price * item.quantity).toFixed(2)}</span>
-                </div>
-              ))}
-              <div className="flex justify-between text-xs sm:text-sm pt-2 border-t">
-                <span className="text-gray-600">Delivery fee</span>
-                <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
-              </div>
-              {order.discount_applied > 0 && (
-                <div className="flex justify-between text-xs sm:text-sm text-green-600">
-                  <span>Discount</span>
-                  <span>-R{Number(order.discount_applied).toFixed(2)}</span>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      
-      <CancellationModal
-        isOpen={showCancelModal}
-        onClose={() => {
-          setShowCancelModal(false);
-          setCancellingOrderId(null);
-        }}
-        onConfirm={onCancel}
-        orderId={cancellingOrderId}
-        orderType={isPackage ? 'package' : 'food'}
-      />
-    </>
-  );
-}
-
-// Order history card component (supports both food and packages)
-function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
-  const [expanded, setExpanded] = useState(false);
-  const isPackage = order.delivery_type && order.delivery_type !== 'food';
-  const isRejected = order.status === 'rejected';
-  
-  const getStatusColor = (status) => {
-    switch(status) {
-      case 'delivered': return 'text-green-600 bg-green-50';
-      case 'cancelled': return 'text-red-600 bg-red-50';
-      case 'rejected': return 'text-red-600 bg-red-100';
-      default: return 'text-yellow-600 bg-yellow-50';
-    }
-  };
-
-  const getStatusLabel = (status) => {
-    if (status === 'rejected') return 'Rejected';
-    return formatOrderStatus(status);
-  };
-
-  const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
-  const hasDriverRating = order.driver_rated !== undefined ? !order.driver_rated : true;
-
-  return (
-    <Card className="overflow-hidden">
-      <CardHeader
-        className="cursor-pointer hover:bg-gray-50 transition-colors py-3 sm:py-4 px-3 sm:px-4"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-            <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center shrink-0 ${isPackage ? 'bg-purple-100' : 'bg-primary/10'}`}>
-              {isPackage ? (
-                <Package className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
-              ) : (
-                <Package className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-gray-900 text-sm sm:text-base truncate">
-                {isPackage ? (isRejected ? '❌ Package Delivery (Rejected)' : 'Package Delivery') : (order.restaurant_name || 'Restaurant')}
-              </h3>
-              <div className="flex items-center gap-2 mt-0.5">
-                <p className="text-[10px] sm:text-xs text-gray-500">
-                  {order.created_at ? format(new Date(order.created_at), 'dd MMM yyyy') : ''}
-                </p>
-                {order.delivered_at && (
-                  <p className="text-[10px] text-green-500">✓ Delivered</p>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            <span className={`px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[9px] sm:text-xs font-medium ${getStatusColor(order.status)} whitespace-nowrap`}>
-              {getStatusLabel(order.status)}
-            </span>
-            <span className="font-bold text-green-600 text-xs sm:text-sm whitespace-nowrap">R{Number(order.total).toFixed(2)}</span>
-            {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />}
-          </div>
-        </div>
-      </CardHeader>
-      
-      {expanded && (
-        <CardContent className="pt-0 space-y-3 border-t px-3 sm:px-4">
-          {/* Enhanced Rejection Reason in History */}
-          {isRejected && (
-            <div className="bg-red-50 border-l-4 border-red-600 rounded-lg p-4 mt-3">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-red-800 mb-1">Request Rejected</p>
-                  {order.admin_rejection_reason ? (
-                    <>
-                      <p className="text-sm text-red-700 mb-2 font-medium">{order.admin_rejection_reason}</p>
-                      <p className="text-xs text-red-600">
-                        If you believe this is an error, please contact support.
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-sm text-red-700">
-                      Your request was rejected. Please contact support for more information.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {isPackage && (
-            <div className="space-y-2 pt-3">
-              {order.pickup_address && (
-                <div className="flex items-start gap-2">
-                  <MapPin className="w-3 h-3 text-green-600 mt-0.5 shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-[10px] text-gray-500">Pickup Address</p>
-                    <p className="text-xs">{order.pickup_address}</p>
-                  </div>
-                </div>
-              )}
-              {order.recipient_name && (
-                <div className="flex items-center gap-2">
-                  <User className="w-3 h-3 text-gray-500" />
-                  <span className="text-xs">Recipient: {order.recipient_name}</span>
-                  {order.recipient_phone && (
-                    <a href={`tel:${order.recipient_phone}`} className="text-xs text-blue-600">
-                      Call
-                    </a>
-                  )}
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2 text-xs">
-                {order.package_weight && <span>⚖️ {order.package_weight}kg</span>}
-                {order.requires_signature && <span className="text-blue-600">📝 Signature</span>}
-                {order.is_fragile && <span className="text-orange-600">⚠️ Fragile</span>}
-              </div>
-            </div>
-          )}
-
-          {!isPackage && (
-            <div className="space-y-1 pt-3">
-              {items.map((item, i) => (
-                <div key={i} className="flex justify-between text-xs sm:text-sm">
-                  <span className="text-gray-600">{item.quantity}x {item.name}</span>
-                  <span>R{(item.price * item.quantity).toFixed(2)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          
-          <div className="flex justify-between text-xs sm:text-sm pt-2 border-t">
-            <span className="text-gray-500">Delivery fee</span>
-            <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
-          </div>
-          {order.discount_applied > 0 && (
-            <div className="flex justify-between text-xs sm:text-sm text-green-600">
-              <span>Discount</span>
-              <span>-R{Number(order.discount_applied).toFixed(2)}</span>
-            </div>
-          )}
-          {order.delivery_address && (
-            <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-500">
-              <MapPin className="w-3 h-3 sm:w-4 sm:h-4 mt-0.5 shrink-0" />
-              <span className="break-words flex-1">{order.delivery_address}</span>
-            </div>
-          )}
-          
-          {order.driver_name && (
-            <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
-              <Truck className="w-3 h-3" />
-              <span>{isPackage ? 'Delivered by courier:' : 'Delivered by driver:'} {order.driver_name}</span>
-              {order.driver_phone && (
-                <a 
-                  href={`tel:${order.driver_phone}`}
-                  className="text-blue-600 hover:underline ml-auto"
-                >
-                  <Phone className="w-3 h-3" />
-                </a>
-              )}
-            </div>
-          )}
-          
-          <div className="flex gap-2 pt-2 flex-wrap">
-            {order.status === 'delivered' && !order.reviewed && !isPackage && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 border-yellow-400 text-yellow-600 hover:bg-yellow-50 text-xs sm:text-sm h-8 sm:h-9"
-                onClick={() => onReviewOrder(order)}
-              >
-                <Star className="w-3 h-3 sm:w-4 sm:h-4 mr-1" /> Rate Restaurant
-              </Button>
-            )}
-            {order.status === 'delivered' && order.driver_id && hasDriverRating && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 border-blue-400 text-blue-600 hover:bg-blue-50 text-xs sm:text-sm h-8 sm:h-9"
-                onClick={() => onRateDriver(order, { id: order.driver_id, name: order.driver_name })}
-              >
-                <Star className="w-3 h-3 mr-1" /> Rate Driver
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex-1 border-green-600 text-green-600 hover:bg-green-50 text-xs sm:text-sm h-8 sm:h-9"
-              onClick={() => onReorder(order)}
-            >
-              <RotateCcw className="w-3 h-3 mr-1" />
-              {isPackage ? 'Book Again' : 'Order Again'}
-            </Button>
-          </div>
-        </CardContent>
-      )}
-    </Card>
-  );
-}
-
-// Main CustomerOrders Component
-function CustomerOrdersComponent() {
-  const { socket, online } = useSocket();
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const { addToCart } = useCart();
-  const [liveUpdates, setLiveUpdates] = useState({});
-  const [driverLocation, setDriverLocation] = useState(null);
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [visibleCount, setVisibleCount] = useState(10);
-  const [showIssueModal, setShowIssueModal] = useState(false);
-  const [selectedOrderForIssue, setSelectedOrderForIssue] = useState(null);
-  const [showTicketsModal, setShowTicketsModal] = useState(false);
-  const [userTickets, setUserTickets] = useState([]);
-  const [selectedTicket, setSelectedTicket] = useState(null);
-  const [orderTab, setOrderTab] = useState('active');
-  const [showRejectionAlert, setShowRejectionAlert] = useState(false);
-  const [rejectedOrder, setRejectedOrder] = useState(null);
-  const [showSupportModal, setShowSupportModal] = useState(false);
-  
-  const [showDriverRatingModal, setShowDriverRatingModal] = useState(false);
-  const [selectedDriverForRating, setSelectedDriverForRating] = useState(null);
-  const [selectedOrderForRating, setSelectedOrderForRating] = useState(null);
-
-  const { data: orders = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['customerOrders', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return [];
-      try {
-        const response = await api.get(`/orders/customer/${user.id}`);
-        if (Array.isArray(response)) {
-          return response;
+        if (data.requiredVehicle === 'car' && user?.vehicle_type === 'bike') {
+          console.log('Order requires car, but driver has bike - ignoring');
+          return;
         }
-        if (response && response.data && Array.isArray(response.data)) {
-          return response.data;
+        
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('New Delivery Offer!', {
+            body: `Order #${data.orderId} from ${data.restaurantName} - R${data.orderTotal}`,
+            icon: '/logo.png',
+            tag: `order-${data.orderId}`,
+          });
         }
-        return [];
-      } catch (err) {
-        console.error('Error fetching orders:', err);
-        return [];
-      }
-    },
-    enabled: !!user?.id,
-    refetchInterval: 30000,
-  });
-
-  // Sort orders by created_at (newest first)
-  const sortedOrders = [...orders].sort((a, b) => {
-    const dateA = new Date(a.created_at);
-    const dateB = new Date(b.created_at);
-    return dateB - dateA; // Descending - newest first
-  });
-
-  useEffect(() => {
-    if (socket && online) {
-      socket.on('driver-location-update', (data) => {
-        setDriverLocation({ lat: data.lat, lng: data.lng });
+        
+        toast.info(`📦 New order #${data.orderId} offered to you!`);
+        fetchOrders();
       });
-      
+
+      socket.on('new-package-offer', (data) => {
+        console.log('📦 New package offer:', data);
+        setPackageOffer(data);
+        setShowPackageOfferModal(true);
+        
+        toast.info(`📦 Package Delivery! - R${data.estimatedPay?.toFixed(2)}`, {
+          duration: 30000,
+          action: {
+            label: "Accept",
+            onClick: () => acceptPackageOrder(data.orderId)
+          }
+        });
+      });
+
+      socket.on('package-offer-taken', (data) => {
+        toast.info(`Package #${data.orderId} has been taken by another driver`);
+        if (packageOffer?.orderId === data.orderId) {
+          setShowPackageOfferModal(false);
+        }
+      });
+
+      socket.on('earnings-updated', (data) => {
+        toast.success(`💰 You earned R${formatCurrency(data.earning)} for order #${data.orderId}`);
+        fetchOrders();
+        fetchUserData();
+        fetchEarningsData();
+      });
+
       return () => {
-        socket.off('driver-location-update');
+        socket.off('order-ready');
+        socket.off('order-offered');
+        socket.off('new-package-offer');
+        socket.off('package-offer-taken');
+        socket.off('earnings-updated');
       };
     }
-  }, [socket, online]);
+  }, [socket, user, online, declinedOrders, packageOffer]);
 
   useEffect(() => {
-    if (socket && online) {
-      socket.on('order-rejected', (data) => {
-        setRejectedOrder(data);
-        setShowRejectionAlert(true);
-        toast.error(`❌ Your package request #${data.orderId} was rejected. Reason: ${data.reason}`);
-        refetch();
-      });
-      
-      return () => {
-        socket.off('order-rejected');
-      };
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
     }
-  }, [socket, online, refetch]);
+  }, []);
 
-  const fetchUserTickets = async () => {
+  const fetchUserData = async () => {
+    if (!user?.id) return;
     try {
-      const response = await api.get('/support/my-tickets');
-      setUserTickets(response.data || []);
+      const res = await fetch(`https://lloyds-delivery.onrender.com/api/users/${user.id}`);
+      const freshUser = await res.json();
+      localStorage.setItem('user', JSON.stringify(freshUser));
+      setUser(freshUser);
     } catch (err) {
-      console.error('Error fetching tickets:', err);
+      console.error('Error fetching user:', err);
     }
   };
-
-  useEffect(() => {
-    if (showTicketsModal) {
-      fetchUserTickets();
+  
+  const fetchOrders = useCallback(async () => {
+    if (!user?.id) {
+      console.log('No user ID available, skipping fetch');
+      return;
     }
-  }, [showTicketsModal]);
-
-  const handleCancelOrder = async (orderId, reason) => {
+    
+    setRefreshing(true);
+    console.log('Fetching orders for driver:', user.id, 'Vehicle:', user.vehicle_type);
+    
     try {
-      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/cancel/${orderId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          customer_id: user?.id,
-          cancellation_reason: reason 
-        }),
-      });
+      const res1 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/available?driver_id=${user.id}`);
+      let available = await res1.json();
+      console.log('Available orders API response:', available);
       
+      if (!Array.isArray(available)) {
+        console.error('Available orders is not an array:', available);
+        available = [];
+      }
+      
+      const filteredAvailable = available.filter(order => {
+        if (declinedOrders.includes(order.id)) return false;
+        if (order.delivery_type === 'food' && order.status !== 'ready_for_pickup') return false;
+        if (order.delivery_type !== 'food' && order.status !== 'pending_driver') return false;
+        return true;
+      });
+      setAvailableOrders(filteredAvailable);
+
+      const res2 = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/${user.id}`);
+      const mine = await res2.json();
+      console.log('My orders API response:', mine);
+      
+      if (!Array.isArray(mine)) {
+        console.error('My orders is not an array:', mine);
+        setMyOrders([]);
+      } else {
+        if (mine.length > 0) {
+          console.log('Sample order:', mine[0]);
+        }
+        setMyOrders(mine);
+      }
+      
+      setDataLoaded(true);
+      
+    } catch (err) {
+      console.error('Error fetching orders:', err);
+      setAvailableOrders([]);
+      setMyOrders([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user, declinedOrders]);
+
+  const acceptPackageOrder = async (orderId) => {
+    setAcceptingPackage(true);
+    try {
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/driver/accept-package/${orderId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to cancel order');
+        throw new Error(data.message);
       }
+
+      toast.success('Package accepted! Head to pickup location');
+      setShowPackageOfferModal(false);
+      setPackageOffer(null);
+      fetchOrders();
+      setIsAvailable(false);
       
-      toast.success('Order cancelled successfully');
-      refetch();
     } catch (err) {
-      console.error('Cancel error:', err);
-      toast.error(err.message || 'Failed to cancel order');
+      console.error(err);
+      toast.error(err.message || 'Failed to accept package');
+    } finally {
+      setAcceptingPackage(false);
     }
   };
 
-  const handleReorder = (order) => {
+  const acceptFoodOrder = async (orderId) => {
+    if (hasActiveOrder) {
+      toast.error('Complete your current delivery first');
+      return;
+    }
+    
+    try {
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/accept/${orderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ driver_id: user.id }),
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        if (data.message && data.message.includes('requires a car')) {
+          toast.error('This order requires a car. Only car drivers can accept it.');
+        } else {
+          toast.error(data.message || 'Failed to accept order');
+        }
+        return;
+      }
+
+      toast.success('Order accepted! Pick up food from restaurant');
+      fetchOrders();
+      setTrackingOrder(orderId);
+      setIsAvailable(false);
+      
+    } catch (err) {
+      console.error(err);
+      toast.error('Error accepting order');
+    }
+  };
+
+  const verifyCollectionCode = async () => {
+    if (!verificationCode || verificationCode.length !== 6) {
+      toast.error('Please enter a valid 6-digit verification code');
+      return;
+    }
+
+    setVerifyingOrder(true);
+    try {
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/verify-code/${currentOrderForSignature.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ verification_code: verificationCode })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+
+      toast.success('Code verified! Please collect signature');
+      setShowCodeModal(false);
+      setVerificationCode('');
+      setShowPickupSignatureModal(true);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setVerifyingOrder(false);
+    }
+  };
+
+  const capturePickupSignature = async (signatureData) => {
+    try {
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/pickup-signature/${currentOrderForSignature.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ signature_data: signatureData })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+
+      toast.success('Package picked up successfully!');
+      setShowPickupSignatureModal(false);
+      fetchOrders();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const captureDeliverySignature = async (signatureData) => {
+    try {
+      let gpsLocation = null;
+      if (navigator.geolocation) {
+        const position = await new Promise((resolve) => {
+          navigator.geolocation.getCurrentPosition(resolve, () => resolve(null));
+        });
+        if (position) {
+          gpsLocation = `${position.coords.latitude},${position.coords.longitude}`;
+        }
+      }
+
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/delivery-signature/${currentOrderForSignature.id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ 
+          signature_data: signatureData,
+          gps_location: gpsLocation
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message);
+
+      toast.success('Package delivered successfully!');
+      setShowDeliverySignatureModal(false);
+      fetchOrders();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const declineOrder = (orderId, orderName) => {
+    if (window.confirm(`Decline order #${orderId} from ${orderName}? You won't see this order again.`)) {
+      setDeclinedOrders(prev => [...prev, orderId]);
+      setAvailableOrders(prev => prev.filter(o => o.id !== orderId));
+      toast.info(`Order #${orderId} declined`);
+    }
+  };
+
+  const clearDeclinedOrders = () => {
+    if (window.confirm('Clear all declined orders? They may reappear if offered again.')) {
+      setDeclinedOrders([]);
+      toast.success('Declined orders cleared');
+      fetchOrders();
+    }
+  };
+
+  const updateStatus = async (orderId, currentStatus, isPackage) => {
+    const statusFlow = isPackage ? PACKAGE_STATUS_FLOW : FOOD_STATUS_FLOW;
+    const nextStatus = statusFlow[currentStatus];
+    
+    if (!nextStatus) {
+      toast.error('Cannot update this order status');
+      return;
+    }
+
+    try {
+      const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/status/${orderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+
+      if (!response.ok) throw new Error('Failed to update status');
+
+      const statusMessages = isPackage ? {
+        picked_up: 'Package picked up! Starting delivery',
+        on_the_way: 'Package en route to recipient!',
+        delivered: 'Package delivered! Payment received',
+      } : {
+        picked_up: 'Food picked up from restaurant! Starting delivery',
+        on_the_way: 'On the way to customer!',
+        delivered: 'Order delivered! Payment received',
+      };
+      
+      toast.success(statusMessages[nextStatus] || 'Status updated');
+      
+      if (nextStatus === 'on_the_way') setTrackingOrder(orderId);
+      
+      if (nextStatus === 'delivered') {
+        setTrackingOrder(null);
+        setIsAvailable(true);
+        toast.success('You are now back online and can accept new deliveries');
+        fetchEarningsData();
+      }
+      
+      fetchOrders();
+      if (nextStatus === 'delivered') await fetchUserData();
+    } catch (err) {
+      console.error(err);
+      toast.error('Error updating status');
+    }
+  };
+
+  const getButtonText = (order) => {
+    const isPackage = order.delivery_type && order.delivery_type !== 'food';
+    if (isPackage) {
+      return PACKAGE_STATUS_LABELS[order.status] || 'Update Status';
+    }
+    return FOOD_STATUS_LABELS[order.status] || 'Update Status';
+  };
+
+  // FIXED: Force packages to use verification flow
+  const handleOrderAction = (order) => {
     const isPackage = order.delivery_type && order.delivery_type !== 'food';
     
     if (isPackage) {
-      navigate('/package-delivery');
-      toast.info('Fill in the package delivery form to book again');
+      // FOR PACKAGES - MUST use verification flow
+      if (order.status === 'pending_driver') {
+        acceptPackageOrder(order.id);
+      } 
+      else if (order.status === 'assigned') {
+        // Show verification modal instead of status update
+        setCurrentOrderForSignature(order);
+        setShowCodeModal(true);
+      }
+      else if (order.status === 'picked_up') {
+        // Show delivery signature modal
+        setCurrentOrderForSignature(order);
+        setShowDeliverySignatureModal(true);
+      }
+      else {
+        // Don't allow regular status update for packages
+        toast.error('Please use the verification buttons to update this delivery');
+      }
     } else {
-      const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
-      
-      if (window.confirm(`Add items from ${order.restaurant_name} to your cart? This will replace your current cart.`)) {
-        items.forEach(item => {
-          addToCart({
-            id: item.id || item.menu_item_id,
-            name: item.name,
-            price: item.price,
-            image: item.image_url
-          }, order.restaurant_id, order.restaurant_name);
-        });
-        toast.success(`${items.length} items added to cart from ${order.restaurant_name}`);
-        navigate('/cart');
+      // Food orders - regular flow
+      if (order.status === 'ready_for_pickup') {
+        acceptFoodOrder(order.id);
+      } else {
+        updateStatus(order.id, order.status, isPackage);
       }
     }
   };
 
-  const handleReviewOrder = (order) => {
-    setSelectedOrder(order);
-    setShowReviewModal(true);
+  const toggleExpand = (orderId) => {
+    setExpandedOrders(prev => ({ ...prev, [orderId]: !prev[orderId] }));
   };
 
-  const handleReportIssue = (order) => {
-    setSelectedOrderForIssue(order);
-    setShowIssueModal(true);
-  };
-  
-  const handleRateDriver = (order, driver) => {
-    setSelectedOrderForRating(order);
-    setSelectedDriverForRating(driver);
-    setShowDriverRatingModal(true);
+  const formatAddress = (address) => {
+    if (!address) return 'No address provided';
+    if (address.length > 40) return address.substring(0, 40) + '...';
+    return address;
   };
 
-  useEffect(() => {
-    if (socket && user?.id && online && sortedOrders.length > 0) {
-      sortedOrders.forEach(order => {
-        socket.emit('join-order', order.id);
+  const activeOrders = useMemo(
+    () => myOrders.filter((o) =>
+      ['picked_up', 'on_the_way', 'assigned'].includes(o.status)
+    ),
+    [myOrders]
+  );
+
+  const completedOrders = useMemo(
+    () => myOrders.filter((o) => o.status === 'delivered'),
+    [myOrders]
+  );
+
+  const totalEarnings = useMemo(() => {
+    return completedOrders.reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
+  }, [completedOrders]);
+
+  const weeklyEarnings = useMemo(() => {
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    return completedOrders
+      .filter(order => new Date(order.created_at) > oneWeekAgo)
+      .reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
+  }, [completedOrders]);
+
+  const averageRating = useMemo(() => {
+    const ratedOrders = completedOrders.filter(o => o.driver_rating);
+    if (ratedOrders.length === 0) return 0;
+    const sum = ratedOrders.reduce((acc, o) => acc + (o.driver_rating || 0), 0);
+    return (sum / ratedOrders.length).toFixed(1);
+  }, [completedOrders]);
+
+  const hasActiveOrder = useMemo(() => {
+    return myOrders.some(order => 
+      ['picked_up', 'on_the_way', 'assigned'].includes(order.status)
+    );
+  }, [myOrders]);
+
+  const openGoogleMaps = (address) => {
+    const encodedAddress = encodeURIComponent(address);
+    window.open(`https://maps.google.com/?q=${encodedAddress}`, '_blank');
+  };
+
+  const fetchEarningsData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/earnings-summary', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      const summary = data.summary || {};
+      
+      setEarningsSummary({
+        pending_balance: parseFloat(summary.pending_balance) || 0,
+        available_balance: parseFloat(summary.available_balance) || 0,
+        total_earned: parseFloat(summary.total_earned) || 0,
+        total_paid: parseFloat(summary.withdrawn_total) || 0,
+        pending_payout: parseFloat(summary.pending_payout) || 0
+      });
+    } catch (err) {
+      console.error('Error fetching earnings:', err);
+    }
+  };
+
+  const fetchWithdrawalHistory = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/withdrawal-history', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      const fixedData = (data || []).map(item => ({
+        ...item,
+        amount: parseFloat(item.amount) || 0,
+        requested_at: item.requested_at || item.created_at
+      }));
+      setWithdrawalHistory(fixedData);
+    } catch (err) {
+      console.error('Error fetching withdrawal history:', err);
+      setWithdrawalHistory([]);
+    }
+  };
+
+  const fetchBankDetails = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/bank-details', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data) {
+        setBankDetails(data);
+      }
+    } catch (err) {
+      console.error('Error fetching bank details:', err);
+    }
+  };
+
+  const saveBankDetails = async () => {
+    if (!bankDetails.bank_name || !bankDetails.account_number || !bankDetails.account_holder) {
+      toast.error('Please fill in bank name, account holder, and account number');
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/bank-details', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(bankDetails)
       });
       
-      const handleStatusUpdate = (data) => {
-        setLiveUpdates(prev => ({ ...prev, [data.orderId]: data.status }));
-        
-        if (data.status === 'rejected') {
-          toast.error(`❌ Your package request #${data.orderId} was rejected. Check the order details for reason.`);
-          setShowRejectionAlert(true);
-        } else {
-          toast.info(`Order #${data.orderId} updated to ${formatOrderStatus(data.status)}`);
-        }
-        refetch();
-      };
+      if (!res.ok) throw new Error('Failed to save bank details');
       
-      socket.on('order-status-update', handleStatusUpdate);
+      toast.success('Bank details saved successfully');
+    } catch (err) {
+      toast.error('Failed to save bank details');
+    }
+  };
+
+  const handleWithdrawRequest = async () => {
+    const amount = parseFloat(withdrawAmount);
+    
+    if (isNaN(amount) || amount < 50) {
+      toast.error('Minimum withdrawal amount is R50');
+      return;
+    }
+    
+    if (amount > (earningsSummary?.available_balance || 0)) {
+      toast.error(`Insufficient balance. Available: R${formatCurrency(earningsSummary?.available_balance)}`);
+      return;
+    }
+    
+    setLoadingWithdraw(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/request-withdrawal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          amount: amount,
+          bank_name: bankDetails.bank_name,
+          account_holder: bankDetails.account_holder,
+          account_number: bankDetails.account_number,
+          branch_code: bankDetails.branch_code
+        })
+      });
       
-      return () => {
-        socket.off('order-status-update', handleStatusUpdate);
-      };
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+      
+      toast.success('Withdrawal request submitted!');
+      setShowWithdrawModal(false);
+      setWithdrawAmount('');
+      fetchEarningsData();
+      fetchWithdrawalHistory();
+    } catch (err) {
+      toast.error(err.message || 'Failed to submit request');
+    } finally {
+      setLoadingWithdraw(false);
     }
-  }, [socket, user, sortedOrders, online, refetch]);
+  };
 
-  const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'pending_approval', 'pending_driver', 'assigned', 'rejected'];
-  const activeOrders = sortedOrders.filter(o => activeStatuses.includes(o.status));
-  const pastOrders = sortedOrders.filter(o => !activeStatuses.includes(o.status) || o.status === 'cancelled');
-  
-  useEffect(() => {
-    if (activeOrders.length > 0) {
-      const orderIds = activeOrders.map(o => o.id);
-      markOrdersAsViewed(orderIds);
-    }
-  }, [activeOrders]);
-  
-  const filteredPastOrders = pastOrders.filter(order => 
-    (order.restaurant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     order.id?.toString().includes(searchTerm) ||
-     (order.delivery_type === 'package' && 'package'.includes(searchTerm.toLowerCase())))
-  );
-  
-  const displayedPastOrders = filteredPastOrders.slice(0, visibleCount);
-  const hasMore = filteredPastOrders.length > visibleCount;
-
-  const loadMore = () => setVisibleCount(prev => prev + 10);
-
-  const quickFilters = [
-    { label: 'All Orders', value: '', icon: Package },
-    { label: '📦 Packages', value: 'package', icon: Package },
-    { label: '🍔 Food', value: 'food', icon: Truck },
-  ];
-
-  if (isLoading) {
+  // Show loading skeleton while data is being fetched
+  if (loading && !dataLoaded) {
     return (
-      <div className="max-w-3xl mx-auto px-3 sm:px-4 py-6 sm:py-8">
+      <div className="max-w-5xl mx-auto px-3 sm:px-4 py-6 sm:py-8">
         <div className="space-y-3 sm:space-y-4">
           {[1, 2, 3].map(i => <Skeleton key={i} className="h-28 sm:h-32 w-full rounded-xl" />)}
         </div>
@@ -1505,313 +852,842 @@ function CustomerOrdersComponent() {
     );
   }
 
-  if (error) {
+  // Show message if no user found
+  if (!user) {
     return (
-      <div className="max-w-3xl mx-auto px-3 sm:px-4 py-6 sm:py-8">
-        <div className="text-center py-8 sm:py-12 bg-white rounded-xl border">
-          <AlertCircle className="w-12 h-12 sm:w-16 sm:h-16 text-red-300 mx-auto mb-3 sm:mb-4" />
-          <p className="text-sm sm:text-base text-gray-500">Failed to load orders</p>
-          <button 
-            onClick={() => refetch()} 
-            className="mt-3 sm:mt-4 text-green-600 hover:underline text-sm sm:text-base"
-          >
-            Try again
-          </button>
+      <div className="max-w-5xl mx-auto px-4 py-8 text-center">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+          <h2 className="text-xl font-bold mb-2">Unable to load driver profile</h2>
+          <p className="text-gray-600">Please try logging out and back in.</p>
+          <Button onClick={() => window.location.href = '/login'} className="mt-4 bg-green text-white">
+            Go to Login
+          </Button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
-      {/* Support Modal */}
-      <SupportModal
-        isOpen={showSupportModal}
-        onClose={() => setShowSupportModal(false)}
-        user={user}
-      />
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-8 pb-20">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 sm:mb-6">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold">Driver Dashboard</h1>
+          <p className="text-xs sm:text-sm text-gray-500">Welcome back, {user?.name || 'Driver'}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg shadow-sm border">
+            {user?.vehicle_type === 'car' ? (
+              <>
+                <Car className="w-4 h-4 text-blue-500" />
+                <span className="text-xs font-medium text-gray-700">Car Driver</span>
+              </>
+            ) : (
+              <>
+                <Bike className="w-4 h-4 text-green" />
+                <span className="text-xs font-medium text-gray-700">Bike Rider</span>
+              </>
+            )}
+          </div>
+          
+          <Button onClick={fetchOrders} variant="outline" size="sm" disabled={refreshing} className="text-xs">
+            <RefreshCw className={`w-3 h-3 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          
+          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg shadow-sm">
+            <span className="text-xs text-gray-500">Available</span>
+            <Switch 
+              checked={isAvailable} 
+              onCheckedChange={(checked) => {
+                if (hasActiveOrder && !checked) {
+                  toast.error('Complete your current delivery before going offline');
+                  return;
+                }
+                setIsAvailable(checked);
+                toast.success(checked ? 'You are now online' : 'You are now offline');
+              }} 
+            />
+          </div>
+        </div>
+      </div>
 
-      {showRejectionAlert && rejectedOrder && (
-        <div className="mb-4 bg-red-50 border-l-4 border-red-600 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+      {/* Status Indicators */}
+      <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
+        <span className={`text-[10px] sm:text-xs px-2 py-1 rounded-full ${online ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+          {online ? '🟢 Live Updates Active' : '🔴 Connecting...'}
+        </span>
+        {trackingOrder && (
+          <span className="text-[10px] sm:text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full animate-pulse">
+            📍 Tracking order #{trackingOrder}
+          </span>
+        )}
+        {hasActiveOrder && (
+          <span className="text-[10px] sm:text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
+            {user?.vehicle_type === 'car' ? '🚗 Currently on delivery' : '🏍️ Currently on delivery'}
+          </span>
+        )}
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4 mb-6 sm:mb-8">
+        <StatCard label="Active" value={activeOrders.length} icon={Package} color="bg-blue-500" />
+        <StatCard label="Available" value={availableOrders.length} icon={Clock} color="bg-orange-500" />
+        <StatCard label="Completed" value={completedOrders.length} icon={CheckCircle2} color="bg-green-500" />
+        <StatCard label="Earnings" value={`R${totalEarnings.toFixed(2)}`} icon={DollarSign} color="bg-purple-500" />
+        <StatCard label="Rating" value={averageRating > 0 ? `${averageRating}★` : '—'} icon={Star} color="bg-yellow-500" />
+      </div>
+
+      {/* Earnings Summary Card */}
+      {earningsSummary && (
+        <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-xl p-4 mb-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div className="flex-1">
-              <p className="text-sm font-semibold text-red-800">Package Request Rejected</p>
-              <p className="text-sm text-red-700 mt-1">Order #{rejectedOrder.orderId} was rejected.</p>
-              <p className="text-sm font-medium text-red-800 mt-2">Reason:</p>
-              <p className="text-sm text-red-700">{rejectedOrder.reason}</p>
+              <div className="flex items-center gap-2 mb-2">
+                <Wallet className="w-5 h-5 text-green" />
+                <h3 className="font-semibold text-gray-700">Available Balance</h3>
+              </div>
+              <p className="text-3xl font-bold text-green">
+                R{formatCurrency(earningsSummary.available_balance)}
+              </p>
+              <div className="flex flex-wrap gap-4 mt-2 text-xs text-gray-500">
+                <span>Pending: R{formatCurrency(earningsSummary.pending_balance)}</span>
+                <span>Total Earned: R{formatCurrency(earningsSummary.total_earned)}</span>
+                <span>Withdrawn: R{formatCurrency(earningsSummary.total_paid)}</span>
+              </div>
+            </div>
+            <Button 
+              onClick={() => setShowWithdrawModal(true)}
+              className="bg-green text-white shrink-0"
+              disabled={!earningsSummary.available_balance || earningsSummary.available_balance < 50}
+            >
+              <Banknote className="w-4 h-4 mr-2" />
+              Request Withdrawal
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Bank Details Card */}
+      <div className="bg-white border rounded-xl p-4 mb-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <CreditCard className="w-4 h-4 text-gray-500" />
+              <h3 className="font-semibold text-sm">Bank Details</h3>
+            </div>
+            {bankDetails.bank_name ? (
+              <div className="text-sm">
+                <p>{bankDetails.bank_name}</p>
+                <p className="text-xs text-gray-500">{bankDetails.account_number}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">No bank details added</p>
+            )}
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => {
+              const bankName = prompt('Enter Bank Name:', bankDetails.bank_name || '');
+              const accountHolder = prompt('Enter Account Holder Name:', bankDetails.account_holder || '');
+              const accountNumber = prompt('Enter Account Number:', bankDetails.account_number || '');
+              const branchCode = prompt('Enter Branch Code (optional):', bankDetails.branch_code || '');
+              
+              if (bankName && accountHolder && accountNumber) {
+                setBankDetails({
+                  bank_name: bankName,
+                  account_holder: accountHolder,
+                  account_number: accountNumber,
+                  branch_code: branchCode || '',
+                });
+                saveBankDetails();
+              }
+            }}
+          >
+            {bankDetails.bank_name ? 'Update Bank Details' : 'Add Bank Details'}
+          </Button>
+        </div>
+      </div>
+
+      {/* Withdrawal History */}
+      {withdrawalHistory.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-sm sm:text-base font-bold mb-3">Withdrawal History</h2>
+          <div className="space-y-2">
+            {withdrawalHistory.map((payout) => {
+              const amount = typeof payout.amount === 'number' ? payout.amount : parseFloat(payout.amount);
+              const safeAmount = !isNaN(amount) ? amount : 0;
+              const requestedDate = payout.requested_at || payout.created_at;
+              
+              return (
+                <Card key={payout.id}>
+                  <CardContent className="p-3 flex justify-between items-center">
+                    <div>
+                      <p className="font-medium text-green">R{safeAmount.toFixed(2)}</p>
+                      <p className="text-xs text-gray-400">
+                        {requestedDate ? new Date(requestedDate).toLocaleDateString() : 'Unknown date'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <Badge className={
+                        payout.status === 'paid' ? 'bg-green-100 text-green-800' :
+                        payout.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-red-100 text-red-800'
+                      }>
+                        {payout.status?.toUpperCase() || 'PENDING'}
+                      </Badge>
+                      {payout.reference_number && (
+                        <p className="text-xs text-gray-400 mt-1">Ref: {payout.reference_number}</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Weekly Summary Card */}
+      <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-xl p-3 sm:p-4 mb-6 sm:mb-8">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <TrendingUp className="w-5 h-5 text-green" />
+            <div>
+              <p className="text-xs text-gray-500">This Week's Earnings</p>
+              <p className="text-xl sm:text-2xl font-bold text-green">R{formatCurrency(weeklyEarnings)}</p>
+            </div>
+          </div>
+          <div className="text-center sm:text-right">
+            <p className="text-xs text-gray-500">Success Rate</p>
+            <p className="text-base sm:text-lg font-semibold">
+              {myOrders.length > 0 
+                ? `${Math.round((completedOrders.length / myOrders.length) * 100)}%`
+                : '0%'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Active Deliveries */}
+      {activeOrders.length > 0 && (
+        <div className="mb-6 sm:mb-8">
+          <h2 className="text-sm sm:text-base font-bold mb-3 sm:mb-4">Active Deliveries ({activeOrders.length})</h2>
+          <div className="space-y-3 sm:space-y-4">
+            {activeOrders.map((order) => {
+              const isPackage = order.delivery_type && order.delivery_type !== 'food';
+              const pickupLocation = isPackage ? order.pickup_address : (order.restaurant_address || order.restaurant_name);
+              
+              return (
+                <Card key={order.id} className="overflow-hidden">
+                  <CardContent className="p-3 sm:p-4 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-sm sm:text-base truncate">
+                            {isPackage ? '📦 Package Delivery' : (order.restaurant_name || 'Restaurant')}
+                          </p>
+                          {order.delivery_type && order.delivery_type !== 'food' && (
+                            <Badge className={
+                              order.delivery_type === 'package' ? 'bg-purple-100 text-purple-800' :
+                              order.delivery_type === 'document' ? 'bg-blue-100 text-blue-800' :
+                              'bg-orange-100 text-orange-800'
+                            }>
+                              {order.delivery_type === 'package' && '📦 Package'}
+                              {order.delivery_type === 'document' && '📄 Document'}
+                              {order.delivery_type === 'other' && '🚚 Other'}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">Order #{order.id}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Status: <span className="font-medium">{formatOrderStatus(order.status)}</span>
+                        </p>
+                      </div>
+                      <span className="text-base sm:text-lg font-bold text-green shrink-0 ml-2">
+                        R{Number(order.total).toFixed(2)}
+                      </span>
+                    </div>
+
+                    {/* Customer/Sender Info */}
+                    {order.customer_name && (
+                      <div className={`flex items-center gap-2 rounded-lg p-2 border ${isPackage ? 'bg-purple-50 border-purple-100' : 'bg-green-50 border-green-100'}`}>
+                        <User className={`w-4 h-4 ${isPackage ? 'text-purple-600' : 'text-green'}`} />
+                        <span className="text-sm font-medium text-gray-700">
+                          {isPackage ? 'Sender: ' : 'Customer: '}{order.customer_name}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Recipient info for package deliveries */}
+                    {isPackage && order.recipient_name && (
+                      <div className="flex items-center gap-2 bg-blue-50 rounded-lg p-2 border border-blue-100">
+                        <User className="w-4 h-4 text-blue-500" />
+                        <span className="text-sm font-medium text-gray-700">
+                          Recipient: {order.recipient_name}
+                        </span>
+                        {order.recipient_phone && (
+                          <a href={`tel:${order.recipient_phone}`} className="text-xs text-blue-600 hover:underline ml-auto">
+                            Call
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Contact Customer/Sender */}
+                    {order.customer_phone ? (
+                      <div className="flex items-center gap-3 bg-gray-50 rounded-lg p-2">
+                        <div className="flex items-center gap-1">
+                          <Phone className="w-3 h-3 text-blue-500" />
+                          <a href={`tel:${order.customer_phone}`} className="text-xs text-blue-600 hover:underline">
+                            Call {isPackage ? 'Sender' : 'Customer'}
+                          </a>
+                        </div>
+                        <div className="w-px h-4 bg-gray-300" />
+                        <div className="flex items-center gap-1">
+                          <MessageCircle className="w-3 h-3 text-green-600" />
+                          <a href={`https://wa.me/${formatWhatsAppNumber(order.customer_phone)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-green-600 hover:underline">
+                            WhatsApp
+                          </a>
+                        </div>
+                      </div>
+                    ) : (
+                      order.customer_name && (
+                        <div className="bg-yellow-50 rounded-lg p-2 text-center">
+                          <p className="text-xs text-yellow-600">⚠️ No phone number available</p>
+                        </div>
+                      )
+                    )}
+
+                    {/* Pickup Location */}
+                    {pickupLocation && (
+                      <div className="flex items-start gap-2 bg-gray-50 rounded-lg p-2">
+                        <MapPin className={`w-3 h-3 ${isPackage ? 'text-purple-500' : 'text-orange-500'} mt-0.5 shrink-0`} />
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-gray-700">
+                            {isPackage ? 'Pickup Location:' : 'Restaurant:'}
+                          </p>
+                          <p className="text-xs text-gray-600">{pickupLocation}</p>
+                        </div>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="h-7 text-xs shrink-0"
+                          onClick={() => openGoogleMaps(pickupLocation)}
+                        >
+                          <NavigateIcon className="w-3 h-3 mr-1" />
+                          Navigate
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Delivery Location */}
+                    <div className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg p-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <MapPin className="w-3 h-3 text-red-500 shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-xs font-medium text-gray-700">Delivery Location:</p>
+                          <p className="text-xs text-gray-600 truncate">{order.delivery_address}</p>
+                        </div>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="h-7 text-xs shrink-0"
+                        onClick={() => openGoogleMaps(order.delivery_address)}
+                      >
+                        <NavigateIcon className="w-3 h-3 mr-1" />
+                        Navigate
+                      </Button>
+                    </div>
+
+                    {/* Package details */}
+                    {isPackage && (
+                      <div className="bg-purple-50 rounded-lg p-2">
+                        <p className="text-xs font-medium text-purple-700">Package Details:</p>
+                        <div className="flex flex-wrap gap-3 mt-1 text-xs">
+                          {order.package_weight && <span>⚖️ Weight: {order.package_weight}kg</span>}
+                          {order.package_dimensions && <span>📏 Dimensions: {order.package_dimensions}</span>}
+                          {order.requires_signature && <span className="text-blue-600">📝 Signature Required</span>}
+                          {order.is_fragile && <span className="text-orange-600">⚠️ Fragile</span>}
+                          {order.package_description && <span className="text-gray-600 w-full">📝 {order.package_description}</span>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Verification & Signature Buttons for Package Orders */}
+                    {isPackage && order.status === 'assigned' && (
+                      <Button
+                        onClick={() => {
+                          setCurrentOrderForSignature(order);
+                          setShowCodeModal(true);
+                        }}
+                        className="w-full bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        <KeyRound className="w-4 h-4 mr-2" />
+                        Verify Collection Code
+                      </Button>
+                    )}
+
+                    {isPackage && order.status === 'picked_up' && (
+                      <Button
+                        onClick={() => {
+                          setCurrentOrderForSignature(order);
+                          setShowDeliverySignatureModal(true);
+                        }}
+                        className="w-full bg-purple-600 text-white hover:bg-purple-700"
+                      >
+                        <PenTool className="w-4 h-4 mr-2" />
+                        Get Delivery Signature
+                      </Button>
+                    )}
+
+                    {/* Regular button - ONLY for food orders (NOT for packages) */}
+                    {!isPackage && (
+                      <Button
+                        className="w-full bg-green hover:bg-green/90 text-white text-sm h-9 sm:h-10"
+                        onClick={() => handleOrderAction(order)}
+                      >
+                        {getButtonText(order)}
+                      </Button>
+                    )}
+
+                    {/* Order items only for food */}
+                    {!isPackage && order.items && order.items.length > 0 && (
+                      <>
+                        <button
+                          onClick={() => toggleExpand(order.id)}
+                          className="flex items-center justify-between w-full text-xs text-gray-500 pt-2"
+                        >
+                          <span>{expandedOrders[order.id] ? 'Hide' : 'View'} order details</span>
+                          {expandedOrders[order.id] ? '▲' : '▼'}
+                        </button>
+                        {expandedOrders[order.id] && (
+                          <div className="space-y-1 pt-2 border-t">
+                            {order.items.map((item, idx) => (
+                              <div key={idx} className="flex justify-between text-xs">
+                                <span>{item.quantity}x {item.name}</span>
+                                <span>R{(item.price * item.quantity).toFixed(2)}</span>
+                              </div>
+                            ))}
+                            <div className="flex justify-between text-xs pt-1 border-t">
+                              <span>Delivery fee</span>
+                              <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Available Orders */}
+      <div className="mb-6 sm:mb-8">
+        <div className="flex justify-between items-center mb-3 sm:mb-4">
+          <h2 className="text-sm sm:text-base font-bold">Available Orders ({availableOrders.length})</h2>
+          {declinedOrders.length > 0 && (
+            <button onClick={clearDeclinedOrders} className="text-xs text-red-500 hover:underline">
+              Clear Declined ({declinedOrders.length})
+            </button>
+          )}
+        </div>
+        
+        {!isAvailable ? (
+          <Card>
+            <CardContent className="p-6 sm:p-8 text-center">
+              <Clock className="w-8 h-8 sm:w-12 sm:h-12 mx-auto mb-2 text-gray-300" />
+              <p className="text-sm text-gray-500">You are currently offline</p>
+              <p className="text-xs text-gray-400 mt-1">Toggle the switch above to go online</p>
+            </CardContent>
+          </Card>
+        ) : availableOrders.length === 0 ? (
+          <Card>
+            <CardContent className="p-6 sm:p-8 text-center">
+              <Clock className="w-8 h-8 sm:w-12 sm:h-12 mx-auto mb-2 text-gray-300" />
+              <p className="text-sm text-gray-500">No available orders</p>
+              <p className="text-xs text-gray-400 mt-1">Check back later for delivery requests</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {availableOrders.map((order) => {
+              const distance = restaurantDistances[order.id];
+              const estimatedTime = distance ? estimateDeliveryTime(distance) : null;
+              const requiredVehicle = order.required_vehicle_type || 'bike';
+              const isPackage = order.delivery_type && order.delivery_type !== 'food';
+              
+              return (
+                <Card key={order.id} className="hover:shadow-md transition">
+                  <CardContent className="p-3 sm:p-4">
+                    <div className="flex flex-col sm:flex-row justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-sm sm:text-base truncate">
+                            {isPackage ? '📦 Package Delivery' : (order.restaurant_name || 'Delivery')}
+                          </p>
+                          {requiredVehicle === 'car' && (
+                            <Badge className="bg-blue-100 text-blue-700 text-[10px]">
+                              <Car className="w-2.5 h-2.5 mr-1" />
+                              Car Required
+                            </Badge>
+                          )}
+                          {requiredVehicle === 'bike' && !isPackage && (
+                            <Badge className="bg-green-100 text-green-700 text-[10px]">
+                              <Bike className="w-2.5 h-2.5 mr-1" />
+                              Any Vehicle
+                            </Badge>
+                          )}
+                          {order.delivery_type && order.delivery_type !== 'food' && (
+                            <Badge className={
+                              order.delivery_type === 'package' ? 'bg-purple-100 text-purple-800' :
+                              order.delivery_type === 'document' ? 'bg-blue-100 text-blue-800' :
+                              'bg-orange-100 text-orange-800'
+                            }>
+                              {order.delivery_type === 'package' && '📦 Package'}
+                              {order.delivery_type === 'document' && '📄 Document'}
+                              {order.delivery_type === 'other' && '🚚 Other'}
+                            </Badge>
+                          )}
+                          {!isPackage && order.status === 'ready_for_pickup' && (
+                            <Badge className="bg-green-100 text-green-800">
+                              <CheckCircle2 className="w-2.5 h-2.5 mr-1" />
+                              Ready for Pickup
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Order #{order.id} • {order.customer_name || 'Customer'}
+                        </p>
+                        
+                        {isPackage && order.pickup_address && (
+                          <div className="flex items-start gap-1 mt-2">
+                            <MapPin className="w-3 h-3 text-purple-500 mt-0.5 shrink-0" />
+                            <p className="text-xs text-gray-500 truncate">Pickup: {formatAddress(order.pickup_address)}</p>
+                          </div>
+                        )}
+                        
+                        <div className="flex items-start gap-1 mt-1">
+                          <MapPin className="w-3 h-3 text-gray-400 mt-0.5 shrink-0" />
+                          <p className="text-xs text-gray-500 truncate">
+                            {isPackage ? 'Delivery: ' : ''}{formatAddress(order.delivery_address)}
+                          </p>
+                        </div>
+                        
+                        {distance && (
+                          <div className="flex flex-wrap items-center gap-3 mt-2">
+                            <span className="text-xs text-gray-500">📍 {distance.toFixed(1)} km away</span>
+                            {estimatedTime && <span className="text-xs text-green-600">⏱️ ~{estimatedTime} min</span>}
+                          </div>
+                        )}
+                        
+                        <p className="text-xs text-green-600 mt-2 font-medium">
+                          Delivery Fee: R{Number(order.delivery_fee || 0).toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="flex flex-row sm:flex-col justify-between sm:justify-center items-center gap-2">
+                        <p className="font-bold text-green text-base sm:text-lg">R{Number(order.total).toFixed(2)}</p>
+                        <div className="flex gap-2">
+                          <Button 
+                            onClick={() => handleOrderAction(order)}
+                            disabled={hasActiveOrder || (requiredVehicle === 'car' && user?.vehicle_type === 'bike')}
+                            className={`text-white text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4 ${isPackage ? 'bg-purple-600 hover:bg-purple-700' : 'bg-green hover:bg-green/90'} ${
+                              requiredVehicle === 'car' && user?.vehicle_type === 'bike' ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
+                            title={requiredVehicle === 'car' && user?.vehicle_type === 'bike' ? 'This order requires a car' : ''}
+                          >
+                            {isPackage ? 'Accept Package' : 'Accept & Pick Up'}
+                          </Button>
+                          <Button 
+                            onClick={() => declineOrder(order.id, isPackage ? 'Package' : (order.restaurant_name || 'Order'))}
+                            variant="outline"
+                            className="border-red-300 text-red-500 hover:bg-red-50 text-xs sm:text-sm h-8 sm:h-9 px-3 sm:px-4"
+                          >
+                            <XCircle className="w-3 h-3 mr-1" />
+                            Decline
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Declined Orders History */}
+      {declinedOrders.length > 0 && (
+        <div className="mb-6">
+          <button
+            onClick={() => setShowDeclined(!showDeclined)}
+            className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-700 mb-2"
+          >
+            <AlertCircle className="w-3 h-3" />
+            {showDeclined ? 'Hide' : 'Show'} Declined Orders ({declinedOrders.length})
+          </button>
+          
+          {showDeclined && (
+            <Card className="bg-gray-50 border-gray-200">
+              <CardContent className="p-3">
+                <p className="text-xs text-gray-500 mb-2">Orders you've declined:</p>
+                <div className="flex flex-wrap gap-2">
+                  {declinedOrders.map(id => (
+                    <span key={id} className="text-xs bg-gray-200 px-2 py-1 rounded-full">#{id}</span>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Delivery History */}
+      {completedOrders.length > 0 && (
+        <div className="mb-6">
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-3"
+          >
+            <History className="w-4 h-4" />
+            {showHistory ? 'Hide History' : `Show Delivery History (${completedOrders.length})`}
+          </button>
+
+          {showHistory && (
+            <div className="space-y-2">
+              {completedOrders.map((order) => {
+                const isPackage = order.delivery_type && order.delivery_type !== 'food';
+                return (
+                  <Card key={order.id} className="bg-gray-50">
+                    <CardContent className="p-3 sm:p-4">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm truncate">
+                            {isPackage ? '📦 Package Delivery' : (order.restaurant_name || 'Delivery')}
+                          </p>
+                          <p className="text-xs text-gray-500">Order #{order.id}</p>
+                          <p className="text-xs text-gray-400">Delivered {new Date(order.created_at).toLocaleDateString()}</p>
+                          {order.driver_rating && <p className="text-xs text-yellow-600 mt-1">Rating: {order.driver_rating}★</p>}
+                          {isPackage && order.recipient_name && <p className="text-xs text-purple-600 mt-1">Recipient: {order.recipient_name}</p>}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-green text-sm">R{Number(order.total).toFixed(2)}</p>
+                          <p className="text-xs text-gray-500">Earned: R{Number(order.driver_earning || 0).toFixed(2)}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Profile Link */}
+      <div className="mt-6 text-center">
+        <Link to="/profile">
+          <Button variant="outline" size="sm" className="gap-2">
+            <User className="w-4 h-4" />
+            View Profile
+          </Button>
+        </Link>
+      </div>
+
+      {/* Verification Code Modal */}
+      <Dialog open={showCodeModal} onOpenChange={setShowCodeModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-blue-600" />
+              Verify Collection Code
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-blue-50 p-3 rounded-lg text-sm text-blue-800">
+              <p>Ask the customer for the 6-digit verification code they received.</p>
+            </div>
+            <div>
+              <Label>Enter Verification Code</Label>
+              <Input
+                type="text"
+                placeholder="Enter 6-digit code"
+                value={verificationCode}
+                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="mt-1 text-center text-2xl font-mono tracking-widest"
+                maxLength={6}
+              />
+            </div>
+            <div className="flex gap-3">
               <Button 
-                size="sm" 
-                variant="outline" 
-                className="mt-3 border-red-300 text-red-600 hover:bg-red-100"
-                onClick={() => setShowRejectionAlert(false)}
+                onClick={verifyCollectionCode} 
+                disabled={verifyingOrder || verificationCode.length !== 6}
+                className="flex-1 bg-blue-600 text-white"
               >
-                Dismiss
+                {verifyingOrder ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                Verify Code
+              </Button>
+              <Button onClick={() => setShowCodeModal(false)} variant="outline" className="flex-1">
+                Cancel
               </Button>
             </div>
           </div>
-        </div>
-      )}
-
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0 mb-4 sm:mb-6">
-        <h1 className="text-xl sm:text-2xl font-bold">My Orders</h1>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowSupportModal(true)}
-            className="text-xs"
-          >
-            <Headset className="w-3 h-3 mr-1" />
-            Support
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowTicketsModal(true)}
-            className="text-xs"
-          >
-            <MessageCircle className="w-3 h-3 mr-1" />
-            My Tickets
-          </Button>
-          {online && (
-            <span className="text-[10px] sm:text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
-              🟢 Live updates active
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="mb-4">
-        <Tabs value={orderTab} onValueChange={setOrderTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="active" className="text-sm">
-              Active ({activeOrders.length})
-            </TabsTrigger>
-            <TabsTrigger value="history" className="text-sm">
-              History ({pastOrders.length})
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-
-      {sortedOrders.length === 0 ? (
-        <div className="text-center py-8 sm:py-12 bg-white rounded-xl border">
-          <Package className="w-12 h-12 sm:w-16 sm:h-16 text-gray-300 mx-auto mb-3 sm:mb-4" />
-          <p className="text-sm sm:text-base text-gray-500">No orders yet</p>
-          <p className="text-xs sm:text-sm text-gray-400 mt-1">Browse restaurants or book a package delivery</p>
-          <div className="flex flex-col sm:flex-row gap-2 justify-center mt-4">
-            <Button onClick={() => navigate('/')} className="bg-green-600 text-white">
-              Browse Restaurants
-            </Button>
-            <Button onClick={() => navigate('/package-delivery')} variant="outline" className="border-purple-500 text-purple-600">
-              <Package className="w-4 h-4 mr-2" />
-              Book Package Delivery
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-6 sm:space-y-8">
-          {orderTab === 'active' && (
-            activeOrders.length > 0 ? (
-              <div className="space-y-3 sm:space-y-4">
-                {activeOrders.map(order => (
-                  <ActiveOrderCard 
-                    key={order.id} 
-                    order={liveUpdates[order.id] ? { ...order, status: liveUpdates[order.id] } : order}
-                    onCancel={handleCancelOrder}
-                    onReorder={handleReorder}
-                    onReportIssue={handleReportIssue}
-                    driverLocation={driverLocation}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-12 bg-white rounded-xl border">
-                <CheckCircle className="w-12 h-12 text-green-300 mx-auto mb-2" />
-                <p className="text-gray-500">No active orders</p>
-                <p className="text-xs text-gray-400 mt-1">Your active orders will appear here</p>
-                <Button onClick={() => navigate('/')} variant="outline" className="mt-4">
-                  Browse Restaurants
-                </Button>
-              </div>
-            )
-          )}
-
-          {orderTab === 'history' && (
-            <div>
-              <div className="flex flex-wrap gap-2 mb-4">
-                {quickFilters.map((filter) => (
-                  <Badge
-                    key={filter.label}
-                    variant={searchTerm === filter.value ? 'default' : 'outline'}
-                    className={`cursor-pointer text-xs ${
-                      searchTerm === filter.value 
-                        ? 'bg-green-600 text-white' 
-                        : 'hover:bg-gray-100'
-                    }`}
-                    onClick={() => setSearchTerm(filter.value)}
-                  >
-                    {filter.label}
-                  </Badge>
-                ))}
-              </div>
-
-              <div className="relative w-full mb-4">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-3 h-3 text-gray-400" />
-                <Input
-                  placeholder="Search by restaurant, package, or order #..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8 h-8 text-sm"
-                />
-                {searchTerm && (
-                  <button
-                    onClick={() => setSearchTerm('')}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    <XCircle className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-              
-              <div className="space-y-2 sm:space-y-3">
-                {displayedPastOrders.length === 0 ? (
-                  <div className="text-center py-8 bg-gray-50 rounded-lg">
-                    <p className="text-sm text-gray-500">No orders match your search</p>
-                  </div>
-                ) : (
-                  <>
-                    {displayedPastOrders.map(order => (
-                      <OrderHistoryCard 
-                        key={order.id} 
-                        order={order} 
-                        onReviewOrder={handleReviewOrder}
-                        onReorder={handleReorder}
-                        onRateDriver={handleRateDriver}
-                      />
-                    ))}
-                    
-                    {hasMore && (
-                      <Button
-                        onClick={loadMore}
-                        variant="outline"
-                        className="w-full mt-2"
-                      >
-                        Load More Orders ({filteredPastOrders.length - visibleCount} remaining)
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {showReviewModal && selectedOrder && (
-        <ReviewModal
-          order={selectedOrder}
-          isOpen={showReviewModal}
-          onClose={() => setShowReviewModal(false)}
-          onSubmitted={() => {
-            refetch();
-            setShowReviewModal(false);
-          }}
-        />
-      )}
-
-      <DriverRatingModal
-        isOpen={showDriverRatingModal}
-        onClose={() => {
-          setShowDriverRatingModal(false);
-          setSelectedDriverForRating(null);
-          setSelectedOrderForRating(null);
-        }}
-        onSubmitted={() => {
-          refetch();
-        }}
-        order={selectedOrderForRating}
-        driver={selectedDriverForRating}
-        userId={user?.id}
-      />
-
-      {showIssueModal && selectedOrderForIssue && (
-        <ReportIssueModal
-          order={selectedOrderForIssue}
-          isOpen={showIssueModal}
-          onClose={() => {
-            setShowIssueModal(false);
-            setSelectedOrderForIssue(null);
-          }}
-          onSubmitted={() => {
-            refetch();
-            toast.info('Support ticket created. We\'ll respond within 24 hours.');
-          }}
-        />
-      )}
-
-      <Dialog open={showTicketsModal} onOpenChange={setShowTicketsModal}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>My Support Tickets</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            {userTickets.length === 0 ? (
-              <div className="text-center py-8">
-                <MessageCircle className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                <p className="text-sm text-gray-500">No support tickets</p>
-                <p className="text-xs text-gray-400">Report an issue from a delivered order</p>
-              </div>
-            ) : (
-              userTickets.map((ticket) => (
-                <Card key={ticket.id} className="cursor-pointer hover:shadow-md transition" onClick={() => setSelectedTicket(ticket)}>
-                  <CardContent className="p-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-semibold text-sm">#{ticket.id}</p>
-                        <p className="text-xs text-gray-500">{issueTypeLabels[ticket.issue_type] || ticket.issue_type}</p>
-                      </div>
-                      <Badge className={statusColors[ticket.status]}>
-                        {ticket.status?.toUpperCase()}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-gray-600 mt-2 line-clamp-2">{ticket.description}</p>
-                    {ticket.admin_response && (
-                      <div className="mt-2 pt-2 border-t">
-                        <p className="text-xs text-green-600 font-medium">📨 Response received</p>
-                      </div>
-                    )}
-                    <p className="text-[10px] text-gray-400 mt-2">
-                      {format(new Date(ticket.created_at), 'dd MMM yyyy')}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
-          <Button onClick={() => setShowTicketsModal(false)} variant="outline" className="mt-4">
-            Close
-          </Button>
         </DialogContent>
       </Dialog>
 
-      {selectedTicket && (
-        <TicketResponseModal
-          isOpen={!!selectedTicket}
-          onClose={() => setSelectedTicket(null)}
-          ticket={selectedTicket}
-        />
-      )}
+      {/* Pickup Signature Modal */}
+      <SignaturePad
+        isOpen={showPickupSignatureModal}
+        onClose={() => setShowPickupSignatureModal(false)}
+        onSave={capturePickupSignature}
+        title="Pickup Signature"
+      />
+
+      {/* Delivery Signature Modal */}
+      <SignaturePad
+        isOpen={showDeliverySignatureModal}
+        onClose={() => setShowDeliverySignatureModal(false)}
+        onSave={captureDeliverySignature}
+        title="Delivery Signature - Recipient"
+      />
+
+      {/* Withdrawal Modal */}
+      <Dialog open={showWithdrawModal} onOpenChange={setShowWithdrawModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Request Withdrawal</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-gray-50 p-3 rounded-lg">
+              <p className="text-sm text-gray-600">Available Balance</p>
+              <p className="text-2xl font-bold text-green">R{formatCurrency(earningsSummary?.available_balance)}</p>
+            </div>
+            
+            <div>
+              <Label>Amount (R) *</Label>
+              <Input
+                type="number"
+                placeholder="Minimum R50"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+                className="mt-1"
+              />
+              <p className="text-xs text-gray-400 mt-1">Minimum withdrawal: R50</p>
+            </div>
+            
+            <div className="border-t pt-3">
+              <p className="text-sm font-medium mb-2">Bank Details for Payout</p>
+              <div className="space-y-2 text-sm text-gray-600">
+                <p><span className="font-medium">Bank:</span> {bankDetails.bank_name || 'Not set'}</p>
+                <p><span className="font-medium">Account Holder:</span> {bankDetails.account_holder || 'Not set'}</p>
+                <p><span className="font-medium">Account Number:</span> {bankDetails.account_number || 'Not set'}</p>
+              </div>
+              {(!bankDetails.bank_name || !bankDetails.account_number) && (
+                <p className="text-xs text-red-500 mt-2">⚠️ Please add your bank details in the section above before requesting withdrawal.</p>
+              )}
+            </div>
+            
+            <div className="flex gap-3 pt-2">
+              <Button 
+                onClick={handleWithdrawRequest} 
+                disabled={loadingWithdraw || !bankDetails.bank_name || !bankDetails.account_number}
+                className="flex-1 bg-green text-white"
+              >
+                {loadingWithdraw ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                Request Withdrawal
+              </Button>
+              <Button onClick={() => setShowWithdrawModal(false)} variant="outline" className="flex-1">
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Package Offer Modal */}
+      <Dialog open={showPackageOfferModal} onOpenChange={setShowPackageOfferModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5 text-purple-500" />
+              New Package Delivery
+            </DialogTitle>
+          </DialogHeader>
+          {packageOffer && (
+            <div className="space-y-4">
+              <div className="bg-purple-50 p-3 rounded-lg">
+                <p className="text-sm font-semibold text-purple-800">Earnings: R{packageOffer.estimatedPay?.toFixed(2)}</p>
+                {packageOffer.distance && <p className="text-xs text-purple-600">📍 {packageOffer.distance.toFixed(1)} km away</p>}
+                <p className="text-xs text-gray-500 mt-1">Accept within: {new Date(packageOffer.deadline).toLocaleTimeString()}</p>
+              </div>
+              
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-green mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-gray-500">Pickup Location</p>
+                    <p className="text-sm font-medium">{packageOffer.pickupAddress}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-gray-500">Delivery Location</p>
+                    <p className="text-sm font-medium">{packageOffer.deliveryAddress}</p>
+                  </div>
+                </div>
+                {packageOffer.packageWeight && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Weight:</span>
+                    <span className="text-sm">{packageOffer.packageWeight}kg</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button 
+                  onClick={() => acceptPackageOrder(packageOffer.orderId)}
+                  disabled={acceptingPackage}
+                  className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  {acceptingPackage ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                  Accept Delivery
+                </Button>
+                <Button 
+                  onClick={() => setShowPackageOfferModal(false)} 
+                  variant="outline" 
+                  className="flex-1"
+                >
+                  Decline
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-// Export with Error Boundary
-export default function CustomerOrders() {
+// Simplified Stat Card Component
+function StatCard({ label, value, icon: Icon, color }) {
   return (
-    <ErrorBoundary>
-      <CustomerOrdersComponent />
-    </ErrorBoundary>
+    <Card>
+      <CardContent className="p-2 sm:p-3 flex items-center gap-2 sm:gap-3">
+        <div className={cn("p-1.5 sm:p-2 rounded-lg", color)}>
+          <Icon className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">{label}</p>
+          <p className="text-sm sm:text-base font-bold">{value}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

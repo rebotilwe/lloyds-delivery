@@ -79,6 +79,116 @@ export const initEmailTransporter = async () => {
   }
 };
 
+// Send package rejection email to customer
+export const sendPackageRejectionEmail = async (order, rejectionReason) => {
+  try {
+    if (!transporter) {
+      await initEmailTransporter();
+    }
+    
+    if (!transporter) {
+      console.log('❌ Email transporter not available, skipping email');
+      return null;
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://lloyds-delivery.netlify.app';
+    const supportEmail = 'support@lloydsdelivery.com';
+    const supportPhone = '+27 00 000 0000';
+    const rejectionDate = new Date().toLocaleDateString('en-ZA', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const mailOptions = {
+      from: '"Lloyd\'s Delivery" <noreply@lloydsdelivery.co.za>',
+      to: order.customer_email,
+      subject: `❌ Package Delivery Request Rejected - #${order.id}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; border-radius: 10px; }
+            .header { background-color: #dc2626; padding: 20px; text-align: center; border-radius: 10px 10px 0 0; }
+            .header h1 { color: white; margin: 0; font-size: 24px; }
+            .content { padding: 20px; }
+            .order-details { background-color: #f9f9f9; padding: 15px; border-radius: 8px; margin: 15px 0; }
+            .rejection-reason { background-color: #fee2e2; border-left: 4px solid #dc2626; padding: 15px; margin: 15px 0; }
+            .next-steps { background-color: #e0f2fe; padding: 15px; border-radius: 8px; margin: 15px 0; }
+            .button { display: inline-block; padding: 12px 24px; background-color: #22c55e; color: white; text-decoration: none; border-radius: 5px; margin-top: 15px; }
+            .button-secondary { display: inline-block; padding: 12px 24px; background-color: #6b7280; color: white; text-decoration: none; border-radius: 5px; margin-top: 15px; margin-left: 10px; }
+            .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; border-top: 1px solid #eee; margin-top: 20px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>❌ Package Delivery Request Rejected</h1>
+            </div>
+            <div class="content">
+              <p>Dear <strong>${order.customer_name || 'Customer'}</strong>,</p>
+              <p>We regret to inform you that your package delivery request <strong>#${order.id}</strong> has been reviewed and <strong style="color: #dc2626;">REJECTED</strong>.</p>
+              
+              <div class="order-details">
+                <h3>📦 Order Details</h3>
+                <p><strong>Order ID:</strong> ${order.id}</p>
+                <p><strong>Pickup Address:</strong> ${order.pickup_address || 'Not specified'}</p>
+                <p><strong>Delivery Address:</strong> ${order.delivery_address}</p>
+                <p><strong>Package Weight:</strong> ${order.package_weight || 0} kg</p>
+                <p><strong>Request Date:</strong> ${rejectionDate}</p>
+              </div>
+              
+              <div class="rejection-reason">
+                <h3>❌ Rejection Reason</h3>
+                <p>${rejectionReason}</p>
+              </div>
+              
+              <div class="next-steps">
+                <h3>📋 What You Can Do Next</h3>
+                <ul>
+                  <li><strong>Contact Support:</strong> Reply to this email or call us for clarification</li>
+                  <li><strong>Submit New Request:</strong> Create a new package delivery with corrected information</li>
+                  <li><strong>Review Guidelines:</strong> Check our delivery policies on the website</li>
+                </ul>
+              </div>
+              
+              <div style="text-align: center;">
+                <a href="${frontendUrl}/package-delivery" class="button">Submit New Request</a>
+                <a href="${frontendUrl}/support" class="button-secondary">Contact Support</a>
+              </div>
+              
+              <div style="margin-top: 20px; text-align: center;">
+                <p>Need help? Contact us:</p>
+                <p>📧 <a href="mailto:${supportEmail}">${supportEmail}</a> | 📞 ${supportPhone}</p>
+              </div>
+            </div>
+            <div class="footer">
+              <p>&copy; ${new Date().getFullYear()} Lloyd's Delivery. All rights reserved.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`📧 Package rejection email sent to ${order.customer_email} for order #${order.id}`);
+    
+    if (info.messageId && !info.messageId.startsWith('mock')) {
+      console.log(`   📎 PREVIEW URL: ${nodemailer.getTestMessageUrl(info)}`);
+    }
+    
+    return info;
+  } catch (error) {
+    console.error('Error sending package rejection email:', error.message);
+    return null;
+  }
+};
+
 // Send order confirmation email
 export const sendOrderConfirmation = async (order, customerEmail, customerName) => {
   try {

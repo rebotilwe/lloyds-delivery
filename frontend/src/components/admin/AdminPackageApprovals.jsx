@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Textarea } from '@/components/ui/textarea';
 import { 
   Package, MapPin, User, Phone, Weight, Ruler, 
-  CheckCircle, XCircle, Loader2, RefreshCw, AlertCircle
+  CheckCircle, XCircle, Loader2, RefreshCw, AlertCircle, Mail
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -21,6 +21,7 @@ export default function AdminPackageApprovals() {
   const [showModal, setShowModal] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   useEffect(() => {
     fetchPendingPackages();
@@ -66,32 +67,68 @@ export default function AdminPackageApprovals() {
     }
     
     setProcessing(true);
+    setSendingEmail(true);
+    
     try {
-      // Reject the package with the reason
+      const order = selectedPackage;
+      
+      // 1. Update order status in database
       const response = await api.put(`/orders/admin/approve-package/${orderId}`, { 
         action: 'reject', 
         rejection_reason: rejectionReason 
       });
       
-      // Send socket notification to customer
+      // 2. Send real-time socket notification to customer
       if (socket && online) {
         socket.emit('order-rejected', {
           orderId: orderId,
           reason: rejectionReason,
-          timestamp: new Date()
+          timestamp: new Date(),
+          orderDetails: {
+            pickupAddress: order?.pickup_address,
+            deliveryAddress: order?.delivery_address,
+            total: order?.total
+          }
         });
+        console.log(`🔔 Socket notification sent for order #${orderId}`);
       }
       
-      toast.success('Package rejected successfully. Customer has been notified.');
+      // 3. Send email notification
+      if (order && order.customer_email) {
+        try {
+          // Call backend email endpoint
+          await api.post('/notifications/send-rejection-email', {
+            orderId: order.id,
+            customerEmail: order.customer_email,
+            customerName: order.customer_name,
+            rejectionReason: rejectionReason,
+            pickupAddress: order.pickup_address,
+            deliveryAddress: order.delivery_address,
+            packageWeight: order.package_weight,
+            orderTotal: order.total
+          });
+          console.log(`📧 Rejection email sent to ${order.customer_email}`);
+        } catch (emailError) {
+          console.error('Failed to send email:', emailError);
+          // Don't block the rejection process
+        }
+      }
+      
+      toast.success('Package rejected successfully. Customer has been notified via app notification and email.', {
+        duration: 6000,
+      });
+      
       fetchPendingPackages();
       setShowModal(false);
       setSelectedPackage(null);
       setRejectionReason('');
+      
     } catch (error) {
       console.error('Error rejecting package:', error);
       toast.error(error.response?.data?.message || 'Failed to reject package');
     } finally {
       setProcessing(false);
+      setSendingEmail(false);
     }
   };
 
@@ -284,9 +321,25 @@ export default function AdminPackageApprovals() {
                   className="mt-1"
                 />
                 <p className="text-xs text-amber-600 mt-1">
-                  ⚠️ This reason will be displayed to the customer so they understand why their request was rejected.
+                  ⚠️ This reason will be displayed to the customer and sent via email.
                 </p>
               </div>
+
+              {/* Notification Preview */}
+              {rejectionReason.trim() && (
+                <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Mail className="w-4 h-4 text-blue-600" />
+                    <p className="text-xs font-semibold text-blue-800">Customer will receive:</p>
+                  </div>
+                  <div className="text-xs text-blue-700 space-y-1">
+                    <p><strong>Order #:</strong> {selectedPackage.id}</p>
+                    <p><strong>Status:</strong> Rejected</p>
+                    <p><strong>Reason:</strong> {rejectionReason}</p>
+                    <p><strong>Next Steps:</strong> Please contact support or submit a new request with corrected information.</p>
+                  </div>
+                </div>
+              )}
 
               <div className="flex gap-3 pt-2">
                 <Button 
@@ -303,8 +356,8 @@ export default function AdminPackageApprovals() {
                   variant="destructive" 
                   className="flex-1"
                 >
-                  <XCircle className="w-4 h-4 mr-2" />
-                  Reject Package
+                  {sendingEmail ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <XCircle className="w-4 h-4 mr-2" />}
+                  Reject & Notify
                 </Button>
               </div>
             </div>

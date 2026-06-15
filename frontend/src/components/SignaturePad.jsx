@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Eraser, Save, X } from 'lucide-react';
+import { Eraser, Save } from 'lucide-react';
 
 export default function SignaturePad({ isOpen, onClose, onSave, title = "Sign Here" }) {
   const canvasRef = useRef(null);
@@ -12,20 +12,25 @@ export default function SignaturePad({ isOpen, onClose, onSave, title = "Sign He
     if (isOpen && canvasRef.current) {
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
-      context.strokeStyle = '#000';
-      context.lineWidth = 2;
-      context.lineCap = 'round';
-      context.lineJoin = 'round';
-      setCtx(context);
-      
-      // Clear canvas and set white background
-      context.fillStyle = '#fff';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = '#000';
+      if (context) {
+        context.strokeStyle = '#000';
+        context.lineWidth = 2;
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+        
+        // Clear canvas and set white background
+        context.fillStyle = '#fff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = '#000';
+        
+        setCtx(context);
+      }
     }
   }, [isOpen]);
 
   const getCoordinates = (e) => {
+    if (!canvasRef.current) return { offsetX: 0, offsetY: 0 };
+    
     const rect = canvasRef.current.getBoundingClientRect();
     const scaleX = canvasRef.current.width / rect.width;
     const scaleY = canvasRef.current.height / rect.height;
@@ -45,7 +50,8 @@ export default function SignaturePad({ isOpen, onClose, onSave, title = "Sign He
   };
 
   const startDrawing = (e) => {
-    e.preventDefault();
+    // Don't call preventDefault - let the browser handle it naturally
+    if (!ctx) return;
     setIsDrawing(true);
     const { offsetX, offsetY } = getCoordinates(e);
     ctx.beginPath();
@@ -53,19 +59,21 @@ export default function SignaturePad({ isOpen, onClose, onSave, title = "Sign He
   };
 
   const draw = (e) => {
-    e.preventDefault();
-    if (!isDrawing) return;
+    if (!isDrawing || !ctx) return;
+    // Don't call preventDefault - let the browser handle it naturally
     const { offsetX, offsetY } = getCoordinates(e);
     ctx.lineTo(offsetX, offsetY);
     ctx.stroke();
   };
 
   const stopDrawing = () => {
+    if (!ctx) return;
     setIsDrawing(false);
     ctx.beginPath();
   };
 
   const clearSignature = () => {
+    if (!ctx || !canvasRef.current) return;
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
@@ -73,6 +81,7 @@ export default function SignaturePad({ isOpen, onClose, onSave, title = "Sign He
   };
 
   const saveSignature = () => {
+    if (!canvasRef.current) return;
     const signatureData = canvasRef.current.toDataURL();
     onSave(signatureData);
     onClose();

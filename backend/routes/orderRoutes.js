@@ -18,6 +18,11 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+// Generate unique verification code for package deliveries
+const generateVerificationCode = () => {
+  return Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit code
+};
+
 /* =========================
    CREATE ORDER (UPDATED with delivery_type and package support)
 ========================= */
@@ -81,6 +86,13 @@ router.post("/create", async (req, res) => {
       subtotalValue = items.reduce((sum, item) => sum + (parseFloat(item.price) * (item.quantity || 1)), 0);
     }
 
+    // Generate verification code for package deliveries
+    let verificationCode = null;
+    if (delivery_type !== 'food') {
+      verificationCode = generateVerificationCode();
+      console.log(`🔐 Generated verification code ${verificationCode} for package order`);
+    }
+
     const result = await db.query(
       `INSERT INTO orders 
        (customer_id, customer_name, restaurant_id, restaurant_name, status, total, 
@@ -88,9 +100,11 @@ router.post("/create", async (req, res) => {
         payment_transaction_id, promo_code, discount_applied, required_vehicle_type, 
         delivery_type, pickup_address, recipient_name, recipient_phone, 
         package_description, package_weight, package_dimensions, 
-        requires_signature, is_fragile, reviewed, subtotal, created_at) 
+        requires_signature, is_fragile, reviewed, subtotal, 
+        verification_code, verification_code_generated_at, created_at) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 
-               $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW()) RETURNING id`,
+               $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, 
+               $27, NOW(), NOW()) RETURNING id`,
       [
         customer_id, 
         customer_name || 'Customer', 
@@ -117,7 +131,8 @@ router.post("/create", async (req, res) => {
         requires_signature || false,
         is_fragile || false,
         false,
-        subtotalValue
+        subtotalValue,
+        verificationCode
       ]
     );
 
@@ -403,7 +418,6 @@ router.put("/status/:id", async (req, res) => {
     const deliveryType = prevOrder.rows[0]?.delivery_type;
     const restaurantId = prevOrder.rows[0]?.restaurant_id;
 
-    // FIXED: Split into two separate updates to avoid type inference issues
     await db.query("UPDATE orders SET status = $1 WHERE id = $2", [status, orderId]);
     
     // If status is 'delivered', update delivered_at separately
@@ -417,7 +431,6 @@ router.put("/status/:id", async (req, res) => {
       timestamp: new Date(),
     });
 
-    // Rest of your code remains the same...
     // Notify vendor when order is delivered (only for food)
     if (status === "delivered" && deliveryType === 'food' && vendorId && io) {
       io.to(`vendor_${vendorId}`).emit("order-delivered", {
@@ -448,90 +461,78 @@ router.put("/status/:id", async (req, res) => {
       })();
     }
 
-    // FIXED: Update earnings correctly when order is delivered
-   // FIXED: Update earnings correctly when order is delivered
-if (status === "delivered") {
-  const orders = await db.query(
-    "SELECT total, delivery_fee, subtotal, original_total, delivery_type FROM orders WHERE id = $1",
-    [orderId]
-  );
-  
-  const order = orders.rows[0];
-  
-  if (order && driverId) {
-    const deliveryFee = parseFloat(order.delivery_fee) || 0;
-    const total = parseFloat(order.total) || 0;
-    
-    let driverEarning = 0;
-    let platformEarning = 0;
-    let vendorPayoutAmount = 0;
-    
-    if (deliveryType === 'food') {
-      // FOOD: Driver gets delivery fee + 10% commission
-      const commission = total * 0.1;
-      driverEarning = deliveryFee + commission;
-      driverEarning = Math.round(driverEarning * 100) / 100;
-      
-      // Vendor gets: subtotal - 15% commission
-      const subtotal = parseFloat(order.subtotal) || parseFloat(order.original_total) || (total - deliveryFee);
-      const commissionAmount = subtotal * 0.15; // 15% platform commission
-      vendorPayoutAmount = subtotal - commissionAmount;
-      vendorPayoutAmount = Math.round(vendorPayoutAmount * 100) / 100;
-      
-      // Platform earns the commission
-      platformEarning = commissionAmount;
-      
-    } else {
-      // PACKAGE: Split 70/30 (70% to driver, 30% to platform)
-      // This is the key change for profitability
-      driverEarning = deliveryFee * 0.7;
-      platformEarning = deliveryFee * 0.3;
-      driverEarning = Math.round(driverEarning * 100) / 100;
-      platformEarning = Math.round(platformEarning * 100) / 100;
-      
-      console.log(`📦 Package #${orderId}: Driver earns R${driverEarning}, Platform earns R${platformEarning}`);
-    }
-    
-    if (driverEarning > 0) {
-      await db.query(
-        "UPDATE orders SET driver_earning = $1, platform_earning = $2 WHERE id = $3", 
-        [driverEarning, platformEarning, orderId]
+    // Update earnings correctly when order is delivered
+    if (status === "delivered") {
+      const orders = await db.query(
+        "SELECT total, delivery_fee, subtotal, original_total, delivery_type FROM orders WHERE id = $1",
+        [orderId]
       );
       
-      // Update driver's total_earnings AND available_balance
-      await db.query(
-        `UPDATE users SET 
-           total_earnings = COALESCE(total_earnings, 0) + $1,
-           available_balance = COALESCE(available_balance, 0) + $1
-         WHERE id = $2`, 
-        [driverEarning, driverId]
-      );
+      const order = orders.rows[0];
+      
+      if (order && driverId) {
+        const deliveryFee = parseFloat(order.delivery_fee) || 0;
+        const total = parseFloat(order.total) || 0;
+        
+        let driverEarning = 0;
+        let platformEarning = 0;
+        let vendorPayoutAmount = 0;
+        
+        if (deliveryType === 'food') {
+          const commission = total * 0.1;
+          driverEarning = deliveryFee + commission;
+          driverEarning = Math.round(driverEarning * 100) / 100;
+          
+          const subtotal = parseFloat(order.subtotal) || parseFloat(order.original_total) || (total - deliveryFee);
+          const commissionAmount = subtotal * 0.15;
+          vendorPayoutAmount = subtotal - commissionAmount;
+          vendorPayoutAmount = Math.round(vendorPayoutAmount * 100) / 100;
+          platformEarning = commissionAmount;
+        } else {
+          driverEarning = deliveryFee * 0.7;
+          platformEarning = deliveryFee * 0.3;
+          driverEarning = Math.round(driverEarning * 100) / 100;
+          platformEarning = Math.round(platformEarning * 100) / 100;
+          console.log(`📦 Package #${orderId}: Driver earns R${driverEarning}, Platform earns R${platformEarning}`);
+        }
+        
+        if (driverEarning > 0) {
+          await db.query(
+            "UPDATE orders SET driver_earning = $1, platform_earning = $2 WHERE id = $3", 
+            [driverEarning, platformEarning, orderId]
+          );
+          
+          await db.query(
+            `UPDATE users SET 
+               total_earnings = COALESCE(total_earnings, 0) + $1,
+               available_balance = COALESCE(available_balance, 0) + $1
+             WHERE id = $2`, 
+            [driverEarning, driverId]
+          );
 
-      io.to(`driver_${driverId}`).emit("earnings-updated", {
-        orderId: parseInt(orderId),
-        earning: driverEarning,
-      });
+          io.to(`driver_${driverId}`).emit("earnings-updated", {
+            orderId: parseInt(orderId),
+            earning: driverEarning,
+          });
+        }
+        
+        if (deliveryType === 'food' && restaurantId && vendorPayoutAmount > 0) {
+          await db.query(
+            `UPDATE orders SET vendor_payout_amount = $1 WHERE id = $2`,
+            [vendorPayoutAmount, orderId]
+          );
+          
+          await db.query(
+            `UPDATE users SET 
+               vendor_available_balance = COALESCE(vendor_available_balance, 0) + $1
+             WHERE id = $2`,
+            [vendorPayoutAmount, vendorId]
+          );
+          
+          console.log(`💰 Vendor ${vendorId} earned R${vendorPayoutAmount} from order #${orderId}`);
+        }
+      }
     }
-    
-    // Update vendor payout amount for food orders
-    if (deliveryType === 'food' && restaurantId && vendorPayoutAmount > 0) {
-      await db.query(
-        `UPDATE orders SET vendor_payout_amount = $1 WHERE id = $2`,
-        [vendorPayoutAmount, orderId]
-      );
-      
-      // Also update vendor's available balance
-      await db.query(
-        `UPDATE users SET 
-           vendor_available_balance = COALESCE(vendor_available_balance, 0) + $1
-         WHERE id = $2`,
-        [vendorPayoutAmount, vendorId]
-      );
-      
-      console.log(`💰 Vendor ${vendorId} earned R${vendorPayoutAmount} from order #${orderId}`);
-    }
-  }
-}
     
     res.json({ message: "Status updated successfully", status });
   } catch (err) {
@@ -745,7 +746,6 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
 
     console.log(`📦 Admin ${action} package delivery #${id}`);
 
-    // First, check if order exists and is a package
     const orderCheck = await db.query(
       `SELECT id, status, delivery_type, pickup_address, delivery_address, delivery_fee, package_weight, customer_id
        FROM orders 
@@ -787,7 +787,6 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
       return res.json({ message: "Package delivery request rejected" });
     }
 
-    // APPROVE: Update status from 'pending_approval' to 'pending_driver'
     const result = await db.query(
       `UPDATE orders 
        SET status = 'pending_driver',
@@ -800,15 +799,14 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
     );
 
     if (result.rows.length === 0) {
-      console.error(`❌ Failed to approve package #${id} - Order may already be processed or not in pending_approval status`);
+      console.error(`❌ Failed to approve package #${id}`);
       return res.status(404).json({ 
-        message: "Order not found or already processed. Current status may not be pending_approval." 
+        message: "Order not found or already processed." 
       });
     }
 
     console.log(`✅ Package #${id} approved, new status: ${result.rows[0].status}`);
 
-    // Notify customer via socket
     if (io) {
       io.to(`order_${id}`).emit("order-status-update", {
         orderId: parseInt(id),
@@ -818,7 +816,6 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
       });
     }
 
-    // Get ALL approved, available drivers
     const driversResult = await db.query(
       `SELECT id, name, email, phone, vehicle_type
        FROM users 
@@ -828,9 +825,6 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
     );
     
     const allDrivers = driversResult.rows;
-    console.log(`📢 Found ${allDrivers.length} available drivers to notify`);
-
-    // Notify all drivers about the new package
     let notifiedCount = 0;
     for (const driver of allDrivers) {
       if (io) {
@@ -844,7 +838,6 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
           deadline: new Date(Date.now() + 3600000).toISOString(),
         });
         notifiedCount++;
-        console.log(`🔔 Notified driver ${driver.id} (${driver.name})`);
       }
     }
     
@@ -852,7 +845,7 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
 
     res.json({ 
       success: true,
-      message: "Package approved! Customer can now pay and drivers have been notified.",
+      message: "Package approved!",
       driversNotified: notifiedCount,
       newStatus: 'pending_driver'
     });
@@ -942,6 +935,216 @@ router.put("/driver/accept-package/:id", verifyToken, authorizeRoles("driver"), 
   } catch (err) {
     console.error("Error accepting package:", err);
     res.status(500).json({ message: "Server error: " + err.message });
+  }
+});
+
+/* =========================
+   VERIFY COLLECTION CODE (DRIVER)
+========================= */
+router.put("/verify-code/:id", verifyToken, authorizeRoles("driver"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { verification_code } = req.body;
+    const driverId = req.user.id;
+    const io = req.app.get("io");
+
+    console.log(`🔐 Driver ${driverId} verifying code for order #${id}`);
+
+    const order = await db.query(
+      `SELECT id, status, verification_code, verification_code_verified_at, delivery_type
+       FROM orders 
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (order.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const orderData = order.rows[0];
+
+    if (orderData.verification_code_verified_at) {
+      return res.status(400).json({ message: "Collection code already verified" });
+    }
+
+    if (orderData.verification_code !== verification_code) {
+      return res.status(400).json({ message: "Invalid verification code" });
+    }
+
+    await db.query(
+      `UPDATE orders SET 
+         verification_code_verified_at = NOW(),
+         verification_code_verified_by = $1
+       WHERE id = $2`,
+      [driverId, id]
+    );
+
+    io.to(`order_${id}`).emit("order-status-update", {
+      orderId: parseInt(id),
+      status: "code_verified",
+      message: "Collection code verified successfully!"
+    });
+
+    res.json({ 
+      success: true, 
+      message: "Collection code verified. You may now collect the package."
+    });
+  } catch (err) {
+    console.error("Error verifying code:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =========================
+   CAPTURE PICKUP SIGNATURE
+========================= */
+router.post("/pickup-signature/:id", verifyToken, authorizeRoles("driver"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { signature_data } = req.body;
+    const driverId = req.user.id;
+    const io = req.app.get("io");
+
+    console.log(`✍️ Driver ${driverId} capturing pickup signature for order #${id}`);
+
+    if (!signature_data) {
+      return res.status(400).json({ message: "Signature data is required" });
+    }
+
+    const order = await db.query(
+      `SELECT id, status, verification_code_verified_at, pickup_signature
+       FROM orders 
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (order.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const orderData = order.rows[0];
+
+    if (!orderData.verification_code_verified_at) {
+      return res.status(400).json({ message: "Please verify collection code first" });
+    }
+
+    if (orderData.pickup_signature) {
+      return res.status(400).json({ message: "Pickup signature already captured" });
+    }
+
+    await db.query(
+      `UPDATE orders SET 
+         pickup_signature = $1,
+         pickup_signature_signed_at = NOW(),
+         pickup_signature_signed_by = $2,
+         status = 'picked_up'
+       WHERE id = $3`,
+      [signature_data, driverId, id]
+    );
+
+    io.to(`order_${id}`).emit("order-status-update", {
+      orderId: parseInt(id),
+      status: "picked_up",
+      message: "Package picked up successfully!"
+    });
+
+    res.json({ 
+      success: true, 
+      message: "Pickup signature captured. Package marked as picked up."
+    });
+  } catch (err) {
+    console.error("Error capturing pickup signature:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =========================
+   CAPTURE DELIVERY SIGNATURE
+========================= */
+router.post("/delivery-signature/:id", verifyToken, authorizeRoles("driver"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { signature_data, gps_location } = req.body;
+    const driverId = req.user.id;
+    const io = req.app.get("io");
+
+    console.log(`✍️ Driver ${driverId} capturing delivery signature for order #${id}`);
+
+    if (!signature_data) {
+      return res.status(400).json({ message: "Signature data is required" });
+    }
+
+    const order = await db.query(
+      `SELECT id, status, delivery_signature
+       FROM orders 
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (order.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const orderData = order.rows[0];
+
+    if (orderData.delivery_signature) {
+      return res.status(400).json({ message: "Delivery signature already captured" });
+    }
+
+    await db.query(
+      `UPDATE orders SET 
+         delivery_signature = $1,
+         delivery_signature_signed_at = NOW(),
+         delivery_signature_signed_by = $2,
+         delivery_signature_gps_location = $3,
+         status = 'delivered',
+         delivered_at = NOW()
+       WHERE id = $4`,
+      [signature_data, driverId, gps_location || null, id]
+    );
+
+    io.to(`order_${id}`).emit("order-status-update", {
+      orderId: parseInt(id),
+      status: "delivered",
+      message: "Package delivered successfully!"
+    });
+
+    res.json({ 
+      success: true, 
+      message: "Delivery signature captured. Package marked as delivered."
+    });
+  } catch (err) {
+    console.error("Error capturing delivery signature:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =========================
+   GET VERIFICATION CODE (CUSTOMER)
+========================= */
+router.get("/verification-code/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const customerId = req.user.id;
+
+    const order = await db.query(
+      `SELECT id, verification_code, delivery_type, status
+       FROM orders 
+       WHERE id = $1 AND customer_id = $2`,
+      [id, customerId]
+    );
+
+    if (order.rows.length === 0) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    res.json({ 
+      verification_code: order.rows[0].verification_code,
+      order_status: order.rows[0].status
+    });
+  } catch (err) {
+    console.error("Error fetching verification code:", err);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
@@ -1152,6 +1355,7 @@ router.get("/:id", async (req, res) => {
       package_dimensions: order.package_dimensions,
       requires_signature: order.requires_signature,
       is_fragile: order.is_fragile,
+      verification_code: order.verification_code,
       items: items.rows.map(item => ({
         id: item.id,
         name: item.name,

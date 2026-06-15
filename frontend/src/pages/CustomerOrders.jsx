@@ -6,7 +6,7 @@ import {
   Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, 
   AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
   Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car,
-  Lock, Loader2, XCircle, Headset, Send
+  Lock, Loader2, XCircle, Headset, Send, KeyRound
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -915,6 +915,33 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             </div>
           )}
 
+          {/* Verification Code Display for Package Orders */}
+          {isPackage && order.verification_code && order.status === 'pending_driver' && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <KeyRound className="w-5 h-5 text-yellow-600" />
+                <span className="text-sm font-semibold text-yellow-800">Collection Verification Code</span>
+              </div>
+              <p className="text-3xl font-bold text-yellow-700 tracking-wider text-center font-mono">
+                {order.verification_code}
+              </p>
+              <p className="text-xs text-yellow-600 mt-2 text-center">
+                Give this code to your driver when they arrive for pickup
+              </p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="mt-3 w-full border-yellow-300 text-yellow-700 hover:bg-yellow-50"
+                onClick={() => {
+                  navigator.clipboard.writeText(order.verification_code);
+                  toast.success('Code copied to clipboard');
+                }}
+              >
+                Copy Code
+              </Button>
+            </div>
+          )}
+
           <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
             <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 mt-0.5 shrink-0" />
             <div className="flex-1">
@@ -1304,7 +1331,7 @@ function CustomerOrdersComponent() {
   const sortedOrders = [...orders].sort((a, b) => {
     const dateA = new Date(a.created_at);
     const dateB = new Date(b.created_at);
-    return dateB - dateA; // Descending - newest first
+    return dateB - dateA;
   });
 
   useEffect(() => {
@@ -1312,10 +1339,7 @@ function CustomerOrdersComponent() {
       socket.on('driver-location-update', (data) => {
         setDriverLocation({ lat: data.lat, lng: data.lng });
       });
-      
-      return () => {
-        socket.off('driver-location-update');
-      };
+      return () => socket.off('driver-location-update');
     }
   }, [socket, online]);
 
@@ -1327,10 +1351,7 @@ function CustomerOrdersComponent() {
         toast.error(`❌ Your package request #${data.orderId} was rejected. Reason: ${data.reason}`);
         refetch();
       });
-      
-      return () => {
-        socket.off('order-rejected');
-      };
+      return () => socket.off('order-rejected');
     }
   }, [socket, online, refetch]);
 
@@ -1359,13 +1380,8 @@ function CustomerOrdersComponent() {
           cancellation_reason: reason 
         }),
       });
-      
       const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to cancel order');
-      }
-      
+      if (!response.ok) throw new Error(data.message || 'Failed to cancel order');
       toast.success('Order cancelled successfully');
       refetch();
     } catch (err) {
@@ -1376,13 +1392,11 @@ function CustomerOrdersComponent() {
 
   const handleReorder = (order) => {
     const isPackage = order.delivery_type && order.delivery_type !== 'food';
-    
     if (isPackage) {
       navigate('/package-delivery');
       toast.info('Fill in the package delivery form to book again');
     } else {
       const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
-      
       if (window.confirm(`Add items from ${order.restaurant_name} to your cart? This will replace your current cart.`)) {
         items.forEach(item => {
           addToCart({
@@ -1416,13 +1430,9 @@ function CustomerOrdersComponent() {
 
   useEffect(() => {
     if (socket && user?.id && online && sortedOrders.length > 0) {
-      sortedOrders.forEach(order => {
-        socket.emit('join-order', order.id);
-      });
-      
+      sortedOrders.forEach(order => socket.emit('join-order', order.id));
       const handleStatusUpdate = (data) => {
         setLiveUpdates(prev => ({ ...prev, [data.orderId]: data.status }));
-        
         if (data.status === 'rejected') {
           toast.error(`❌ Your package request #${data.orderId} was rejected. Check the order details for reason.`);
           setShowRejectionAlert(true);
@@ -1431,12 +1441,8 @@ function CustomerOrdersComponent() {
         }
         refetch();
       };
-      
       socket.on('order-status-update', handleStatusUpdate);
-      
-      return () => {
-        socket.off('order-status-update', handleStatusUpdate);
-      };
+      return () => socket.off('order-status-update', handleStatusUpdate);
     }
   }, [socket, user, sortedOrders, online, refetch]);
 
@@ -1459,7 +1465,6 @@ function CustomerOrdersComponent() {
   
   const displayedPastOrders = filteredPastOrders.slice(0, visibleCount);
   const hasMore = filteredPastOrders.length > visibleCount;
-
   const loadMore = () => setVisibleCount(prev => prev + 10);
 
   const quickFilters = [
@@ -1484,10 +1489,7 @@ function CustomerOrdersComponent() {
         <div className="text-center py-8 sm:py-12 bg-white rounded-xl border">
           <AlertCircle className="w-12 h-12 sm:w-16 sm:h-16 text-red-300 mx-auto mb-3 sm:mb-4" />
           <p className="text-sm sm:text-base text-gray-500">Failed to load orders</p>
-          <button 
-            onClick={() => refetch()} 
-            className="mt-3 sm:mt-4 text-green-600 hover:underline text-sm sm:text-base"
-          >
+          <button onClick={() => refetch()} className="mt-3 sm:mt-4 text-green-600 hover:underline text-sm sm:text-base">
             Try again
           </button>
         </div>
@@ -1497,12 +1499,7 @@ function CustomerOrdersComponent() {
 
   return (
     <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-8">
-      {/* Support Modal */}
-      <SupportModal
-        isOpen={showSupportModal}
-        onClose={() => setShowSupportModal(false)}
-        user={user}
-      />
+      <SupportModal isOpen={showSupportModal} onClose={() => setShowSupportModal(false)} user={user} />
 
       {showRejectionAlert && rejectedOrder && (
         <div className="mb-4 bg-red-50 border-l-4 border-red-600 rounded-lg p-4">
@@ -1513,12 +1510,7 @@ function CustomerOrdersComponent() {
               <p className="text-sm text-red-700 mt-1">Order #{rejectedOrder.orderId} was rejected.</p>
               <p className="text-sm font-medium text-red-800 mt-2">Reason:</p>
               <p className="text-sm text-red-700">{rejectedOrder.reason}</p>
-              <Button 
-                size="sm" 
-                variant="outline" 
-                className="mt-3 border-red-300 text-red-600 hover:bg-red-100"
-                onClick={() => setShowRejectionAlert(false)}
-              >
+              <Button size="sm" variant="outline" className="mt-3 border-red-300 text-red-600 hover:bg-red-100" onClick={() => setShowRejectionAlert(false)}>
                 Dismiss
               </Button>
             </div>
@@ -1529,41 +1521,21 @@ function CustomerOrdersComponent() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-0 mb-4 sm:mb-6">
         <h1 className="text-xl sm:text-2xl font-bold">My Orders</h1>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowSupportModal(true)}
-            className="text-xs"
-          >
-            <Headset className="w-3 h-3 mr-1" />
-            Support
+          <Button variant="outline" size="sm" onClick={() => setShowSupportModal(true)} className="text-xs">
+            <Headset className="w-3 h-3 mr-1" /> Support
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowTicketsModal(true)}
-            className="text-xs"
-          >
-            <MessageCircle className="w-3 h-3 mr-1" />
-            My Tickets
+          <Button variant="outline" size="sm" onClick={() => setShowTicketsModal(true)} className="text-xs">
+            <MessageCircle className="w-3 h-3 mr-1" /> My Tickets
           </Button>
-          {online && (
-            <span className="text-[10px] sm:text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
-              🟢 Live updates active
-            </span>
-          )}
+          {online && <span className="text-[10px] sm:text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">🟢 Live updates active</span>}
         </div>
       </div>
 
       <div className="mb-4">
         <Tabs value={orderTab} onValueChange={setOrderTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="active" className="text-sm">
-              Active ({activeOrders.length})
-            </TabsTrigger>
-            <TabsTrigger value="history" className="text-sm">
-              History ({pastOrders.length})
-            </TabsTrigger>
+            <TabsTrigger value="active" className="text-sm">Active ({activeOrders.length})</TabsTrigger>
+            <TabsTrigger value="history" className="text-sm">History ({pastOrders.length})</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -1574,12 +1546,9 @@ function CustomerOrdersComponent() {
           <p className="text-sm sm:text-base text-gray-500">No orders yet</p>
           <p className="text-xs sm:text-sm text-gray-400 mt-1">Browse restaurants or book a package delivery</p>
           <div className="flex flex-col sm:flex-row gap-2 justify-center mt-4">
-            <Button onClick={() => navigate('/')} className="bg-green-600 text-white">
-              Browse Restaurants
-            </Button>
+            <Button onClick={() => navigate('/')} className="bg-green-600 text-white">Browse Restaurants</Button>
             <Button onClick={() => navigate('/package-delivery')} variant="outline" className="border-purple-500 text-purple-600">
-              <Package className="w-4 h-4 mr-2" />
-              Book Package Delivery
+              <Package className="w-4 h-4 mr-2" /> Book Package Delivery
             </Button>
           </div>
         </div>
@@ -1604,9 +1573,7 @@ function CustomerOrdersComponent() {
                 <CheckCircle className="w-12 h-12 text-green-300 mx-auto mb-2" />
                 <p className="text-gray-500">No active orders</p>
                 <p className="text-xs text-gray-400 mt-1">Your active orders will appear here</p>
-                <Button onClick={() => navigate('/')} variant="outline" className="mt-4">
-                  Browse Restaurants
-                </Button>
+                <Button onClick={() => navigate('/')} variant="outline" className="mt-4">Browse Restaurants</Button>
               </div>
             )
           )}
@@ -1618,11 +1585,7 @@ function CustomerOrdersComponent() {
                   <Badge
                     key={filter.label}
                     variant={searchTerm === filter.value ? 'default' : 'outline'}
-                    className={`cursor-pointer text-xs ${
-                      searchTerm === filter.value 
-                        ? 'bg-green-600 text-white' 
-                        : 'hover:bg-gray-100'
-                    }`}
+                    className={`cursor-pointer text-xs ${searchTerm === filter.value ? 'bg-green-600 text-white' : 'hover:bg-gray-100'}`}
                     onClick={() => setSearchTerm(filter.value)}
                   >
                     {filter.label}
@@ -1639,10 +1602,7 @@ function CustomerOrdersComponent() {
                   className="pl-8 h-8 text-sm"
                 />
                 {searchTerm && (
-                  <button
-                    onClick={() => setSearchTerm('')}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
+                  <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600">
                     <XCircle className="w-3 h-3" />
                   </button>
                 )}
@@ -1664,13 +1624,8 @@ function CustomerOrdersComponent() {
                         onRateDriver={handleRateDriver}
                       />
                     ))}
-                    
                     {hasMore && (
-                      <Button
-                        onClick={loadMore}
-                        variant="outline"
-                        className="w-full mt-2"
-                      >
+                      <Button onClick={loadMore} variant="outline" className="w-full mt-2">
                         Load More Orders ({filteredPastOrders.length - visibleCount} remaining)
                       </Button>
                     )}
@@ -1701,9 +1656,7 @@ function CustomerOrdersComponent() {
           setSelectedDriverForRating(null);
           setSelectedOrderForRating(null);
         }}
-        onSubmitted={() => {
-          refetch();
-        }}
+        onSubmitted={() => refetch()}
         order={selectedOrderForRating}
         driver={selectedDriverForRating}
         userId={user?.id}
@@ -1745,9 +1698,7 @@ function CustomerOrdersComponent() {
                         <p className="font-semibold text-sm">#{ticket.id}</p>
                         <p className="text-xs text-gray-500">{issueTypeLabels[ticket.issue_type] || ticket.issue_type}</p>
                       </div>
-                      <Badge className={statusColors[ticket.status]}>
-                        {ticket.status?.toUpperCase()}
-                      </Badge>
+                      <Badge className={statusColors[ticket.status]}>{ticket.status?.toUpperCase()}</Badge>
                     </div>
                     <p className="text-xs text-gray-600 mt-2 line-clamp-2">{ticket.description}</p>
                     {ticket.admin_response && (
@@ -1763,9 +1714,7 @@ function CustomerOrdersComponent() {
               ))
             )}
           </div>
-          <Button onClick={() => setShowTicketsModal(false)} variant="outline" className="mt-4">
-            Close
-          </Button>
+          <Button onClick={() => setShowTicketsModal(false)} variant="outline" className="mt-4">Close</Button>
         </DialogContent>
       </Dialog>
 

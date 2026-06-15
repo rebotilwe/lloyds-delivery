@@ -9,11 +9,59 @@ router.use(verifyToken);
 router.use(authorizeRoles("admin"));
 
 /* =========================
+   DEBUG: Check database contents
+========================= */
+router.get("/financial/debug", async (req, res) => {
+  try {
+    // Get all delivered orders
+    const deliveredOrders = await db.query(
+      `SELECT id, total, delivery_fee, driver_earning, vendor_payout_amount, 
+              subtotal, delivery_type, status, created_at
+       FROM orders 
+       WHERE status = 'delivered'
+       ORDER BY id DESC
+       LIMIT 20`
+    );
+    
+    // Get summary of all delivered orders
+    const summary = await db.query(
+      `SELECT 
+         COUNT(*) as total_orders,
+         SUM(total) as total_revenue,
+         SUM(driver_earning) as total_driver_earnings,
+         SUM(vendor_payout_amount) as total_vendor_payouts,
+         SUM(CASE WHEN delivery_type = 'food' THEN subtotal ELSE 0 END) as food_subtotal,
+         SUM(CASE WHEN delivery_type = 'food' THEN subtotal * 0.15 ELSE 0 END) as calculated_commission,
+         COUNT(CASE WHEN delivery_type = 'food' THEN 1 END) as food_orders,
+         COUNT(CASE WHEN delivery_type != 'food' THEN 1 END) as package_orders
+       FROM orders 
+       WHERE status = 'delivered'`
+    );
+    
+    // Get driver payouts from driver_payouts table
+    const driverPayouts = await db.query(
+      `SELECT COUNT(*) as count, SUM(total_amount) as total
+       FROM driver_payouts
+       WHERE status = 'paid'`
+    );
+    
+    res.json({
+      delivered_orders: deliveredOrders.rows,
+      summary: summary.rows[0],
+      driver_payouts_table: driverPayouts.rows[0],
+      message: "Use this data to understand the financial calculations"
+    });
+  } catch (err) {
+    console.error("Debug error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/* =========================
    EDMOND'S FINANCIAL DASHBOARD
 ========================= */
 
-// Get financial summary
-// Get financial summary (CORRECTED)
+// Get financial summary (UPDATED - separates food and packages)
 router.get("/financial/summary", async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
@@ -32,19 +80,26 @@ router.get("/financial/summary", async (req, res) => {
       params
     );
     
-    // Platform Commission (15% of subtotal for food deliveries ONLY)
-    const commissionResult = await db.query(
-      `SELECT COALESCE(SUM(o.subtotal * 0.15), 0) as total 
+    // FOOD ORDERS ONLY - Platform Commission (15% of subtotal)
+    const foodCommissionResult = await db.query(
+      `SELECT 
+         COALESCE(SUM(o.subtotal * 0.15), 0) as commission,
+         COUNT(*) as order_count,
+         COALESCE(SUM(o.driver_earning), 0) as driver_payouts,
+         COALESCE(SUM(o.total), 0) as revenue
        FROM orders o 
        WHERE o.delivery_type = 'food' AND o.status = 'delivered' ${dateFilter}`,
       params
     );
     
-    // Driver Payouts (what drivers actually earned)
-    const driverResult = await db.query(
-      `SELECT COALESCE(SUM(driver_earning), 0) as total 
-       FROM orders 
-       WHERE status = 'delivered' AND driver_earning > 0 ${dateFilter}`,
+    // PACKAGE ORDERS ONLY - No commission, just tracking
+    const packageResult = await db.query(
+      `SELECT 
+         COUNT(*) as order_count,
+         COALESCE(SUM(o.driver_earning), 0) as driver_payouts,
+         COALESCE(SUM(o.total), 0) as revenue
+       FROM orders o 
+       WHERE o.delivery_type != 'food' AND o.status = 'delivered' ${dateFilter}`,
       params
     );
     
@@ -57,33 +112,38 @@ router.get("/financial/summary", async (req, res) => {
     );
     
     const totalRevenue = parseFloat(revenueResult.rows[0].total);
-    const platformCommission = parseFloat(commissionResult.rows[0].total);
-    const driverPayouts = parseFloat(driverResult.rows[0].total);
+    const platformCommission = parseFloat(foodCommissionResult.rows[0].commission);
+    const foodDriverPayouts = parseFloat(foodCommissionResult.rows[0].driver_payouts);
+    const packageDriverPayouts = parseFloat(packageResult.rows[0].driver_payouts);
+    const totalDriverPayouts = foodDriverPayouts + packageDriverPayouts;
     const vendorPayouts = parseFloat(vendorResult.rows[0].total);
     
-    // Operating costs (platform expenses, hosting, support, etc.)
-    // For now, let's use a fixed percentage or actual costs from a separate table
-    const operatingCosts = platformCommission * 0.3; // 30% of commission for operating costs
+    // Operating costs (30% of commission from food orders only)
+    const operatingCosts = platformCommission * 0.3;
     
-    // Net profit calculation: Commission - Operating Costs - Driver Payouts
-    // Note: Vendor payouts come from customer payments, not from platform commission
-    const netProfit = platformCommission - operatingCosts - driverPayouts;
+    // Net profit: Commission from food - operating costs - driver payouts from food only
+    // Note: Package driver payouts come from customer payments, not platform commission
+    const netProfit = platformCommission - operatingCosts - foodDriverPayouts;
     const profitMargin = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : 0;
     
     console.log("Financial Summary:", {
       totalRevenue,
       platformCommission,
-      driverPayouts,
+      foodDriverPayouts,
+      packageDriverPayouts,
+      totalDriverPayouts,
       vendorPayouts,
       operatingCosts,
       netProfit,
-      profitMargin
+      profitMargin,
+      foodOrders: parseInt(foodCommissionResult.rows[0].order_count),
+      packageOrders: parseInt(packageResult.rows[0].order_count)
     });
     
     res.json({
       total_revenue: totalRevenue,
       platform_commission: platformCommission,
-      driver_payouts: driverPayouts,
+      driver_payouts: totalDriverPayouts,
       vendor_payouts: vendorPayouts,
       operating_costs: operatingCosts,
       net_profit: netProfit,
@@ -95,8 +155,7 @@ router.get("/financial/summary", async (req, res) => {
   }
 });
 
-// Get revenue chart data
-// Get revenue chart data (CORRECTED)
+// Get revenue chart data (UPDATED)
 router.get("/financial/revenue-chart", async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
@@ -145,10 +204,10 @@ router.get("/financial/commission-chart", async (req, res) => {
       params.push(start_date, end_date);
     }
     
-    query += ` GROUP BY DATE(created_at) ORDER BY date DESC LIMIT 30`;
+    query += ` GROUP BY DATE(created_at) ORDER BY date ASC`;
     
     const result = await db.query(query, params);
-    res.json(result.rows.reverse());
+    res.json(result.rows);
   } catch (err) {
     console.error("Error fetching commission chart:", err);
     res.json([]);
@@ -163,8 +222,9 @@ router.get("/financial/payout-chart", async (req, res) => {
     let query = `
       SELECT 
         DATE(created_at) as date,
-        COALESCE(SUM(driver_earning), 0) as driver,
-        COALESCE(SUM(vendor_payout_amount), 0) as vendor
+        COALESCE(SUM(CASE WHEN delivery_type = 'food' THEN driver_earning ELSE 0 END), 0) as food_driver_payouts,
+        COALESCE(SUM(CASE WHEN delivery_type != 'food' THEN driver_earning ELSE 0 END), 0) as package_driver_payouts,
+        COALESCE(SUM(vendor_payout_amount), 0) as vendor_payouts
       FROM orders
       WHERE status = 'delivered'
     `;
@@ -175,10 +235,18 @@ router.get("/financial/payout-chart", async (req, res) => {
       params.push(start_date, end_date);
     }
     
-    query += ` GROUP BY DATE(created_at) ORDER BY date DESC LIMIT 30`;
+    query += ` GROUP BY DATE(created_at) ORDER BY date ASC`;
     
     const result = await db.query(query, params);
-    res.json(result.rows.reverse());
+    
+    // Transform data for chart
+    const chartData = result.rows.map(row => ({
+      date: row.date,
+      driver: parseFloat(row.food_driver_payouts) + parseFloat(row.package_driver_payouts),
+      vendor: parseFloat(row.vendor_payouts)
+    }));
+    
+    res.json(chartData);
   } catch (err) {
     console.error("Error fetching payout chart:", err);
     res.json([]);
@@ -239,55 +307,71 @@ router.get("/financial/top-drivers", async (req, res) => {
   }
 });
 
-// Get recent transactions
+// Get recent transactions (UPDATED)
 router.get("/financial/recent-transactions", async (req, res) => {
   try {
     const { limit = 10 } = req.query;
     
+    // Combine order revenue and payout transactions
     const result = await db.query(
       `SELECT 
          'revenue' as type,
          id::text as reference,
          created_at as date,
-         'Order #' || id as description,
+         'Order #' || id || ' - ' || COALESCE(restaurant_name, 'Package') as description,
          total as amount,
-         total as balance
+         total as running_balance
        FROM orders
        WHERE status = 'delivered'
+       
        UNION ALL
+       
        SELECT 
-         'payout' as type,
+         'driver_payout' as type,
          id::text as reference,
          paid_at as date,
          'Driver payout - ' || COALESCE(driver_name, 'Unknown') as description,
          -total_amount as amount,
-         -total_amount as balance
+         0 as running_balance
        FROM driver_payouts
        WHERE status = 'paid' AND paid_at IS NOT NULL
+       
        UNION ALL
+       
        SELECT 
-         'payout' as type,
+         'vendor_payout' as type,
          id::text as reference,
          paid_at as date,
          'Vendor payout - ' || COALESCE(vendor_name, 'Unknown') as description,
          -total_amount as amount,
-         -total_amount as balance
+         0 as running_balance
        FROM vendor_payouts
        WHERE status = 'paid' AND paid_at IS NOT NULL
+       
        ORDER BY date DESC
        LIMIT $1`,
       [limit]
     );
     
-    res.json(result.rows);
+    // Calculate running balance
+    let balance = 0;
+    const transactions = result.rows.reverse().map(t => {
+      if (t.type === 'revenue') {
+        balance += parseFloat(t.amount);
+      } else {
+        balance += parseFloat(t.amount);
+      }
+      return { ...t, balance: balance };
+    }).reverse();
+    
+    res.json(transactions);
   } catch (err) {
     console.error("Error fetching recent transactions:", err);
     res.json([]);
   }
 });
 
-// Get Edmond's balance
-// Get Edmond's balance (CORRECTED)
+// Get Edmond's balance (UPDATED)
 router.get("/edmond/balance", async (req, res) => {
   try {
     // Total platform commission earned from food deliveries
@@ -297,25 +381,32 @@ router.get("/edmond/balance", async (req, res) => {
        WHERE o.delivery_type = 'food' AND o.status = 'delivered'`
     );
     
-    // Total paid to drivers
-    const driverPayoutsResult = await db.query(
-      `SELECT COALESCE(SUM(total_amount), 0) as total_paid
+    // Total paid to drivers from food deliveries (platform's share)
+    const foodDriverPayouts = await db.query(
+      `SELECT COALESCE(SUM(driver_earning), 0) as total
+       FROM orders
+       WHERE delivery_type = 'food' AND status = 'delivered'`
+    );
+    
+    // Total paid out to drivers via driver_payouts table
+    const paidToDrivers = await db.query(
+      `SELECT COALESCE(SUM(total_amount), 0) as total
        FROM driver_payouts
        WHERE status = 'paid'`
     );
     
-    // Total withdrawn by Edmond (track separately - you'll need a withdrawals table)
     const totalCommission = parseFloat(commissionResult.rows[0].total_commission);
-    const paidToDrivers = parseFloat(driverPayoutsResult.rows[0].total_paid);
+    const foodDriverEarnings = parseFloat(foodDriverPayouts.rows[0].total);
+    const paidOutToDrivers = parseFloat(paidToDrivers.rows[0].total);
     const operatingCosts = totalCommission * 0.3;
     
-    // Edmond's share = commission - driver payouts - operating costs
-    const netProfit = totalCommission - paidToDrivers - operatingCosts;
+    // Edmond's share = commission - operating costs - driver payouts (food only)
+    const netProfit = totalCommission - operatingCosts - foodDriverEarnings;
     
     res.json({
-      current_balance: Math.max(0, netProfit),
+      current_balance: Math.max(0, netProfit - paidOutToDrivers),
       total_earned: totalCommission,
-      total_withdrawn: 0 // Track withdrawals separately
+      total_withdrawn: paidOutToDrivers
     });
   } catch (err) {
     console.error("Error fetching Edmond balance:", err);
@@ -338,8 +429,9 @@ router.get("/financial/export", async (req, res) => {
     
     const orders = await db.query(
       `SELECT 
-         id, created_at, total, delivery_fee, driver_earning, vendor_payout_amount,
-         status, delivery_type, customer_name, restaurant_name
+         id, created_at, delivery_type, customer_name, restaurant_name,
+         total, delivery_fee, driver_earning, vendor_payout_amount,
+         subtotal, status
        FROM orders
        WHERE status = 'delivered' ${dateFilter}
        ORDER BY created_at DESC`,
@@ -347,17 +439,22 @@ router.get("/financial/export", async (req, res) => {
     );
     
     // Create CSV
-    const headers = ["Order ID", "Date", "Type", "Customer", "Restaurant", "Total", "Delivery Fee", "Driver Earning", "Vendor Payout", "Status"];
+    const headers = ["Order ID", "Date", "Type", "Customer", "Restaurant", 
+                     "Total", "Delivery Fee", "Driver Earning", "Vendor Payout", 
+                     "Subtotal", "Commission (15%)", "Status"];
+    
     const rows = orders.rows.map(o => [
       o.id,
       o.created_at,
       o.delivery_type,
-      o.customer_name,
-      o.restaurant_name,
+      o.customer_name || '',
+      o.restaurant_name || '',
       o.total,
-      o.delivery_fee,
+      o.delivery_fee || 0,
       o.driver_earning || 0,
       o.vendor_payout_amount || 0,
+      o.subtotal || 0,
+      o.delivery_type === 'food' ? (o.subtotal * 0.15).toFixed(2) : 0,
       o.status
     ]);
     

@@ -17,14 +17,15 @@ import menuItemRoutes from "./routes/menuItemRoutes.js";
 import vendorRoutes from "./routes/vendorRoutes.js";
 import vendorMenuRoutes from "./routes/vendorMenuRoutes.js";
 import adminVendorRoutes from "./routes/adminVendorRoutes.js";
-import adminMenuRoutes from "./routes/adminMenuRoutes.js";  // ← ADD THIS
+import adminMenuRoutes from "./routes/adminMenuRoutes.js";
 import supportRoutes from "./routes/supportRoutes.js";
+import payoutRoutes from "./routes/payoutRoutes.js";  // ← ADDED for payout management
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// Import cron jobs
-import { setupWeeklyDriverPayouts, setupMonthlyVendorPayouts, ensurePayoutColumns } from "./cronJobs.js";
+// Import cron jobs - UPDATED to every 2 days schedule
+import { setupAllPayoutJobs } from "./cronJobs.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -193,8 +194,9 @@ app.use("/api/menu-items", menuItemRoutes);
 app.use("/api/vendor", vendorRoutes);
 app.use("/api/vendor/menu", vendorMenuRoutes);
 app.use("/api/admin", adminVendorRoutes);
-app.use("/api/admin", adminMenuRoutes);  // ← ADD THIS LINE - mounts admin menu routes
+app.use("/api/admin", adminMenuRoutes);
 app.use("/api/support", supportRoutes);
+app.use("/api/payouts", payoutRoutes);  // ← ADDED - payout management routes
 
 // Socket.io connection handling
 io.on("connection", (socket) => {
@@ -269,13 +271,11 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: err.message || "Internal server error" });
 });
 
-// Initialize cron jobs for automated payouts
+// Initialize cron jobs for automated payouts (every 2 days schedule)
 (async () => {
   try {
-    await ensurePayoutColumns();
-    setupWeeklyDriverPayouts();
-    setupMonthlyVendorPayouts();
-    console.log('✅ Automated payout cron jobs initialized');
+    await setupAllPayoutJobs();
+    console.log('✅ Automated payout cron jobs initialized (every 2 days schedule)');
   } catch (err) {
     console.error('❌ Failed to initialize cron jobs:', err.message);
   }

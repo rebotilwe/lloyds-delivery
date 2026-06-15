@@ -75,6 +75,12 @@ router.post("/create", async (req, res) => {
     // For package deliveries, status should be pending_approval
     const initialStatus = delivery_type === 'food' ? (status || 'pending') : 'pending_approval';
 
+    // Calculate subtotal for food orders
+    let subtotalValue = original_total || total;
+    if (delivery_type === 'food' && items && Array.isArray(items) && items.length > 0) {
+      subtotalValue = items.reduce((sum, item) => sum + (parseFloat(item.price) * (item.quantity || 1)), 0);
+    }
+
     const result = await db.query(
       `INSERT INTO orders 
        (customer_id, customer_name, restaurant_id, restaurant_name, status, total, 
@@ -82,9 +88,9 @@ router.post("/create", async (req, res) => {
         payment_transaction_id, promo_code, discount_applied, required_vehicle_type, 
         delivery_type, pickup_address, recipient_name, recipient_phone, 
         package_description, package_weight, package_dimensions, 
-        requires_signature, is_fragile, reviewed, created_at) 
+        requires_signature, is_fragile, reviewed, subtotal, created_at) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 
-               $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, NOW()) RETURNING id`,
+               $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW()) RETURNING id`,
       [
         customer_id, 
         customer_name || 'Customer', 
@@ -110,7 +116,8 @@ router.post("/create", async (req, res) => {
         package_dimensions || null,
         requires_signature || false,
         is_fragile || false,
-        false
+        false,
+        subtotalValue
       ]
     );
 
@@ -370,7 +377,7 @@ router.put("/:id/payment", async (req, res) => {
 });
 
 /* =========================
-   UPDATE ORDER STATUS (DRIVER) - FIXED earnings update
+   UPDATE ORDER STATUS (DRIVER) - FIXED earnings update WITH VENDOR PAYOUT
 ========================= */
 router.put("/status/:id", async (req, res) => {
   try {
@@ -394,8 +401,9 @@ router.put("/status/:id", async (req, res) => {
     const driverId = prevOrder.rows[0]?.driver_id;
     const vendorId = prevOrder.rows[0]?.owner_id;
     const deliveryType = prevOrder.rows[0]?.delivery_type;
+    const restaurantId = prevOrder.rows[0]?.restaurant_id;
 
-    await db.query("UPDATE orders SET status = $1 WHERE id = $2", [status, orderId]);
+    await db.query("UPDATE orders SET status = $1, delivered_at = CASE WHEN $1 = 'delivered' THEN NOW() ELSE delivered_at END WHERE id = $2", [status, orderId]);
 
     io.to(`order_${orderId}`).emit("order-status-update", {
       orderId: parseInt(orderId),
@@ -436,45 +444,76 @@ router.put("/status/:id", async (req, res) => {
     // FIXED: Update earnings correctly when order is delivered
     if (status === "delivered") {
       const orders = await db.query(
-        "SELECT total, delivery_fee FROM orders WHERE id = $1",
+        "SELECT total, delivery_fee, subtotal, original_total FROM orders WHERE id = $1",
         [orderId]
       );
       
       const order = orders.rows[0];
+      
       if (order && driverId) {
         const deliveryFee = parseFloat(order.delivery_fee) || 0;
         const total = parseFloat(order.total) || 0;
         
         // For food orders, calculate earning from delivery fee and commission
-        let finalEarning = 0;
+        let driverEarning = 0;
+        let vendorPayoutAmount = 0;
+        
         if (deliveryType === 'food') {
+          // Driver gets: delivery fee + 10% of total
           const commission = total * 0.1;
-          const earning = deliveryFee + commission;
-          finalEarning = Math.round(earning * 100) / 100;
+          driverEarning = deliveryFee + commission;
+          driverEarning = Math.round(driverEarning * 100) / 100;
+          
+          // Vendor gets: subtotal - 15% commission
+          const subtotal = parseFloat(order.subtotal) || parseFloat(order.original_total) || (total - deliveryFee);
+          const commissionAmount = subtotal * 0.15; // 15% platform commission
+          vendorPayoutAmount = subtotal - commissionAmount;
+          vendorPayoutAmount = Math.round(vendorPayoutAmount * 100) / 100;
+          
         } else {
-          // For package deliveries, the delivery_fee is the total
-          finalEarning = deliveryFee;
+          // For package deliveries, the driver gets the delivery_fee
+          driverEarning = deliveryFee;
+          // No vendor payout for packages
+          vendorPayoutAmount = 0;
         }
         
-        if (finalEarning > 0) {
+        if (driverEarning > 0) {
           await db.query(
             "UPDATE orders SET driver_earning = $1 WHERE id = $2", 
-            [finalEarning, orderId]
+            [driverEarning, orderId]
           );
           
-          // FIXED: Update both total_earnings AND available_balance
+          // Update driver's total_earnings AND available_balance
           await db.query(
             `UPDATE users SET 
                total_earnings = COALESCE(total_earnings, 0) + $1,
                available_balance = COALESCE(available_balance, 0) + $1
              WHERE id = $2`, 
-            [finalEarning, driverId]
+            [driverEarning, driverId]
           );
 
           io.to(`driver_${driverId}`).emit("earnings-updated", {
             orderId: parseInt(orderId),
-            earning: finalEarning,
+            earning: driverEarning,
           });
+        }
+        
+        // Update vendor payout amount for food orders
+        if (deliveryType === 'food' && restaurantId && vendorPayoutAmount > 0) {
+          await db.query(
+            `UPDATE orders SET vendor_payout_amount = $1 WHERE id = $2`,
+            [vendorPayoutAmount, orderId]
+          );
+          
+          // Also update vendor's available balance
+          await db.query(
+            `UPDATE users SET 
+               vendor_available_balance = COALESCE(vendor_available_balance, 0) + $1
+             WHERE id = $2`,
+            [vendorPayoutAmount, vendorId]
+          );
+          
+          console.log(`💰 Vendor ${vendorId} earned R${vendorPayoutAmount} from order #${orderId}`);
         }
       }
     }
@@ -681,9 +720,6 @@ router.put("/assign/:id", async (req, res) => {
 
 /* =========================
    ADMIN: APPROVE PACKAGE DELIVERY
-========================= */
-/* =========================
-   ADMIN: APPROVE PACKAGE DELIVERY (FIXED)
 ========================= */
 router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), async (req, res) => {
   try {

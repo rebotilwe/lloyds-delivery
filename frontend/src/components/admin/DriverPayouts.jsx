@@ -12,7 +12,8 @@ import {
   Search,
   Banknote,
   Loader2,
-  Clock
+  Clock,
+  User
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -39,31 +40,34 @@ export default function DriverPayouts() {
     fetchPayouts();
   }, []);
 
- const fetchDrivers = async () => {
-  try {
-    const response = await api.get('/users');
-    const allDrivers = response.data?.filter(u => u.role === 'driver' && u.driver_status === 'approved') || [];
-    
-    // FIXED: Use available_balance, not pending_balance
-    const driversWithBalance = allDrivers.map(driver => ({
-      ...driver,
-      pending_balance: parseFloat(driver.available_balance || 0)  // ← Changed from driver.pending_balance
-    }));
-    
-    setDrivers(driversWithBalance);
-  } catch (error) {
-    console.error('Error fetching drivers:', error);
-    setDrivers([]);
-  }
-};
+  const fetchDrivers = async () => {
+    try {
+      const response = await api.get('/users');
+      const allDrivers = response.data?.filter(u => u.role === 'driver' && u.driver_status === 'approved') || [];
+      
+      const driversWithBalance = allDrivers.map(driver => ({
+        ...driver,
+        pending_balance: parseFloat(driver.available_balance || 0)
+      }));
+      
+      setDrivers(driversWithBalance);
+    } catch (error) {
+      console.error('Error fetching drivers:', error);
+      setDrivers([]);
+    }
+  };
+
   const fetchPayouts = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/driver/admin/payouts');
+      // Using the correct endpoint from your routes
+      const response = await api.get('/payouts/admin/driver/pending');
       const payoutsData = response.data || [];
       const fixedPayouts = payoutsData.map(p => ({
         ...p,
-        amount: parseFloat(p.amount) || 0
+        amount: parseFloat(p.total_amount) || 0,
+        driver_name: p.driver_name,
+        driver_email: p.driver_email
       }));
       setPayouts(fixedPayouts);
     } catch (error) {
@@ -84,11 +88,12 @@ export default function DriverPayouts() {
       return;
     }
     if (parseFloat(payoutAmount) > (selectedDriver.pending_balance || 0)) {
-      toast.error(`Amount exceeds driver's pending balance of R${formatCurrency(selectedDriver.pending_balance)}`);
+      toast.error(`Amount exceeds driver's available balance of R${formatCurrency(selectedDriver.pending_balance)}`);
       return;
     }
 
     try {
+      // This creates a payout record - the cron job will handle the actual payout
       await api.post('/driver/admin/payouts', {
         driver_id: selectedDriver.id,
         amount: parseFloat(payoutAmount),
@@ -109,14 +114,14 @@ export default function DriverPayouts() {
     }
   };
 
-  // FIXED: Use /process endpoint instead of /mark-paid
-  const markAsPaid = async (payoutId, referenceNumber) => {
+  const markAsPaid = async (payoutId, driverName, amount) => {
+    const reference = prompt(`Enter payment reference number for ${driverName} (R${amount.toFixed(2)}):`);
+    if (!reference) return;
+    
     try {
-      await api.put(`/driver/admin/payouts/${payoutId}/process`, {
-        status: 'paid',
-        reference_number: referenceNumber,
-        payment_method: 'bank_transfer',
-        notes: `Paid with reference: ${referenceNumber}`
+      await api.put(`/payouts/admin/driver/${payoutId}/mark-paid`, {
+        payment_reference: reference,
+        notes: `Paid with reference: ${reference}`
       });
       toast.success('Payout marked as paid');
       fetchPayouts();
@@ -146,7 +151,7 @@ export default function DriverPayouts() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-green" />
+        <Loader2 className="w-8 h-8 animate-spin text-green-600" />
       </div>
     );
   }
@@ -159,7 +164,7 @@ export default function DriverPayouts() {
           <h2 className="text-lg font-bold">Driver Payouts</h2>
           <p className="text-sm text-gray-500">Manage driver earnings and payouts</p>
         </div>
-        <Button onClick={() => setShowPayoutModal(true)} className="bg-green text-white">
+        <Button onClick={() => setShowPayoutModal(true)} className="bg-green-600 text-white hover:bg-green-700">
           <DollarSign className="w-4 h-4 mr-2" />
           Create Payout
         </Button>
@@ -243,7 +248,7 @@ export default function DriverPayouts() {
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <p className="font-semibold">#{payout.id}</p>
+                        <p className="font-semibold">#{payout.id.substring(0, 8)}</p>
                         <Badge className={
                           payout.status === 'paid' ? 'bg-green-100 text-green-800' :
                           payout.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
@@ -264,25 +269,20 @@ export default function DriverPayouts() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-xl font-bold text-green">R{formatCurrency(safeAmount)}</p>
+                      <p className="text-xl font-bold text-green-600">R{formatCurrency(safeAmount)}</p>
                       {payout.status === 'pending' && (
-                        <div className="flex gap-2 mt-2">
-                          <Button 
-                            size="sm" 
-                            onClick={() => {
-                              const ref = prompt('Enter payment reference number:');
-                              if (ref) markAsPaid(payout.id, ref);
-                            }}
-                            className="bg-green text-white"
-                          >
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            Mark Paid
-                          </Button>
-                        </div>
+                        <Button 
+                          size="sm" 
+                          onClick={() => markAsPaid(payout.id, payout.driver_name, safeAmount)}
+                          className="mt-2 bg-green-600 text-white hover:bg-green-700"
+                        >
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          Mark Paid
+                        </Button>
                       )}
-                      {payout.status === 'paid' && payout.reference_number && (
+                      {payout.status === 'paid' && payout.payment_reference && (
                         <p className="text-xs text-gray-500 mt-1">
-                          Ref: {payout.reference_number}
+                          Ref: {payout.payment_reference}
                         </p>
                       )}
                     </div>
@@ -295,95 +295,120 @@ export default function DriverPayouts() {
       </div>
 
       {/* Create Payout Modal */}
-   <Dialog open={showPayoutModal} onOpenChange={setShowPayoutModal}>
-  <DialogContent className="max-w-md">
-    <DialogHeader>
-      <DialogTitle>Create Driver Payout</DialogTitle>
-    </DialogHeader>
-    <div className="space-y-4">
-      <div>
-        <label className="text-sm font-medium">Select Driver</label>
-        <Select onValueChange={(id) => {
-          const driver = drivers.find(d => d.id?.toString() === id);
-          setSelectedDriver(driver);
-        }}>
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Choose a driver" />
-          </SelectTrigger>
-          <SelectContent 
-            className="z-[9999] bg-white border shadow-lg rounded-md"
-            position="popper"
-            sideOffset={5}
-          >
-            {drivers.length === 0 ? (
-              <div className="p-2 text-center text-gray-500 text-sm">
-                No drivers available
-              </div>
-            ) : (
-              drivers.map(driver => (
-                <SelectItem 
-                  key={driver.id} 
-                  value={driver.id?.toString() || ''}
-                  className="cursor-pointer"
+      <Dialog open={showPayoutModal} onOpenChange={setShowPayoutModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <User className="w-5 h-5 text-green-600" />
+              Create Driver Payout
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-2 block">Select Driver</label>
+              <Select onValueChange={(id) => {
+                const driver = drivers.find(d => d.id?.toString() === id);
+                setSelectedDriver(driver);
+              }}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose a driver" />
+                </SelectTrigger>
+                <SelectContent 
+                  className="z-[9999] bg-white border shadow-lg rounded-md max-h-[300px] overflow-y-auto"
+                  position="popper"
+                  sideOffset={5}
                 >
-                  {driver.name} - R{formatCurrency(driver.pending_balance)} pending
-                </SelectItem>
-              ))
+                  {drivers.length === 0 ? (
+                    <div className="p-2 text-center text-gray-500 text-sm">
+                      No drivers available
+                    </div>
+                  ) : (
+                    drivers.map(driver => (
+                      <SelectItem 
+                        key={driver.id} 
+                        value={driver.id?.toString() || ''}
+                        className="cursor-pointer py-2"
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-medium">{driver.name}</span>
+                          <span className="text-xs text-gray-500">
+                            Balance: R{formatCurrency(driver.pending_balance)}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {selectedDriver && (
+              <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                <p className="text-sm text-gray-600">Available Balance</p>
+                <p className="text-2xl font-bold text-green-600">
+                  R{formatCurrency(selectedDriver.pending_balance)}
+                </p>
+              </div>
             )}
-          </SelectContent>
-        </Select>
-      </div>
 
-      {selectedDriver && (
-        <div className="bg-gray-50 p-3 rounded-lg">
-          <p className="text-sm text-gray-600">Available Balance</p>
-          <p className="text-xl font-bold text-green">
-            R{formatCurrency(selectedDriver.pending_balance)}
-          </p>
-        </div>
-      )}
+            <div>
+              <label className="text-sm font-medium mb-2 block">Payout Amount (R)</label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="Enter amount"
+                value={payoutAmount}
+                onChange={(e) => setPayoutAmount(e.target.value)}
+                className="w-full"
+              />
+            </div>
 
-      <div>
-        <label className="text-sm font-medium">Payout Amount (R)</label>
-        <Input
-          type="number"
-          step="0.01"
-          placeholder="Enter amount"
-          value={payoutAmount}
-          onChange={(e) => setPayoutAmount(e.target.value)}
-        />
-      </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Period Start</label>
+                <Input
+                  type="date"
+                  value={payoutPeriod.start}
+                  onChange={(e) => setPayoutPeriod({ ...payoutPeriod, start: e.target.value })}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium mb-2 block">Period End</label>
+                <Input
+                  type="date"
+                  value={payoutPeriod.end}
+                  onChange={(e) => setPayoutPeriod({ ...payoutPeriod, end: e.target.value })}
+                  className="w-full"
+                />
+              </div>
+            </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-sm font-medium">Period Start</label>
-          <Input
-            type="date"
-            value={payoutPeriod.start}
-            onChange={(e) => setPayoutPeriod({ ...payoutPeriod, start: e.target.value })}
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium">Period End</label>
-          <Input
-            type="date"
-            value={payoutPeriod.end}
-            onChange={(e) => setPayoutPeriod({ ...payoutPeriod, end: e.target.value })}
-          />
-        </div>
-      </div>
-
-      <div className="flex gap-3 pt-2">
-        <Button onClick={createPayout} className="flex-1 bg-green text-white">
-          Create Payout
-        </Button>
-        <Button onClick={() => setShowPayoutModal(false)} variant="outline" className="flex-1">
-          Cancel
-        </Button>
-      </div>
-    </div>
-  </DialogContent>
-</Dialog>
+            <div className="flex gap-3 pt-2">
+              <Button 
+                onClick={createPayout} 
+                className="flex-1 bg-green-600 text-white hover:bg-green-700"
+                disabled={!selectedDriver || !payoutAmount}
+              >
+                <DollarSign className="w-4 h-4 mr-2" />
+                Create Payout
+              </Button>
+              <Button 
+                onClick={() => {
+                  setShowPayoutModal(false);
+                  setSelectedDriver(null);
+                  setPayoutAmount('');
+                  setPayoutPeriod({ start: '', end: '' });
+                }} 
+                variant="outline" 
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

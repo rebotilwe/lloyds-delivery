@@ -13,7 +13,7 @@ import {
   Banknote,
   Loader2,
   Clock,
-  Users
+  Store
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -38,35 +38,34 @@ export default function AdminVendorPayouts() {
     fetchVendors();
     fetchPayouts();
   }, []);
-const fetchVendors = async () => {
-  try {
-    const response = await api.get('/users');
-    const allVendors = response.data?.filter(u => u.role === 'vendor') || [];
-    
-    console.log('Raw vendors data:', allVendors); // Debug log
-    
-    const vendorsWithBalance = allVendors.map(vendor => ({
-      ...vendor,
-      pending_balance: parseFloat(vendor.vendor_available_balance || 0)
-    }));
-    
-    console.log('Vendors with balance:', vendorsWithBalance); // Debug log
-    
-    setVendors(vendorsWithBalance);
-  } catch (error) {
-    console.error('Error fetching vendors:', error);
-    setVendors([]);
-  }
-};
+
+  const fetchVendors = async () => {
+    try {
+      const response = await api.get('/users');
+      const allVendors = response.data?.filter(u => u.role === 'vendor') || [];
+      
+      const vendorsWithBalance = allVendors.map(vendor => ({
+        ...vendor,
+        pending_balance: parseFloat(vendor.vendor_available_balance || 0)
+      }));
+      
+      setVendors(vendorsWithBalance);
+    } catch (error) {
+      console.error('Error fetching vendors:', error);
+      setVendors([]);
+    }
+  };
 
   const fetchPayouts = async () => {
     setLoading(true);
     try {
-     const response = await api.get('/admin/vendor-payouts'); 
+      const response = await api.get('/payouts/admin/vendor/pending');
       const payoutsData = response.data || [];
       const fixedPayouts = payoutsData.map(p => ({
         ...p,
-        amount: parseFloat(p.amount) || 0
+        amount: parseFloat(p.total_amount) || 0,
+        vendor_name: p.vendor_name,
+        vendor_email: p.vendor_email
       }));
       setPayouts(fixedPayouts);
     } catch (error) {
@@ -92,7 +91,7 @@ const fetchVendors = async () => {
     }
 
     try {
-     await api.post('/admin/vendor-payouts',{
+      await api.post('/admin/vendor-payouts', {
         vendor_id: selectedVendor.id,
         amount: parseFloat(payoutAmount),
         period_start: payoutPeriod.start,
@@ -111,22 +110,24 @@ const fetchVendors = async () => {
       toast.error(error.response?.data?.message || 'Failed to create payout');
     }
   };
-const markAsPaid = async (payoutId, referenceNumber) => {
-  try {
-    await api.put(`/admin/vendor-payouts/${payoutId}/process`, {
-      status: 'paid',
-      reference_number: referenceNumber,
-      notes: `Paid with reference: ${referenceNumber}`
-      // Remove payment_method for now
-    });
-    toast.success('Payout marked as paid');
-    fetchPayouts();
-    fetchVendors();
-  } catch (error) {
-    console.error('Error marking payout:', error);
-    toast.error(error.response?.data?.message || 'Failed to update payout');
-  }
-};
+
+  const markAsPaid = async (payoutId, vendorName, amount) => {
+    const reference = prompt(`Enter payment reference number for ${vendorName} (R${amount.toFixed(2)}):`);
+    if (!reference) return;
+    
+    try {
+      await api.put(`/payouts/admin/vendor/${payoutId}/mark-paid`, {
+        payment_reference: reference,
+        notes: `Paid with reference: ${reference}`
+      });
+      toast.success('Payout marked as paid');
+      fetchPayouts();
+      fetchVendors();
+    } catch (error) {
+      console.error('Error marking payout:', error);
+      toast.error(error.response?.data?.message || 'Failed to update payout');
+    }
+  };
 
   const filteredPayouts = payouts.filter(payout => {
     if (filterStatus !== 'all' && payout.status !== filterStatus) return false;
@@ -147,7 +148,7 @@ const markAsPaid = async (payoutId, referenceNumber) => {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-green" />
+        <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
       </div>
     );
   }
@@ -160,7 +161,7 @@ const markAsPaid = async (payoutId, referenceNumber) => {
           <h2 className="text-lg font-bold">Vendor Payouts</h2>
           <p className="text-sm text-gray-500">Manage vendor earnings and payouts</p>
         </div>
-        <Button onClick={() => setShowPayoutModal(true)} className="bg-purple-600 text-white">
+        <Button onClick={() => setShowPayoutModal(true)} className="bg-purple-600 text-white hover:bg-purple-700">
           <DollarSign className="w-4 h-4 mr-2" />
           Create Payout
         </Button>
@@ -244,7 +245,7 @@ const markAsPaid = async (payoutId, referenceNumber) => {
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
-                        <p className="font-semibold">#{payout.id}</p>
+                        <p className="font-semibold">#{payout.id.substring(0, 8)}</p>
                         <Badge className={
                           payout.status === 'paid' ? 'bg-green-100 text-green-800' :
                           payout.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
@@ -261,29 +262,24 @@ const markAsPaid = async (payoutId, referenceNumber) => {
                         </p>
                       )}
                       <p className="text-xs text-gray-400">
-                        Requested: {payout.requested_at ? format(new Date(payout.requested_at), 'dd MMM yyyy, h:mm a') : 'Unknown date'}
+                        Created: {payout.created_at ? format(new Date(payout.created_at), 'dd MMM yyyy, h:mm a') : 'Unknown date'}
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="text-xl font-bold text-purple-600">R{formatCurrency(safeAmount)}</p>
                       {payout.status === 'pending' && (
-                        <div className="flex gap-2 mt-2">
-                          <Button 
-                            size="sm" 
-                            onClick={() => {
-                              const ref = prompt('Enter payment reference number:');
-                              if (ref) markAsPaid(payout.id, ref);
-                            }}
-                            className="bg-purple-600 text-white"
-                          >
-                            <CheckCircle className="w-3 h-3 mr-1" />
-                            Mark Paid
-                          </Button>
-                        </div>
+                        <Button 
+                          size="sm" 
+                          onClick={() => markAsPaid(payout.id, payout.vendor_name, safeAmount)}
+                          className="mt-2 bg-purple-600 text-white hover:bg-purple-700"
+                        >
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          Mark Paid
+                        </Button>
                       )}
-                      {payout.status === 'paid' && payout.reference_number && (
+                      {payout.status === 'paid' && payout.payment_reference && (
                         <p className="text-xs text-gray-500 mt-1">
-                          Ref: {payout.reference_number}
+                          Ref: {payout.payment_reference}
                         </p>
                       )}
                     </div>
@@ -299,72 +295,111 @@ const markAsPaid = async (payoutId, referenceNumber) => {
       <Dialog open={showPayoutModal} onOpenChange={setShowPayoutModal}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Vendor Payout</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Store className="w-5 h-5 text-purple-600" />
+              Create Vendor Payout
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Select Vendor</label>
+              <label className="text-sm font-medium mb-2 block">Select Vendor</label>
               <Select onValueChange={(id) => {
                 const vendor = vendors.find(v => v.id?.toString() === id);
                 setSelectedVendor(vendor);
               }}>
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Choose a vendor" />
                 </SelectTrigger>
-                <SelectContent>
-                  {vendors.map(vendor => (
-                    <SelectItem key={vendor.id} value={vendor.id?.toString() || ''}>
-                    {vendor.name} - R{formatCurrency(vendor.pending_balance)} available
-                    </SelectItem>
-                  ))}
+                <SelectContent 
+                  className="z-[9999] bg-white border shadow-lg rounded-md max-h-[300px] overflow-y-auto"
+                  position="popper"
+                  sideOffset={5}
+                >
+                  {vendors.length === 0 ? (
+                    <div className="p-2 text-center text-gray-500 text-sm">
+                      No vendors available
+                    </div>
+                  ) : (
+                    vendors.map(vendor => (
+                      <SelectItem 
+                        key={vendor.id} 
+                        value={vendor.id?.toString() || ''}
+                        className="cursor-pointer py-2"
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-medium">{vendor.name}</span>
+                          <span className="text-xs text-gray-500">
+                            Balance: R{formatCurrency(vendor.pending_balance)}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
 
             {selectedVendor && (
-              <div className="bg-gray-50 p-3 rounded-lg">
+              <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
                 <p className="text-sm text-gray-600">Available Balance</p>
-                <p className="text-xl font-bold text-purple-600">
+                <p className="text-2xl font-bold text-purple-600">
                   R{formatCurrency(selectedVendor.pending_balance)}
                 </p>
               </div>
             )}
 
             <div>
-              <label className="text-sm font-medium">Payout Amount (R)</label>
+              <label className="text-sm font-medium mb-2 block">Payout Amount (R)</label>
               <Input
                 type="number"
                 step="0.01"
                 placeholder="Enter amount"
                 value={payoutAmount}
                 onChange={(e) => setPayoutAmount(e.target.value)}
+                className="w-full"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-sm font-medium">Period Start</label>
+                <label className="text-sm font-medium mb-2 block">Period Start</label>
                 <Input
                   type="date"
                   value={payoutPeriod.start}
                   onChange={(e) => setPayoutPeriod({ ...payoutPeriod, start: e.target.value })}
+                  className="w-full"
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">Period End</label>
+                <label className="text-sm font-medium mb-2 block">Period End</label>
                 <Input
                   type="date"
                   value={payoutPeriod.end}
                   onChange={(e) => setPayoutPeriod({ ...payoutPeriod, end: e.target.value })}
+                  className="w-full"
                 />
               </div>
             </div>
 
             <div className="flex gap-3 pt-2">
-              <Button onClick={createPayout} className="flex-1 bg-purple-600 text-white">
+              <Button 
+                onClick={createPayout} 
+                className="flex-1 bg-purple-600 text-white hover:bg-purple-700"
+                disabled={!selectedVendor || !payoutAmount}
+              >
+                <DollarSign className="w-4 h-4 mr-2" />
                 Create Payout
               </Button>
-              <Button onClick={() => setShowPayoutModal(false)} variant="outline" className="flex-1">
+              <Button 
+                onClick={() => {
+                  setShowPayoutModal(false);
+                  setSelectedVendor(null);
+                  setPayoutAmount('');
+                  setPayoutPeriod({ start: '', end: '' });
+                }} 
+                variant="outline" 
+                className="flex-1"
+              >
                 Cancel
               </Button>
             </div>

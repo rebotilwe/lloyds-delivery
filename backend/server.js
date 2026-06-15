@@ -20,6 +20,7 @@ import adminVendorRoutes from "./routes/adminVendorRoutes.js";
 import adminMenuRoutes from "./routes/adminMenuRoutes.js";
 import supportRoutes from "./routes/supportRoutes.js";
 import payoutRoutes from "./routes/payoutRoutes.js";  // ← ADDED for payout management
+import adminFinancialRoutes from "./routes/adminFinancialRoutes.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -197,6 +198,7 @@ app.use("/api/admin", adminVendorRoutes);
 app.use("/api/admin", adminMenuRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/payouts", payoutRoutes);  // ← ADDED - payout management routes
+app.use("/api/admin", adminFinancialRoutes);  // ← ADD THIS LINE
 
 // Socket.io connection handling
 io.on("connection", (socket) => {

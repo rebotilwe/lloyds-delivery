@@ -449,81 +449,89 @@ router.put("/status/:id", async (req, res) => {
     }
 
     // FIXED: Update earnings correctly when order is delivered
-    if (status === "delivered") {
-      const orders = await db.query(
-        "SELECT total, delivery_fee, subtotal, original_total FROM orders WHERE id = $1",
-        [orderId]
+   // FIXED: Update earnings correctly when order is delivered
+if (status === "delivered") {
+  const orders = await db.query(
+    "SELECT total, delivery_fee, subtotal, original_total, delivery_type FROM orders WHERE id = $1",
+    [orderId]
+  );
+  
+  const order = orders.rows[0];
+  
+  if (order && driverId) {
+    const deliveryFee = parseFloat(order.delivery_fee) || 0;
+    const total = parseFloat(order.total) || 0;
+    
+    let driverEarning = 0;
+    let platformEarning = 0;
+    let vendorPayoutAmount = 0;
+    
+    if (deliveryType === 'food') {
+      // FOOD: Driver gets delivery fee + 10% commission
+      const commission = total * 0.1;
+      driverEarning = deliveryFee + commission;
+      driverEarning = Math.round(driverEarning * 100) / 100;
+      
+      // Vendor gets: subtotal - 15% commission
+      const subtotal = parseFloat(order.subtotal) || parseFloat(order.original_total) || (total - deliveryFee);
+      const commissionAmount = subtotal * 0.15; // 15% platform commission
+      vendorPayoutAmount = subtotal - commissionAmount;
+      vendorPayoutAmount = Math.round(vendorPayoutAmount * 100) / 100;
+      
+      // Platform earns the commission
+      platformEarning = commissionAmount;
+      
+    } else {
+      // PACKAGE: Split 70/30 (70% to driver, 30% to platform)
+      // This is the key change for profitability
+      driverEarning = deliveryFee * 0.7;
+      platformEarning = deliveryFee * 0.3;
+      driverEarning = Math.round(driverEarning * 100) / 100;
+      platformEarning = Math.round(platformEarning * 100) / 100;
+      
+      console.log(`📦 Package #${orderId}: Driver earns R${driverEarning}, Platform earns R${platformEarning}`);
+    }
+    
+    if (driverEarning > 0) {
+      await db.query(
+        "UPDATE orders SET driver_earning = $1, platform_earning = $2 WHERE id = $3", 
+        [driverEarning, platformEarning, orderId]
       );
       
-      const order = orders.rows[0];
-      
-      if (order && driverId) {
-        const deliveryFee = parseFloat(order.delivery_fee) || 0;
-        const total = parseFloat(order.total) || 0;
-        
-        // For food orders, calculate earning from delivery fee and commission
-        let driverEarning = 0;
-        let vendorPayoutAmount = 0;
-        
-        if (deliveryType === 'food') {
-          // Driver gets: delivery fee + 10% of total
-          const commission = total * 0.1;
-          driverEarning = deliveryFee + commission;
-          driverEarning = Math.round(driverEarning * 100) / 100;
-          
-          // Vendor gets: subtotal - 15% commission
-          const subtotal = parseFloat(order.subtotal) || parseFloat(order.original_total) || (total - deliveryFee);
-          const commissionAmount = subtotal * 0.15; // 15% platform commission
-          vendorPayoutAmount = subtotal - commissionAmount;
-          vendorPayoutAmount = Math.round(vendorPayoutAmount * 100) / 100;
-          
-        } else {
-          // For package deliveries, the driver gets the delivery_fee
-          driverEarning = deliveryFee;
-          // No vendor payout for packages
-          vendorPayoutAmount = 0;
-        }
-        
-        if (driverEarning > 0) {
-          await db.query(
-            "UPDATE orders SET driver_earning = $1 WHERE id = $2", 
-            [driverEarning, orderId]
-          );
-          
-          // Update driver's total_earnings AND available_balance
-          await db.query(
-            `UPDATE users SET 
-               total_earnings = COALESCE(total_earnings, 0) + $1,
-               available_balance = COALESCE(available_balance, 0) + $1
-             WHERE id = $2`, 
-            [driverEarning, driverId]
-          );
+      // Update driver's total_earnings AND available_balance
+      await db.query(
+        `UPDATE users SET 
+           total_earnings = COALESCE(total_earnings, 0) + $1,
+           available_balance = COALESCE(available_balance, 0) + $1
+         WHERE id = $2`, 
+        [driverEarning, driverId]
+      );
 
-          io.to(`driver_${driverId}`).emit("earnings-updated", {
-            orderId: parseInt(orderId),
-            earning: driverEarning,
-          });
-        }
-        
-        // Update vendor payout amount for food orders
-        if (deliveryType === 'food' && restaurantId && vendorPayoutAmount > 0) {
-          await db.query(
-            `UPDATE orders SET vendor_payout_amount = $1 WHERE id = $2`,
-            [vendorPayoutAmount, orderId]
-          );
-          
-          // Also update vendor's available balance
-          await db.query(
-            `UPDATE users SET 
-               vendor_available_balance = COALESCE(vendor_available_balance, 0) + $1
-             WHERE id = $2`,
-            [vendorPayoutAmount, vendorId]
-          );
-          
-          console.log(`💰 Vendor ${vendorId} earned R${vendorPayoutAmount} from order #${orderId}`);
-        }
-      }
+      io.to(`driver_${driverId}`).emit("earnings-updated", {
+        orderId: parseInt(orderId),
+        earning: driverEarning,
+      });
     }
+    
+    // Update vendor payout amount for food orders
+    if (deliveryType === 'food' && restaurantId && vendorPayoutAmount > 0) {
+      await db.query(
+        `UPDATE orders SET vendor_payout_amount = $1 WHERE id = $2`,
+        [vendorPayoutAmount, orderId]
+      );
+      
+      // Also update vendor's available balance
+      await db.query(
+        `UPDATE users SET 
+           vendor_available_balance = COALESCE(vendor_available_balance, 0) + $1
+         WHERE id = $2`,
+        [vendorPayoutAmount, vendorId]
+      );
+      
+      console.log(`💰 Vendor ${vendorId} earned R${vendorPayoutAmount} from order #${orderId}`);
+    }
+  }
+}
     
     res.json({ message: "Status updated successfully", status });
   } catch (err) {

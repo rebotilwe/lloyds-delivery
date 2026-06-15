@@ -15,6 +15,9 @@ const deliveryTypes = {
   other: { label: 'Other Delivery', icon: Truck, basePrice: 60, maxWeight: 50, maxDimension: 150 },
 };
 
+// Platform service fee - This is what the platform earns per package
+const PLATFORM_SERVICE_FEE = 15; // R15 per package
+
 // Phone number validation function
 const validatePhoneNumber = (phone) => {
   if (!phone) return false;
@@ -57,15 +60,16 @@ export default function PackageDelivery() {
 
   const deliveryInfo = deliveryTypes[deliveryType] || deliveryTypes.package;
 
-  // Helper function to calculate total without validation
+  // Helper function to calculate total without validation (UPDATED with platform fee)
   const calculateTotal = () => {
     const basePrice = deliveryInfo.basePrice;
     const weightNum = parseFloat(formData.weight) || 0;
     const weightPrice = weightNum * 5;
     const signatureFee = formData.requires_signature ? 10 : 0;
     const fragileFee = formData.is_fragile ? 15 : 0;
-    const total = basePrice + weightPrice + signatureFee + fragileFee;
-    return Math.max(20, total);
+    const platformFee = PLATFORM_SERVICE_FEE;
+    const total = basePrice + weightPrice + signatureFee + fragileFee + platformFee;
+    return Math.max(35, total); // Increased minimum to R35
   };
 
   // Validate form (without auto-calculating)
@@ -125,15 +129,6 @@ export default function PackageDelivery() {
     setQuote({ total });
   };
 
-  // Update quote when checkboxes change (without full validation)
-  const updateQuoteForOptions = () => {
-    // Only update quote if we have a quote already
-    if (quote) {
-      const total = calculateTotal();
-      setQuote({ total });
-    }
-  };
-
   const handlePhoneChange = (e) => {
     const rawValue = e.target.value;
     const digitsOnly = rawValue.replace(/\D/g, '');
@@ -150,7 +145,6 @@ export default function PackageDelivery() {
     if (value === '' || /^\d*\.?\d*$/.test(value)) {
       setFormData({ ...formData, weight: value });
       if (errors.weight) setErrors({ ...errors, weight: '' });
-      // Update quote if we have one
       if (quote) {
         const total = calculateTotal();
         setQuote({ total });
@@ -167,7 +161,6 @@ export default function PackageDelivery() {
   const handleSignatureChange = (e) => {
     const checked = e.target.checked;
     setFormData({ ...formData, requires_signature: checked });
-    // Update quote immediately
     if (quote) {
       const total = calculateTotal();
       setQuote({ total });
@@ -177,7 +170,6 @@ export default function PackageDelivery() {
   const handleFragileChange = (e) => {
     const checked = e.target.checked;
     setFormData({ ...formData, is_fragile: checked });
-    // Update quote immediately
     if (quote) {
       const total = calculateTotal();
       setQuote({ total });
@@ -217,7 +209,7 @@ export default function PackageDelivery() {
           original_total: quote.total,
           delivery_address: formData.delivery_address,
           delivery_fee: quote.total,
-          notes: `Pickup: ${formData.pickup_address}\nRecipient: ${formData.recipient_name} (${formData.recipient_phone})\nDescription: ${formData.description}\nWeight: ${formData.weight || 0}kg\nDimensions: ${formData.dimensions || 'N/A'}`,
+          notes: `Pickup: ${formData.pickup_address}\nRecipient: ${formData.recipient_name} (${formData.recipient_phone})\nDescription: ${formData.description}\nWeight: ${formData.weight || 0}kg\nDimensions: ${formData.dimensions || 'N/A'}\nPlatform fee: R${PLATFORM_SERVICE_FEE}`,
           payment_status: 'pending_payment',
           payment_transaction_id: null,
           promo_code: null,
@@ -232,7 +224,8 @@ export default function PackageDelivery() {
           package_weight: parseFloat(formData.weight) || 0,
           package_dimensions: formData.dimensions,
           requires_signature: formData.requires_signature,
-          is_fragile: formData.is_fragile
+          is_fragile: formData.is_fragile,
+          platform_service_fee: PLATFORM_SERVICE_FEE  // ← ADD THIS
         }),
       });
 
@@ -258,15 +251,16 @@ export default function PackageDelivery() {
   const weightPrice = weightNum * 5;
   const signatureFee = formData.requires_signature ? 10 : 0;
   const fragileFee = formData.is_fragile ? 15 : 0;
-  const displayTotal = basePrice + weightPrice + signatureFee + fragileFee;
-  const finalTotal = Math.max(20, displayTotal);
+  const platformFee = PLATFORM_SERVICE_FEE;
+  const displayTotal = basePrice + weightPrice + signatureFee + fragileFee + platformFee;
+  const finalTotal = Math.max(35, displayTotal);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-2">{deliveryInfo.label}</h1>
       <p className="text-gray-500 mb-6">Fast and reliable delivery service</p>
 
-      {/* Pricing Rules Disclosure */}
+      {/* Pricing Rules Disclosure - UPDATED */}
       <Card className="mb-6 bg-blue-50 border-blue-200">
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
@@ -278,6 +272,7 @@ export default function PackageDelivery() {
                 <p>• Weight charge: <strong>R5 per kg</strong> (Max: {deliveryInfo.maxWeight}kg)</p>
                 <p>• Signature required: <strong>+R10</strong></p>
                 <p>• Fragile item handling: <strong>+R15</strong></p>
+                <p>• Platform service fee: <strong>+R{PLATFORM_SERVICE_FEE}</strong> (covers platform costs)</p>
                 <p className="text-xs mt-2 text-blue-600">Maximum dimensions: {deliveryInfo.maxDimension}cm per side</p>
               </div>
             </div>
@@ -395,7 +390,7 @@ export default function PackageDelivery() {
           </Card>
         </div>
 
-        {/* Options - FIXED: Using separate handlers that update quote */}
+        {/* Options */}
         <div className="grid grid-cols-2 gap-4">
           <Card>
             <CardContent className="p-4">
@@ -439,7 +434,7 @@ export default function PackageDelivery() {
           </CardContent>
         </Card>
 
-        {/* Quote & Submission */}
+        {/* Quote & Submission - UPDATED */}
         <Card className="bg-gradient-to-r from-green-50 to-blue-50">
           <CardContent className="p-5">
             {quote ? (
@@ -451,7 +446,8 @@ export default function PackageDelivery() {
                   {weightNum > 0 && <p>Weight charge ({weightNum}kg): R{weightPrice.toFixed(2)}</p>}
                   {formData.requires_signature && <p>Signature fee: +R10.00</p>}
                   {formData.is_fragile && <p>Fragile handling: +R15.00</p>}
-                  <p className="text-gray-400 text-[10px] mt-1">Minimum charge: R20</p>
+                  <p className="text-blue-600 font-medium">Platform service fee: +R{PLATFORM_SERVICE_FEE}.00</p>
+                  <p className="text-gray-400 text-[10px] mt-1">Minimum charge: R35</p>
                 </div>
                 <Button 
                   onClick={handleSubmit}

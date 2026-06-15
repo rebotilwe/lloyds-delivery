@@ -38,30 +38,22 @@ router.get("/financial/debug", async (req, res) => {
        WHERE status = 'delivered'`
     );
     
-    // Check driver_payouts table structure
-    const driverPayoutsColumns = await db.query(
-      `SELECT column_name FROM information_schema.columns 
-       WHERE table_name = 'driver_payouts'`
-    );
+    // Get driver payouts table structure
+    const driverPayoutsData = await db.query(
+      `SELECT * FROM driver_payouts LIMIT 1`
+    ).catch(() => ({ rows: [] }));
     
-    // Get driver payouts
-    let driverPayoutsResult = { rows: [{ count: 0, total: 0 }] };
-    try {
-      driverPayoutsResult = await db.query(
-        `SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total
-         FROM driver_payouts
-         WHERE status = 'paid'`
-      );
-    } catch (err) {
-      console.error("Error fetching driver payouts:", err.message);
-    }
+    // Get vendor payouts table structure
+    const vendorPayoutsData = await db.query(
+      `SELECT * FROM vendor_payouts LIMIT 1`
+    ).catch(() => ({ rows: [] }));
     
     res.json({
-      delivered_orders: deliveredOrders.rows,
+      delivered_orders: deliveredOrders.rows.slice(0, 5),
       summary: summary.rows[0],
-      driver_payouts_table: driverPayoutsResult.rows[0],
-      driver_payouts_columns: driverPayoutsColumns.rows.map(c => c.column_name),
-      message: "Use this data to understand the financial calculations"
+      driver_payouts_sample: driverPayoutsData.rows[0] || null,
+      vendor_payouts_sample: vendorPayoutsData.rows[0] || null,
+      message: "Use this to see the actual column names"
     });
   } catch (err) {
     console.error("Debug error:", err);
@@ -295,18 +287,10 @@ router.get("/financial/top-drivers", async (req, res) => {
   }
 });
 
-// Get recent transactions (FIXED - removed driver_name and vendor_name)
+// Get recent transactions (FIXED - using correct column names)
 router.get("/financial/recent-transactions", async (req, res) => {
   try {
     const { limit = 10 } = req.query;
-    
-    // First, get the actual column names from driver_payouts table
-    const driverColumns = await db.query(
-      `SELECT column_name FROM information_schema.columns 
-       WHERE table_name = 'driver_payouts' AND column_name LIKE '%name%'`
-    );
-    
-    const driverNameCol = driverColumns.rows.length > 0 ? driverColumns.rows[0].column_name : 'driver_id';
     
     // Get orders revenue
     const ordersResult = await db.query(
@@ -323,7 +307,7 @@ router.get("/financial/recent-transactions", async (req, res) => {
       [limit]
     );
     
-    // Get driver payouts
+    // Get driver payouts - using 'amount' column
     let driverPayoutsResult = [];
     try {
       const dpResult = await db.query(
@@ -332,7 +316,7 @@ router.get("/financial/recent-transactions", async (req, res) => {
            id::text as reference,
            created_at as date,
            'Driver payout - Driver ID: ' || driver_id as description,
-           -total_amount as amount
+           -amount as amount
          FROM driver_payouts
          WHERE status = 'paid'
          ORDER BY created_at DESC
@@ -342,28 +326,9 @@ router.get("/financial/recent-transactions", async (req, res) => {
       driverPayoutsResult = dpResult.rows;
     } catch (err) {
       console.error("Error fetching driver payouts:", err.message);
-      // Try alternative column name
-      try {
-        const dpResult = await db.query(
-          `SELECT 
-             'driver_payout' as type,
-             id::text as reference,
-             created_at as date,
-             'Driver payout' as description,
-             -amount as amount
-           FROM driver_payouts
-           WHERE status = 'paid'
-           ORDER BY created_at DESC
-           LIMIT $1`,
-          [limit]
-        );
-        driverPayoutsResult = dpResult.rows;
-      } catch (err2) {
-        console.error("Alternative also failed:", err2.message);
-      }
     }
     
-    // Get vendor payouts
+    // Get vendor payouts - using 'amount' column
     let vendorPayoutsResult = [];
     try {
       const vpResult = await db.query(
@@ -372,7 +337,7 @@ router.get("/financial/recent-transactions", async (req, res) => {
            id::text as reference,
            created_at as date,
            'Vendor payout' as description,
-           -total_amount as amount
+           -amount as amount
          FROM vendor_payouts
          WHERE status = 'paid'
          ORDER BY created_at DESC
@@ -382,24 +347,6 @@ router.get("/financial/recent-transactions", async (req, res) => {
       vendorPayoutsResult = vpResult.rows;
     } catch (err) {
       console.error("Error fetching vendor payouts:", err.message);
-      try {
-        const vpResult = await db.query(
-          `SELECT 
-             'vendor_payout' as type,
-             id::text as reference,
-             created_at as date,
-             'Vendor payout' as description,
-             -amount as amount
-           FROM vendor_payouts
-           WHERE status = 'paid'
-           ORDER BY created_at DESC
-           LIMIT $1`,
-          [limit]
-        );
-        vendorPayoutsResult = vpResult.rows;
-      } catch (err2) {
-        console.error("Alternative also failed:", err2.message);
-      }
     }
     
     // Combine all transactions
@@ -439,7 +386,7 @@ router.get("/edmond/balance", async (req, res) => {
        WHERE delivery_type = 'food' AND status = 'delivered'`
     );
     
-    // Total paid out to drivers via driver_payouts table
+    // Total paid out to drivers via driver_payouts table using 'amount' column
     let paidOutToDrivers = 0;
     try {
       const paidResult = await db.query(
@@ -450,16 +397,6 @@ router.get("/edmond/balance", async (req, res) => {
       paidOutToDrivers = parseFloat(paidResult.rows[0].total);
     } catch (err) {
       console.error("Error fetching paid out drivers:", err.message);
-      try {
-        const paidResult = await db.query(
-          `SELECT COALESCE(SUM(total_amount), 0) as total
-           FROM driver_payouts
-           WHERE status = 'paid'`
-        );
-        paidOutToDrivers = parseFloat(paidResult.rows[0].total);
-      } catch (err2) {
-        console.error("Alternative also failed:", err2.message);
-      }
     }
     
     const totalCommission = parseFloat(commissionResult.rows[0].total_commission);

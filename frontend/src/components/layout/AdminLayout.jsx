@@ -26,7 +26,8 @@ const navItems = [
   { path: '/admin/vendors',       label: 'Vendors',           icon: UserCheck },
   { path: '/admin/drivers',       label: 'Drivers',           icon: Truck },
   { path: '/admin/users',         label: 'Users',             icon: Users },
-  { path: '/admin/earnings',      label: 'Earnings Overview', icon: TrendingUp, color: 'text-green-500' },  // ← NEW
+  { path: '/admin/edmond-dashboard', label: 'Financial Dashboard', icon: TrendingUp, color: 'text-green-500' },  // ← NEW - Edmond's Dashboard
+  { path: '/admin/earnings',      label: 'Earnings Overview', icon: TrendingUp, color: 'text-green-500' },
   { path: '/admin/finance',       label: 'Finance',           icon: DollarSign },
   { path: '/admin/package-approvals', label: 'Package Approvals', icon: Package, color: 'text-purple-500' },
   { path: '/admin/support',       label: 'Support Tickets',   icon: MessageCircle },

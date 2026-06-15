@@ -403,7 +403,13 @@ router.put("/status/:id", async (req, res) => {
     const deliveryType = prevOrder.rows[0]?.delivery_type;
     const restaurantId = prevOrder.rows[0]?.restaurant_id;
 
-    await db.query("UPDATE orders SET status = $1, delivered_at = CASE WHEN $1 = 'delivered' THEN NOW() ELSE delivered_at END WHERE id = $2", [status, orderId]);
+    // FIXED: Split into two separate updates to avoid type inference issues
+    await db.query("UPDATE orders SET status = $1 WHERE id = $2", [status, orderId]);
+    
+    // If status is 'delivered', update delivered_at separately
+    if (status === 'delivered') {
+      await db.query("UPDATE orders SET delivered_at = NOW() WHERE id = $1", [orderId]);
+    }
 
     io.to(`order_${orderId}`).emit("order-status-update", {
       orderId: parseInt(orderId),
@@ -411,6 +417,7 @@ router.put("/status/:id", async (req, res) => {
       timestamp: new Date(),
     });
 
+    // Rest of your code remains the same...
     // Notify vendor when order is delivered (only for food)
     if (status === "delivered" && deliveryType === 'food' && vendorId && io) {
       io.to(`vendor_${vendorId}`).emit("order-delivered", {

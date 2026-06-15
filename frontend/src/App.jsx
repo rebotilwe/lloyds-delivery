@@ -56,6 +56,7 @@ import AdminMenuApprovals from '@/components/admin/AdminMenuApprovals';
 import AdminDriversPage from '@/components/admin/AdminDriversPage';
 import AdminFinancePage from '@/components/admin/AdminFinancePage';
 import AdminSettingsPage from '@/components/admin/AdminSettingsPage';
+import EdmondDashboard from '@/components/admin/EdmondDashboard';  // ← NEW - Edmond's Dashboard
 
 // LOADING COMPONENT
 const Loader = () => (
@@ -307,6 +308,7 @@ function App() {
                     <Route path="package-approvals" element={<AdminPackageApprovals />} />
                     <Route path="/admin/earnings" element={<AdminEarningsOverview />} />
                     <Route path="menu-approvals" element={<AdminMenuApprovals />} />
+                     <Route path="edmond-dashboard" element={<EdmondDashboard />} />  {/* ← ADD THIS LINE */}
                   </Route>
 
                   {/* 404 */}

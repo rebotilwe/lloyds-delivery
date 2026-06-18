@@ -133,11 +133,20 @@ function VendorGuard({ children }) {
   useEffect(() => {
     const check = async () => {
       if (user && user.role === 'vendor') {
-        try {
-          const response = await api.get('/vendor/restaurant');
-          setHasRestaurant(!!response.data?.id);
-        } catch {
-          setHasRestaurant(false);
+        // Check vendor status first
+        if (user.vendor_status === 'pending' || user.vendor_status === 'rejected') {
+          setHasRestaurant(null);
+          setChecking(false);
+          return;
+        }
+        // Only check for restaurant if approved
+        if (user.vendor_status === 'approved') {
+          try {
+            const response = await api.get('/vendor/restaurant');
+            setHasRestaurant(!!response.data?.id);
+          } catch {
+            setHasRestaurant(false);
+          }
         }
       }
       setChecking(false);
@@ -148,8 +157,17 @@ function VendorGuard({ children }) {
   if (loading || checking) return <Loader />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'vendor') return <Navigate to="/" replace />;
-  if (user.vendor_status !== 'approved') return <VendorWaiting />;
-  if (hasRestaurant === false) return <VendorOnboarding />;
+  
+  // If vendor is pending or rejected, show waiting page
+  if (user.vendor_status === 'pending' || user.vendor_status === 'rejected') {
+    return <VendorWaiting />;
+  }
+  
+  // If vendor is approved but no restaurant, show onboarding
+  if (user.vendor_status === 'approved' && hasRestaurant === false) {
+    return <VendorOnboarding />;
+  }
+  
   return children;
 }
 

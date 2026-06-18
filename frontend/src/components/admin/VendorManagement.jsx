@@ -24,31 +24,19 @@ import {
   CreditCard,
   Building2,
   FileText,
-  Upload,
-  Download,
   Shield,
-  Award
+  Award,
+  Clock,
+  RefreshCw
 } from 'lucide-react';
 import { toast } from 'sonner';
-
-// Restaurant document types - COMMENTED OUT FOR NOW
-// const restaurantDocumentTypes = [
-//   { key: 'health_certificate', label: 'Health & Safety Certificate', icon: Shield, required: true },
-//   { key: 'halaal_certificate', label: 'Halaal Certificate', icon: Award, required: false },
-//   { key: 'business_license', label: 'Business License', icon: FileText, required: true },
-//   { key: 'vat_registration', label: 'VAT Registration', icon: FileText, required: false },
-//   { key: 'bank_confirmation', label: 'Bank Confirmation Letter', icon: CreditCard, required: true },
-// ];
 
 export default function VendorManagement({ vendors = [], onRefresh }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedVendor, setSelectedVendor] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  // const [showDocumentsModal, setShowDocumentsModal] = useState(false); // COMMENTED OUT
   const [updating, setUpdating] = useState(false);
-  // const [uploading, setUploading] = useState(false); // COMMENTED OUT
-  // const [uploadingFor, setUploadingFor] = useState(null); // COMMENTED OUT
   const [editForm, setEditForm] = useState({
     name: '',
     email: '',
@@ -59,8 +47,6 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
     bank_account_number: '',
     bank_branch_code: ''
   });
-  // const [restaurantDocuments, setRestaurantDocuments] = useState({}); // COMMENTED OUT
-  // const [viewingDoc, setViewingDoc] = useState(null); // COMMENTED OUT
 
   // Safety checks - use empty array if vendors is undefined
   const safeVendors = vendors || [];
@@ -68,11 +54,13 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
   const pendingVendors = safeVendors.filter(v => v.vendor_status === 'pending' || !v.vendor_status);
   const approvedVendors = safeVendors.filter(v => v.vendor_status === 'approved');
   const suspendedVendors = safeVendors.filter(v => v.vendor_status === 'suspended');
+  const rejectedVendors = safeVendors.filter(v => v.vendor_status === 'rejected');
 
   const filteredVendors = safeVendors.filter(vendor =>
     vendor.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     vendor.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    vendor.phone?.includes(searchTerm)
+    vendor.phone?.includes(searchTerm) ||
+    vendor.restaurant_name?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const updateVendorStatus = async (vendorId, status) => {
@@ -129,32 +117,34 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
     }
   };
 
-  // COMMENTED OUT - Document upload functions
-  // const handleViewDocuments = (vendor) => {
-  //   setSelectedVendor(vendor);
-  //   const docs = {};
-  //   restaurantDocumentTypes.forEach(doc => {
-  //     docs[doc.key] = vendor[doc.key] || null;
-  //   });
-  //   setRestaurantDocuments(docs);
-  //   setShowDocumentsModal(true);
-  // };
+  const getStatusBadge = (status) => {
+    switch(status) {
+      case 'approved':
+        return <Badge className="bg-green-100 text-green-800">Active</Badge>;
+      case 'pending':
+        return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
+      case 'suspended':
+        return <Badge className="bg-red-100 text-red-800">Suspended</Badge>;
+      case 'rejected':
+        return <Badge className="bg-gray-100 text-gray-800">Rejected</Badge>;
+      default:
+        return <Badge className="bg-gray-100 text-gray-800">Unknown</Badge>;
+    }
+  };
 
-  // const handleDocumentUpload = async (documentKey, file) => {
-  //   // Upload logic commented out
-  // };
-
-  // const getDocumentUrl = (url) => {
-  //   if (!url) return null;
-  //   if (url.startsWith('http')) return url;
-  //   if (url.startsWith('/uploads')) return `${import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com'}${url}`;
-  //   return url;
-  // };
+  const formatDate = (date) => {
+    if (!date) return 'N/A';
+    return new Date(date).toLocaleDateString('en-ZA', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
 
   return (
     <div className="space-y-4">
       {/* Stats - Responsive */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         <div className="text-center p-2 sm:p-3 bg-yellow-50 rounded-lg">
           <p className="text-lg sm:text-xl font-bold text-yellow-600">{pendingVendors.length}</p>
           <p className="text-[10px] sm:text-xs text-gray-500">Pending</p>
@@ -166,6 +156,10 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
         <div className="text-center p-2 sm:p-3 bg-red-50 rounded-lg">
           <p className="text-lg sm:text-xl font-bold text-red-600">{suspendedVendors.length}</p>
           <p className="text-[10px] sm:text-xs text-gray-500">Suspended</p>
+        </div>
+        <div className="text-center p-2 sm:p-3 bg-gray-50 rounded-lg">
+          <p className="text-lg sm:text-xl font-bold text-gray-600">{rejectedVendors.length}</p>
+          <p className="text-[10px] sm:text-xs text-gray-500">Rejected</p>
         </div>
       </div>
 
@@ -196,9 +190,14 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
             {pendingVendors.map(vendor => (
               <div key={vendor.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 p-3 border rounded-lg bg-yellow-50/30">
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium text-sm truncate">{vendor.name || vendor.full_name}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-medium text-sm truncate">{vendor.name || vendor.full_name}</p>
+                    {getStatusBadge(vendor.vendor_status)}
+                  </div>
                   <p className="text-xs text-gray-500 truncate">{vendor.email}</p>
-                  {vendor.phone && <p className="text-xs text-gray-400 truncate">{vendor.phone}</p>}
+                  {vendor.restaurant_name && (
+                    <p className="text-xs text-gray-400 truncate">🏪 {vendor.restaurant_name}</p>
+                  )}
                 </div>
                 <div className="flex gap-2 w-full sm:w-auto">
                   <Button 
@@ -241,23 +240,16 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
             {filteredVendors.filter(v => v.vendor_status === 'approved').map(vendor => (
               <div key={vendor.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 p-3 bg-gray-50 rounded-lg">
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium text-sm truncate">{vendor.name || vendor.full_name}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-medium text-sm truncate">{vendor.name || vendor.full_name}</p>
+                    {getStatusBadge(vendor.vendor_status)}
+                  </div>
                   <p className="text-xs text-gray-500 truncate">{vendor.email}</p>
                   {vendor.restaurant_name && (
                     <p className="text-xs text-gray-400 truncate">🏪 {vendor.restaurant_name}</p>
                   )}
                 </div>
                 <div className="flex gap-2 items-center flex-wrap">
-                  <Badge className="bg-green-100 text-green-800 text-[10px] sm:text-xs whitespace-nowrap">Active</Badge>
-                  {/* Documents Button - COMMENTED OUT */}
-                  {/* <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={() => handleViewDocuments(vendor)}
-                    className="text-xs"
-                  >
-                    <FileText className="w-3 h-3 mr-1" /> Documents
-                  </Button> */}
                   <Button 
                     size="sm" 
                     variant="outline" 
@@ -297,19 +289,13 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
             {suspendedVendors.map(vendor => (
               <div key={vendor.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 p-3 bg-red-50 rounded-lg">
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium text-sm truncate">{vendor.name || vendor.full_name}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-medium text-sm truncate">{vendor.name || vendor.full_name}</p>
+                    {getStatusBadge(vendor.vendor_status)}
+                  </div>
                   <p className="text-xs text-gray-500 truncate">{vendor.email}</p>
                 </div>
                 <div className="flex gap-2">
-                  {/* Documents Button - COMMENTED OUT */}
-                  {/* <Button 
-                    size="sm" 
-                    variant="outline" 
-                    onClick={() => handleViewDocuments(vendor)}
-                    className="text-xs"
-                  >
-                    <FileText className="w-3 h-3 mr-1" /> Documents
-                  </Button> */}
                   <Button 
                     size="sm" 
                     variant="outline" 
@@ -332,6 +318,39 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
         </div>
       )}
 
+      {/* Rejected Vendors */}
+      {rejectedVendors.length > 0 && (
+        <div>
+          <h3 className="font-semibold text-xs sm:text-sm mb-2">Rejected Vendors ({rejectedVendors.length})</h3>
+          <div className="space-y-2">
+            {rejectedVendors.map(vendor => (
+              <div key={vendor.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 p-3 bg-gray-50 rounded-lg">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-medium text-sm truncate">{vendor.name || vendor.full_name}</p>
+                    {getStatusBadge(vendor.vendor_status)}
+                  </div>
+                  <p className="text-xs text-gray-500 truncate">{vendor.email}</p>
+                  {vendor.vendor_rejection_reason && (
+                    <p className="text-xs text-red-500 truncate">Reason: {vendor.vendor_rejection_reason}</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => { setSelectedVendor(vendor); setShowDetails(true); }}
+                    className="text-xs"
+                  >
+                    <Eye className="w-3 h-3 mr-1" /> View
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Empty State */}
       {safeVendors.length === 0 && (
         <div className="text-center py-8 sm:py-12 bg-gray-50 rounded-lg">
@@ -344,17 +363,34 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
       <Dialog open={showDetails} onOpenChange={setShowDetails}>
         <DialogContent className="max-w-[90vw] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-base sm:text-lg">Vendor Details</DialogTitle>
+            <DialogTitle className="text-base sm:text-lg flex items-center gap-2">
+              <Store className="w-5 h-5 text-purple-500" />
+              Vendor Details
+            </DialogTitle>
           </DialogHeader>
           {selectedVendor && (
             <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">Status:</span>
+                  {getStatusBadge(selectedVendor.vendor_status)}
+                </div>
+                {selectedVendor.vendor_status === 'pending' && (
+                  <p className="text-xs text-yellow-600 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Submitted: {formatDate(selectedVendor.created_at)}
+                  </p>
+                )}
+              </div>
+
               <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
-                <Store className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" />
+                <User className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] sm:text-xs text-gray-500">Business Name</p>
                   <p className="font-medium text-sm truncate">{selectedVendor.name || selectedVendor.full_name}</p>
                 </div>
               </div>
+
               <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
                 <Mail className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" />
                 <div className="min-w-0 flex-1">
@@ -362,6 +398,7 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                   <p className="text-sm break-all">{selectedVendor.email}</p>
                 </div>
               </div>
+
               {selectedVendor.phone && (
                 <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
                   <Phone className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" />
@@ -371,15 +408,54 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                   </div>
                 </div>
               )}
-              {selectedVendor.address && (
+
+              {selectedVendor.restaurant_name && (
                 <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
-                  <MapPin className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" />
+                  <Store className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] sm:text-xs text-gray-500">Address</p>
-                    <p className="text-sm break-all">{selectedVendor.address}</p>
+                    <p className="text-[10px] sm:text-xs text-gray-500">Restaurant</p>
+                    <p className="text-sm">{selectedVendor.restaurant_name}</p>
+                    {selectedVendor.restaurant_address && (
+                      <p className="text-xs text-gray-400">{selectedVendor.restaurant_address}</p>
+                    )}
                   </div>
                 </div>
               )}
+
+              {selectedVendor.business_registration_number && (
+                <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
+                  <Building2 className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] sm:text-xs text-gray-500">Business Registration</p>
+                    <p className="text-sm">{selectedVendor.business_registration_number}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Document Status */}
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-[10px] sm:text-xs text-gray-500 mb-2 flex items-center gap-1">
+                  <FileText className="w-3 h-3" /> Documents
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {selectedVendor.business_license && (
+                    <Badge className="bg-green-100 text-green-800 text-[10px]">✅ Business License</Badge>
+                  )}
+                  {selectedVendor.health_certificate && (
+                    <Badge className="bg-green-100 text-green-800 text-[10px]">✅ Health Certificate</Badge>
+                  )}
+                  {selectedVendor.halaal_certificate && (
+                    <Badge className="bg-blue-100 text-blue-800 text-[10px]">✅ Halaal Certificate</Badge>
+                  )}
+                  {selectedVendor.bank_confirmation && (
+                    <Badge className="bg-purple-100 text-purple-800 text-[10px]">✅ Bank Confirmation</Badge>
+                  )}
+                  {!selectedVendor.business_license && !selectedVendor.health_certificate && (
+                    <span className="text-xs text-gray-400">No documents uploaded</span>
+                  )}
+                </div>
+              </div>
+
               {(selectedVendor.bank_name || selectedVendor.bank_account_number) && (
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-[10px] sm:text-xs text-gray-500 mb-2 flex items-center gap-1">
@@ -392,15 +468,15 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                   )}
                 </div>
               )}
+
+              {selectedVendor.vendor_rejection_reason && (
+                <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                  <p className="text-xs font-semibold text-red-800">Rejection Reason:</p>
+                  <p className="text-sm text-red-700">{selectedVendor.vendor_rejection_reason}</p>
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                {/* View Documents Button - COMMENTED OUT */}
-                {/* <Button 
-                  onClick={() => handleViewDocuments(selectedVendor)}
-                  className="flex-1 bg-purple-600 text-white text-sm"
-                >
-                  <FileText className="w-4 h-4 mr-2" />
-                  View Documents
-                </Button> */}
                 <Button 
                   onClick={() => handleEditVendor(selectedVendor)}
                   className="flex-1 bg-blue-600 text-white text-sm"
@@ -408,14 +484,24 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                   <Edit className="w-4 h-4 mr-2" />
                   Edit Details
                 </Button>
-                {selectedVendor.vendor_status !== 'approved' && (
-                  <Button 
-                    onClick={() => updateVendorStatus(selectedVendor.id, 'approved')} 
-                    className="flex-1 bg-green text-white text-sm"
-                  >
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Approve Vendor
-                  </Button>
+                {selectedVendor.vendor_status === 'pending' && (
+                  <>
+                    <Button 
+                      onClick={() => updateVendorStatus(selectedVendor.id, 'approved')} 
+                      className="flex-1 bg-green text-white text-sm"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Approve
+                    </Button>
+                    <Button 
+                      onClick={() => updateVendorStatus(selectedVendor.id, 'rejected')} 
+                      variant="destructive" 
+                      className="flex-1 text-sm"
+                    >
+                      <XCircle className="w-4 h-4 mr-2" />
+                      Reject
+                    </Button>
+                  </>
                 )}
                 {selectedVendor.vendor_status === 'approved' && (
                   <Button 
@@ -424,7 +510,16 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
                     className="flex-1 text-sm"
                   >
                     <Ban className="w-4 h-4 mr-2" />
-                    Suspend Vendor
+                    Suspend
+                  </Button>
+                )}
+                {selectedVendor.vendor_status === 'suspended' && (
+                  <Button 
+                    onClick={() => updateVendorStatus(selectedVendor.id, 'approved')} 
+                    className="flex-1 bg-green text-white text-sm"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Reinstate
                   </Button>
                 )}
               </div>
@@ -432,16 +527,6 @@ export default function VendorManagement({ vendors = [], onRefresh }) {
           )}
         </DialogContent>
       </Dialog>
-
-      {/* Documents Modal - COMMENTED OUT */}
-      {/* <Dialog open={showDocumentsModal} onOpenChange={setShowDocumentsModal}>
-        ... Document upload modal content ...
-      </Dialog> */}
-
-      {/* Document Preview Modal - COMMENTED OUT */}
-      {/* <Dialog open={!!viewingDoc} onOpenChange={() => setViewingDoc(null)}>
-        ... Document preview modal content ...
-      </Dialog> */}
 
       {/* Edit Vendor Modal */}
       <Dialog open={showEditModal} onOpenChange={setShowEditModal}>

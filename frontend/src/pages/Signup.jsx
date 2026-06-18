@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { Store, User, Truck, Eye, EyeOff } from 'lucide-react';
+import { Store, User, Truck, Eye, EyeOff, Building2 } from 'lucide-react';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -16,6 +16,7 @@ export default function Signup() {
     phone: '',
     restaurant_name: '',
     restaurant_address: '',
+    business_registration_number: '',
   });
 
   const [showPassword, setShowPassword] = useState(false);
@@ -56,19 +57,28 @@ export default function Signup() {
     setLoading(true);
 
     try {
+      // Build registration data based on role
+      const registrationData = {
+        full_name: form.full_name,
+        email: form.email,
+        password: form.password,
+        role: form.role,
+        phone: form.phone,
+      };
+
+      // Add vendor-specific fields
+      if (form.role === 'vendor') {
+        registrationData.vendor_status = 'pending';
+        registrationData.business_registration_number = form.business_registration_number;
+      }
+
       // Register the user
       const res = await fetch('https://lloyds-delivery.onrender.com/api/auth/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          full_name: form.full_name,
-          email: form.email,
-          password: form.password,
-          role: form.role,
-          phone: form.phone,
-        }),
+        body: JSON.stringify(registrationData),
       });
 
       const data = await res.json();
@@ -77,7 +87,7 @@ export default function Signup() {
         throw new Error(data.message || 'Signup failed');
       }
 
-      // If vendor, log in and create restaurant
+      // If vendor, create restaurant with pending status
       if (form.role === 'vendor') {
         // Login to get token
         const loginRes = await fetch('https://lloyds-delivery.onrender.com/api/auth/login', {
@@ -92,8 +102,8 @@ export default function Signup() {
         const loginData = await loginRes.json();
 
         if (loginRes.ok && loginData.user) {
-          // Create restaurant for the vendor
-          await fetch('https://lloyds-delivery.onrender.com/api/restaurants', {
+          // Create restaurant for the vendor (inactive until approved)
+          await fetch('https://lloyds-delivery.onrender.com/api/vendor/setup-restaurant', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -104,7 +114,7 @@ export default function Signup() {
               address: form.restaurant_address,
               phone: form.phone,
               cuisine_type: 'Various',
-              owner_id: loginData.user.id,
+              business_registration_number: form.business_registration_number,
             }),
           });
         }
@@ -113,11 +123,19 @@ export default function Signup() {
       const roleMessage = {
         customer: 'Account created successfully! Please login.',
         driver: 'Driver application submitted. Await admin approval. You will be notified once approved.',
-        vendor: 'Restaurant registered successfully! Please login.',
+        vendor: 'Vendor application submitted! Please login to complete your profile and upload documents.',
       };
 
       toast.success(roleMessage[form.role] || 'Account created successfully!');
-      navigate('/login');
+      
+      // For vendors, navigate to onboarding to upload documents
+      if (form.role === 'vendor') {
+        // Store the email for the login redirect
+        localStorage.setItem('pending_vendor_email', form.email);
+        navigate('/login');
+      } else {
+        navigate('/login');
+      }
 
     } catch (err) {
       console.error(err);
@@ -289,6 +307,19 @@ export default function Signup() {
                   className="w-full"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <Building2 className="w-4 h-4 inline mr-1" />
+                  Business Registration Number (Optional)
+                </label>
+                <Input
+                  name="business_registration_number"
+                  placeholder="e.g., 2020/123456/07"
+                  value={form.business_registration_number}
+                  onChange={handleChange}
+                  className="w-full"
+                />
+              </div>
             </div>
           )}
 
@@ -300,8 +331,15 @@ export default function Signup() {
           )}
 
           {form.role === 'vendor' && (
-            <div className="text-xs text-blue-600 bg-blue-50 p-3 rounded-lg">
-              🏪 Your restaurant will be reviewed before going live. You can manage your menu once approved.
+            <div className="text-xs text-blue-600 bg-blue-50 p-3 rounded-lg space-y-1">
+              <p>🏪 Your restaurant will be reviewed before going live.</p>
+              <p>📄 After registration, you'll need to upload:</p>
+              <ul className="list-disc list-inside pl-2 text-blue-700">
+                <li>Business License</li>
+                <li>Health Certificate</li>
+                <li>Halaal Certificate (optional)</li>
+                <li>Bank Confirmation</li>
+              </ul>
             </div>
           )}
 

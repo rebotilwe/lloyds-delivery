@@ -134,21 +134,28 @@ function VendorGuard({ children }) {
   useEffect(() => {
     const check = async () => {
       if (user && user.role === 'vendor') {
-        // If vendor is pending, allow access to onboarding (document upload)
+        // If vendor is pending, check if they have a restaurant
         if (user.vendor_status === 'pending') {
-          setHasRestaurant(null);
-          setChecking(false);
-          // Check if they have a restaurant already
           try {
             const response = await api.get('/vendor/restaurant');
             if (response.data?.id) {
-              // If they already have a restaurant, they're waiting for approval
+              // Has restaurant - waiting for approval
               setHasRestaurant(true);
               navigate('/vendor-waiting');
+              setChecking(false);
+              return;
             }
           } catch {
-            // No restaurant yet, let them onboard
+            // No restaurant - need to onboard
+            setHasRestaurant(false);
+            navigate('/vendor/onboarding');
+            setChecking(false);
+            return;
           }
+          // If we get here, no restaurant found
+          setHasRestaurant(false);
+          navigate('/vendor/onboarding');
+          setChecking(false);
           return;
         }
         
@@ -156,6 +163,7 @@ function VendorGuard({ children }) {
         if (user.vendor_status === 'rejected') {
           setHasRestaurant(null);
           setChecking(false);
+          navigate('/vendor-waiting');
           return;
         }
         
@@ -330,6 +338,7 @@ function App() {
                     <Route path="settings" element={<VendorSettings />} />
                   </Route>
                   <Route path="/vendor/onboarding" element={<AuthGuard><VendorOnboarding /></AuthGuard>} />
+                  <Route path="/vendor-waiting" element={<AuthGuard><VendorWaiting /></AuthGuard>} />  {/* ← ADDED THIS LINE */}
 
                   {/* ── ADMIN ── */}
                   <Route path="/admin" element={<AdminGuard><AdminLayout /></AdminGuard>}>
@@ -347,7 +356,7 @@ function App() {
                     <Route path="driver-payouts" element={<DriverPayouts />} />
                     <Route path="vendor-payouts" element={<AdminVendorPayouts />} />
                     <Route path="settings"       element={<AdminSettingsPage />} />
-                    <Route path="support" element={<AdminSupportTickets />} />
+                    <Route path="support"        element={<AdminSupportTickets />} />
                     <Route path="package-approvals" element={<AdminPackageApprovals />} />
                     <Route path="/admin/earnings" element={<AdminEarningsOverview />} />
                     <Route path="menu-approvals" element={<AdminMenuApprovals />} />

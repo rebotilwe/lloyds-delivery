@@ -211,11 +211,12 @@ export default function VendorOnboarding() {
           formData.append('file', file);
           formData.append('document_key', docType);
           
-          uploadPromises.push(
-            api.post(`/vendor/admin/upload-document/${restaurantId}`, formData, {
-              headers: { 'Content-Type': 'multipart/form-data' }
-            })
-          );
+       // Change it to:
+uploadPromises.push(
+  api.post(`/vendor/upload-document`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+);
         }
       }
 

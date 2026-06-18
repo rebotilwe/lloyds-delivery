@@ -28,7 +28,8 @@ const vendorDocumentStorage = multer.diskStorage({
     cb(null, vendorDocUploadDir);
   },
   filename: (req, file, cb) => {
-    const { vendorId } = req.params;
+    // For vendor self-upload, use user id from token
+    const vendorId = req.user?.id || req.params.vendorId;
     const { document_key } = req.body;
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
@@ -97,7 +98,75 @@ router.get("/restaurant", async (req, res) => {
 });
 
 /* =========================
-   SETUP RESTAURANT (Vendor Onboarding) - FIXED
+   VENDOR: UPLOAD OWN DOCUMENT (NEW ROUTE)
+========================= */
+router.post(
+  "/upload-document",
+  verifyToken,
+  authorizeRoles("vendor"),
+  uploadVendorDocument.single("file"),
+  async (req, res) => {
+    try {
+      const vendorId = req.user.id;
+      const { document_key } = req.body;
+      const file = req.file;
+      
+      console.log(`📤 Vendor ${vendorId} uploading ${document_key}`);
+      console.log("File received:", file ? file.originalname : "No file");
+      
+      if (!file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+      
+      if (!document_key) {
+        return res.status(400).json({ message: "Document key is required" });
+      }
+      
+      const allowedDocuments = [
+        'health_certificate', 
+        'halaal_certificate', 
+        'business_license', 
+        'bank_confirmation'
+      ];
+      
+      if (!allowedDocuments.includes(document_key)) {
+        return res.status(400).json({ 
+          message: `Invalid document key. Allowed: ${allowedDocuments.join(', ')}` 
+        });
+      }
+      
+      // Construct the file URL
+      const fileUrl = `${req.protocol}://${req.get('host')}/uploads/vendor-documents/${file.filename}`;
+      
+      console.log(`Generated URL: ${fileUrl}`);
+      
+      // Update the vendor's record with the new document URL
+      const result = await db.query(
+        `UPDATE users SET ${document_key} = $1, vendor_submitted_at = NOW() WHERE id = $2 AND role = 'vendor' RETURNING id, name`,
+        [fileUrl, vendorId]
+      );
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "Vendor not found" });
+      }
+      
+      console.log(`✅ Uploaded ${document_key} for vendor ${result.rows[0].name} (ID: ${vendorId})`);
+      
+      res.json({ 
+        success: true, 
+        url: fileUrl,
+        message: `${document_key} uploaded successfully`
+      });
+      
+    } catch (err) {
+      console.error("Upload error:", err);
+      res.status(500).json({ message: "Server error: " + err.message });
+    }
+  }
+);
+
+/* =========================
+   SETUP RESTAURANT (Vendor Onboarding)
 ========================= */
 router.post("/setup-restaurant", async (req, res) => {
   try {
@@ -109,7 +178,6 @@ router.post("/setup-restaurant", async (req, res) => {
       phone,
       delivery_fee,
       business_registration_number
-      // tax_clearance_number REMOVED - column doesn't exist
     } = req.body;
 
     console.log("🏪 Setting up restaurant for vendor:", req.user.id);
@@ -151,7 +219,6 @@ router.post("/setup-restaurant", async (req, res) => {
     console.log(`✅ Restaurant created: ID ${restaurantId}, Name: ${name}`);
 
     // Update vendor with business details and set status to pending
-    // REMOVED: tax_clearance_number from the UPDATE
     await db.query(
       `UPDATE users SET 
          vendor_status = 'pending',
@@ -712,85 +779,10 @@ router.post("/request-withdrawal", async (req, res) => {
   }
 });
 
-// ==================== ADMIN: VENDOR DOCUMENT UPLOAD ====================
-
-/* =========================
-   ADMIN: UPLOAD VENDOR DOCUMENT
-========================= */
-router.post(
-  "/admin/upload-document/:vendorId",
-  verifyToken,
-  authorizeRoles("admin"),
-  uploadVendorDocument.single("file"),
-  async (req, res) => {
-    try {
-      const { vendorId } = req.params;
-      const { document_key } = req.body;
-      const file = req.file;
-      
-      console.log(`📤 Admin uploading ${document_key} for vendor ${vendorId}`);
-      console.log("File received:", file ? file.originalname : "No file");
-      
-      if (!file) {
-        return res.status(400).json({ message: "No file uploaded" });
-      }
-      
-      if (!vendorId) {
-        return res.status(400).json({ message: "Vendor ID is required" });
-      }
-      
-      if (!document_key) {
-        return res.status(400).json({ message: "Document key is required" });
-      }
-      
-      const allowedDocuments = [
-        'health_certificate', 
-        'halaal_certificate', 
-        'business_license', 
-        'vat_registration', 
-        'bank_confirmation'
-      ];
-      
-      if (!allowedDocuments.includes(document_key)) {
-        return res.status(400).json({ 
-          message: `Invalid document key. Allowed: ${allowedDocuments.join(', ')}` 
-        });
-      }
-      
-      // Construct the file URL
-      const fileUrl = `${req.protocol}://${req.get('host')}/uploads/vendor-documents/${file.filename}`;
-      
-      console.log(`Generated URL: ${fileUrl}`);
-      
-      // Update the vendor's record with the new document URL
-      const result = await db.query(
-        `UPDATE users SET ${document_key} = $1 WHERE id = $2 AND role = 'vendor' RETURNING id, name`,
-        [fileUrl, vendorId]
-      );
-      
-      if (result.rows.length === 0) {
-        return res.status(404).json({ message: "Vendor not found" });
-      }
-      
-      console.log(`✅ Uploaded ${document_key} for vendor ${result.rows[0].name} (ID: ${vendorId})`);
-      
-      res.json({ 
-        success: true, 
-        url: fileUrl,
-        message: `${document_key} uploaded successfully`
-      });
-      
-    } catch (err) {
-      console.error("Upload error:", err);
-      res.status(500).json({ message: "Server error: " + err.message });
-    }
-  }
-);
-
 // ==================== ADMIN: VENDOR APPROVAL ROUTES ====================
 
 /* =========================
-   ADMIN: GET PENDING VENDORS - FIXED (removed tax_clearance_number)
+   ADMIN: GET PENDING VENDORS
 ========================= */
 router.get(
   "/admin/pending",
@@ -820,7 +812,7 @@ router.get(
 );
 
 /* =========================
-   ADMIN: GET ALL VENDORS - FIXED (removed tax_clearance_number)
+   ADMIN: GET ALL VENDORS
 ========================= */
 router.get(
   "/admin/all",

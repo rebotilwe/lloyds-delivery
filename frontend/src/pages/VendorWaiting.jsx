@@ -41,7 +41,7 @@ export default function VendorWaiting() {
       try {
         const response = await api.get('/vendor/status');
         if (response.data && response.data.vendor_status) {
-          const updatedUser = { ...user, vendor_status: response.data.vendor_status };
+          const updatedUser = { ...user, ...response.data };
           localStorage.setItem('user', JSON.stringify(updatedUser));
           setUser(updatedUser);
 
@@ -62,8 +62,8 @@ export default function VendorWaiting() {
     setCheckingStatus(true);
     try {
       const response = await api.get('/vendor/status');
-      if (response.data && response.data.vendor_status) {
-        const updatedUser = { ...user, vendor_status: response.data.vendor_status };
+      if (response.data) {
+        const updatedUser = { ...user, ...response.data };
         localStorage.setItem('user', JSON.stringify(updatedUser));
         setUser(updatedUser);
 
@@ -185,12 +185,24 @@ export default function VendorWaiting() {
             <span className="font-medium">Submitted documents:</span>
           </p>
           <div className="flex flex-wrap gap-2 justify-center mt-2">
-            <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">✅ Business License</span>
-            <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">✅ Health Certificate</span>
-            <span className={`text-xs px-2 py-0.5 rounded ${user?.halaal_certificate ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+            <span className={`text-xs px-2 py-0.5 rounded ${
+              user?.business_license ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {user?.business_license ? '✅' : '⬜'} Business License
+            </span>
+            <span className={`text-xs px-2 py-0.5 rounded ${
+              user?.health_certificate ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {user?.health_certificate ? '✅' : '⬜'} Health Certificate
+            </span>
+            <span className={`text-xs px-2 py-0.5 rounded ${
+              user?.halaal_certificate ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+            }`}>
               {user?.halaal_certificate ? '✅' : '⬜'} Halaal Certificate
             </span>
-            <span className={`text-xs px-2 py-0.5 rounded ${user?.bank_confirmation ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+            <span className={`text-xs px-2 py-0.5 rounded ${
+              user?.bank_confirmation ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+            }`}>
               {user?.bank_confirmation ? '✅' : '⬜'} Bank Confirmation
             </span>
           </div>

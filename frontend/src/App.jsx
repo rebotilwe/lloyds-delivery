@@ -124,42 +124,51 @@ function DriverGuard({ children }) {
   }
 }
 
-// UPDATED VendorGuard - Allows pending vendors to access onboarding
+// UPDATED VendorGuard - Handles all vendor states properly
 function VendorGuard({ children }) {
   const { user, loading } = useAuth();
   const [hasRestaurant, setHasRestaurant] = useState(null);
+  const [hasDocuments, setHasDocuments] = useState(false);
   const [checking, setChecking] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
     const check = async () => {
       if (user && user.role === 'vendor') {
-        // If vendor is pending, check if they have a restaurant
+        // Check if user has submitted any documents
+        const docs = user.business_license || user.health_certificate || 
+                     user.halaal_certificate || user.bank_confirmation;
+        setHasDocuments(!!docs);
+        
+        // If vendor is pending
         if (user.vendor_status === 'pending') {
+          if (!docs) {
+            // No documents - go to onboarding
+            navigate('/vendor/onboarding');
+            setChecking(false);
+            return;
+          }
+          
+          // Has documents - check if they have a restaurant
           try {
             const response = await api.get('/vendor/restaurant');
             if (response.data?.id) {
               // Has restaurant - waiting for approval
               setHasRestaurant(true);
               navigate('/vendor-waiting');
-              setChecking(false);
-              return;
+            } else {
+              // No restaurant - go to onboarding
+              setHasRestaurant(false);
+              navigate('/vendor/onboarding');
             }
           } catch {
-            // No restaurant - need to onboard
-            setHasRestaurant(false);
             navigate('/vendor/onboarding');
-            setChecking(false);
-            return;
           }
-          // If we get here, no restaurant found
-          setHasRestaurant(false);
-          navigate('/vendor/onboarding');
           setChecking(false);
           return;
         }
         
-        // If vendor is rejected, redirect to waiting page
+        // If vendor is rejected
         if (user.vendor_status === 'rejected') {
           setHasRestaurant(null);
           setChecking(false);
@@ -167,7 +176,7 @@ function VendorGuard({ children }) {
           return;
         }
         
-        // If vendor is approved, check for restaurant
+        // If vendor is approved
         if (user.vendor_status === 'approved') {
           try {
             const response = await api.get('/vendor/restaurant');
@@ -186,9 +195,14 @@ function VendorGuard({ children }) {
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'vendor') return <Navigate to="/" replace />;
   
-  // If vendor is pending, show onboarding (document upload)
-  if (user.vendor_status === 'pending') {
+  // If vendor is pending with no documents, show onboarding
+  if (user.vendor_status === 'pending' && !hasDocuments) {
     return <VendorOnboarding />;
+  }
+  
+  // If vendor is pending with documents, show waiting
+  if (user.vendor_status === 'pending' && hasDocuments) {
+    return <VendorWaiting />;
   }
   
   // If vendor is rejected, show waiting page
@@ -201,7 +215,13 @@ function VendorGuard({ children }) {
     return <VendorOnboarding />;
   }
   
-  return children;
+  // If vendor is approved and has a restaurant, show dashboard
+  if (user.vendor_status === 'approved' && hasRestaurant === true) {
+    return children;
+  }
+  
+  // Fallback: show onboarding
+  return <VendorOnboarding />;
 }
 
 // ── Admin sub-page wrappers with data fetching ──────────────────────────────────
@@ -338,7 +358,7 @@ function App() {
                     <Route path="settings" element={<VendorSettings />} />
                   </Route>
                   <Route path="/vendor/onboarding" element={<AuthGuard><VendorOnboarding /></AuthGuard>} />
-                  <Route path="/vendor-waiting" element={<AuthGuard><VendorWaiting /></AuthGuard>} />  {/* ← ADDED THIS LINE */}
+                  <Route path="/vendor-waiting" element={<AuthGuard><VendorWaiting /></AuthGuard>} />
 
                   {/* ── ADMIN ── */}
                   <Route path="/admin" element={<AdminGuard><AdminLayout /></AdminGuard>}>

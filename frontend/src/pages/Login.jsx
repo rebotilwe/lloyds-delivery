@@ -36,7 +36,21 @@ export default function Login() {
       } else if (user.role === "vendor") {
         // Check vendor status and redirect accordingly
         if (user.vendor_status === "pending") {
-          // Check if they have a restaurant setup (documents uploaded)
+          // Check if user has submitted any documents
+          const hasDocuments = user.business_license || user.health_certificate || 
+                               user.halaal_certificate || user.bank_confirmation;
+          
+          if (hasDocuments) {
+            // Has documents - waiting for approval
+            navigate("/vendor-waiting");
+          } else {
+            // No documents - need to onboard
+            navigate("/vendor/onboarding");
+          }
+        } else if (user.vendor_status === "rejected") {
+          navigate("/vendor-waiting");
+        } else if (user.vendor_status === "approved") {
+          // Check if they have a restaurant
           try {
             const response = await fetch('https://lloyds-delivery.onrender.com/api/vendor/restaurant', {
               headers: {
@@ -44,8 +58,7 @@ export default function Login() {
               }
             });
             if (response.ok) {
-              // Has restaurant - waiting for approval
-              navigate("/vendor-waiting");
+              navigate("/vendor");
             } else {
               // No restaurant yet - need to onboard
               navigate("/vendor/onboarding");
@@ -53,13 +66,9 @@ export default function Login() {
           } catch {
             navigate("/vendor/onboarding");
           }
-        } else if (user.vendor_status === "rejected") {
-          navigate("/vendor-waiting");
-        } else if (user.vendor_status === "approved") {
-          navigate("/vendor");
         } else {
-          // Default fallback
-          navigate("/vendor");
+          // Default fallback - go to onboarding
+          navigate("/vendor/onboarding");
         }
       } else {
         navigate("/");

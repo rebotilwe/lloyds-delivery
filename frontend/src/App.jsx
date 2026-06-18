@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { SocketProvider } from '@/context/SocketContext';
 import { Clock } from 'lucide-react';
@@ -124,27 +124,52 @@ function DriverGuard({ children }) {
   }
 }
 
-// UPDATED VendorGuard - Handles all vendor states properly
+// FIXED VendorGuard - Checks current location to prevent redirect loops
 function VendorGuard({ children }) {
   const { user, loading } = useAuth();
   const [hasRestaurant, setHasRestaurant] = useState(null);
   const [hasDocuments, setHasDocuments] = useState(false);
   const [checking, setChecking] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     const check = async () => {
       if (user && user.role === 'vendor') {
-        // Check if user has submitted any documents
-        const docs = user.business_license || user.health_certificate || 
-                     user.halaal_certificate || user.bank_confirmation;
-        setHasDocuments(!!docs);
+        console.log("🔍 VendorGuard - Current path:", location.pathname);
+        console.log("🔍 VendorGuard - User:", {
+          id: user.id,
+          vendor_status: user.vendor_status,
+          business_license: user.business_license,
+          health_certificate: user.health_certificate,
+        });
+        
+        // Check if user has submitted any documents (handle null and empty strings)
+        const hasBusinessLicense = !!(user.business_license && user.business_license.trim() !== '');
+        const hasHealthCert = !!(user.health_certificate && user.health_certificate.trim() !== '');
+        const hasHalaalCert = !!(user.halaal_certificate && user.halaal_certificate.trim() !== '');
+        const hasBankConf = !!(user.bank_confirmation && user.bank_confirmation.trim() !== '');
+        const hasDocs = hasBusinessLicense || hasHealthCert || hasHalaalCert || hasBankConf;
+        
+        setHasDocuments(hasDocs);
+        console.log(`📄 VendorGuard - Has documents: ${hasDocs}`);
+        
+        // If we're already on onboarding or waiting, DON'T redirect
+        const isOnOnboarding = location.pathname === '/vendor/onboarding';
+        const isOnWaiting = location.pathname === '/vendor-waiting';
+        
+        if (isOnOnboarding || isOnWaiting) {
+          console.log(`📍 VendorGuard: On ${location.pathname}, skipping redirect`);
+          setChecking(false);
+          return;
+        }
         
         // If vendor is pending
         if (user.vendor_status === 'pending') {
-          if (!docs) {
-            // No documents - go to onboarding
-            navigate('/vendor/onboarding');
+          if (!hasDocs) {
+            // No documents - redirect to onboarding
+            console.log("➡️ VendorGuard: No documents, redirecting to ONBOARDING");
+            navigate('/vendor/onboarding', { replace: true });
             setChecking(false);
             return;
           }
@@ -153,16 +178,17 @@ function VendorGuard({ children }) {
           try {
             const response = await api.get('/vendor/restaurant');
             if (response.data?.id) {
-              // Has restaurant - waiting for approval
               setHasRestaurant(true);
-              navigate('/vendor-waiting');
+              console.log("➡️ VendorGuard: Has restaurant, redirecting to WAITING");
+              navigate('/vendor-waiting', { replace: true });
             } else {
-              // No restaurant - go to onboarding
               setHasRestaurant(false);
-              navigate('/vendor/onboarding');
+              console.log("➡️ VendorGuard: No restaurant, redirecting to ONBOARDING");
+              navigate('/vendor/onboarding', { replace: true });
             }
           } catch {
-            navigate('/vendor/onboarding');
+            setHasRestaurant(false);
+            navigate('/vendor/onboarding', { replace: true });
           }
           setChecking(false);
           return;
@@ -171,57 +197,90 @@ function VendorGuard({ children }) {
         // If vendor is rejected
         if (user.vendor_status === 'rejected') {
           setHasRestaurant(null);
+          console.log("➡️ VendorGuard: Rejected, redirecting to WAITING");
+          navigate('/vendor-waiting', { replace: true });
           setChecking(false);
-          navigate('/vendor-waiting');
           return;
         }
         
         // If vendor is approved
         if (user.vendor_status === 'approved') {
+          // Check if they have a restaurant
           try {
             const response = await api.get('/vendor/restaurant');
-            setHasRestaurant(!!response.data?.id);
+            const hasRest = !!response.data?.id;
+            setHasRestaurant(hasRest);
+            
+            if (!hasRest) {
+              console.log("➡️ VendorGuard: Approved but no restaurant, redirecting to ONBOARDING");
+              navigate('/vendor/onboarding', { replace: true });
+            } else {
+              console.log("✅ VendorGuard: Approved with restaurant, staying on dashboard");
+            }
           } catch {
             setHasRestaurant(false);
+            console.log("➡️ VendorGuard: Error checking restaurant, redirecting to ONBOARDING");
+            navigate('/vendor/onboarding', { replace: true });
           }
         }
       }
       setChecking(false);
     };
     if (!loading) check();
-  }, [user, loading, navigate]);
+  }, [user, loading, navigate, location.pathname]);
 
   if (loading || checking) return <Loader />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'vendor') return <Navigate to="/" replace />;
   
-  // If vendor is pending with no documents, show onboarding
+  // If we're on onboarding or waiting, render those routes directly
+  const isOnOnboarding = location.pathname === '/vendor/onboarding';
+  const isOnWaiting = location.pathname === '/vendor-waiting';
+  
+  if (isOnOnboarding || isOnWaiting) {
+    console.log(`✅ VendorGuard: On ${location.pathname}, rendering children`);
+    return children;
+  }
+  
+  console.log("🎯 VendorGuard - Final decision:", {
+    vendor_status: user.vendor_status,
+    hasDocuments,
+    hasRestaurant,
+  });
+  
+  // If vendor is pending with no documents, redirect to onboarding
   if (user.vendor_status === 'pending' && !hasDocuments) {
-    return <VendorOnboarding />;
+    console.log("➡️ VendorGuard: Redirecting to ONBOARDING");
+    return <Navigate to="/vendor/onboarding" replace />;
   }
   
-  // If vendor is pending with documents, show waiting
+  // If vendor is pending with documents, redirect to waiting
   if (user.vendor_status === 'pending' && hasDocuments) {
-    return <VendorWaiting />;
+    console.log("➡️ VendorGuard: Redirecting to WAITING");
+    return <Navigate to="/vendor-waiting" replace />;
   }
   
-  // If vendor is rejected, show waiting page
+  // If vendor is rejected, redirect to waiting
   if (user.vendor_status === 'rejected') {
-    return <VendorWaiting />;
+    console.log("➡️ VendorGuard: Redirecting to WAITING (rejected)");
+    return <Navigate to="/vendor-waiting" replace />;
   }
   
-  // If vendor is approved but no restaurant, show onboarding
+  // If vendor is approved but no restaurant, redirect to onboarding
   if (user.vendor_status === 'approved' && hasRestaurant === false) {
-    return <VendorOnboarding />;
+    console.log("➡️ VendorGuard: Redirecting to ONBOARDING (approved but no restaurant)");
+    return <Navigate to="/vendor/onboarding" replace />;
   }
   
   // If vendor is approved and has a restaurant, show dashboard
   if (user.vendor_status === 'approved' && hasRestaurant === true) {
+    console.log("✅ VendorGuard: Rendering dashboard");
     return children;
   }
   
-  // Fallback: show onboarding
-  return <VendorOnboarding />;
+  // Fallback: redirect to onboarding
+  console.log("➡️ VendorGuard: Fallback redirect to ONBOARDING");
+  return <Navigate to="/vendor/onboarding" replace />;
 }
 
 // ── Admin sub-page wrappers with data fetching ──────────────────────────────────
@@ -350,33 +409,35 @@ function App() {
                   {/* DRIVER */}
                   <Route path="/driver" element={<DriverGuard><DriverDashboard /></DriverGuard>} />
 
-                  {/* VENDOR */}
+                  {/* VENDOR - Protected routes that require a fully onboarded vendor */}
                   <Route path="/vendor" element={<VendorGuard><VendorLayout /></VendorGuard>}>
-                    <Route index         element={<VendorDashboard />} />
-                    <Route path="orders"   element={<VendorOrders />} />
-                    <Route path="menu"     element={<VendorMenu />} />
+                    <Route index element={<VendorDashboard />} />
+                    <Route path="orders" element={<VendorOrders />} />
+                    <Route path="menu" element={<VendorMenu />} />
                     <Route path="settings" element={<VendorSettings />} />
                   </Route>
+
+                  {/* VENDOR - Public/Onboarding routes (NOT protected by VendorGuard) */}
                   <Route path="/vendor/onboarding" element={<AuthGuard><VendorOnboarding /></AuthGuard>} />
                   <Route path="/vendor-waiting" element={<AuthGuard><VendorWaiting /></AuthGuard>} />
 
                   {/* ── ADMIN ── */}
                   <Route path="/admin" element={<AdminGuard><AdminLayout /></AdminGuard>}>
                     <Route index element={<AdminDashboard />} />
-                    <Route path="orders"         element={<AdminOrdersPage />} />
-                    <Route path="orders/:id"     element={<AdminOrderDetails />} />
-                    <Route path="restaurants"    element={<AdminRestaurantsPage />} />
-                    <Route path="menu"           element={<AdminMenuPage />} />
-                    <Route path="vendors"        element={<AdminVendorsPage />} />
-                    <Route path="drivers"        element={<AdminDriversPage />} />
-                    <Route path="users"          element={<AdminUsersPage />} />
-                    <Route path="finance"        element={<AdminFinancePage />} />
-                    <Route path="disputes"       element={<AdminDisputesPage />} />
-                    <Route path="payouts"        element={<DriverPayouts />} />
+                    <Route path="orders" element={<AdminOrdersPage />} />
+                    <Route path="orders/:id" element={<AdminOrderDetails />} />
+                    <Route path="restaurants" element={<AdminRestaurantsPage />} />
+                    <Route path="menu" element={<AdminMenuPage />} />
+                    <Route path="vendors" element={<AdminVendorsPage />} />
+                    <Route path="drivers" element={<AdminDriversPage />} />
+                    <Route path="users" element={<AdminUsersPage />} />
+                    <Route path="finance" element={<AdminFinancePage />} />
+                    <Route path="disputes" element={<AdminDisputesPage />} />
+                    <Route path="payouts" element={<DriverPayouts />} />
                     <Route path="driver-payouts" element={<DriverPayouts />} />
                     <Route path="vendor-payouts" element={<AdminVendorPayouts />} />
-                    <Route path="settings"       element={<AdminSettingsPage />} />
-                    <Route path="support"        element={<AdminSupportTickets />} />
+                    <Route path="settings" element={<AdminSettingsPage />} />
+                    <Route path="support" element={<AdminSupportTickets />} />
                     <Route path="package-approvals" element={<AdminPackageApprovals />} />
                     <Route path="/admin/earnings" element={<AdminEarningsOverview />} />
                     <Route path="menu-approvals" element={<AdminMenuApprovals />} />

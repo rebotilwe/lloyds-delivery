@@ -46,21 +46,65 @@ export default function VendorOnboarding() {
     bank_confirmation: null,
   });
 
+  // Pre-fill restaurant details the vendor already typed in at signup,
+  // so they don't have to enter the same info twice.
+  useEffect(() => {
+    const pending = localStorage.getItem('pending_vendor_restaurant');
+    if (pending) {
+      try {
+        const parsed = JSON.parse(pending);
+        setFormData(prev => ({
+          ...prev,
+          name: parsed.name || prev.name,
+          address: parsed.address || prev.address,
+          phone: parsed.phone || prev.phone,
+          business_registration_number: parsed.business_registration_number || prev.business_registration_number,
+        }));
+      } catch (err) {
+        // Ignore malformed data
+      } finally {
+        localStorage.removeItem('pending_vendor_restaurant');
+      }
+    }
+  }, []);
+
   // Load user data and check for existing restaurant
   useEffect(() => {
     const stored = localStorage.getItem('user');
     if (stored) {
       const parsed = JSON.parse(stored);
       setUser(parsed);
+
+      // FIX: Determine if documents have actually been uploaded.
+      // A restaurant record existing is NOT the same as documents being
+      // submitted - Signup.jsx creates the restaurant immediately at
+      // registration time, before any documents exist. So "has a
+      // restaurant" must never be used on its own to decide whether
+      // someone has finished onboarding.
+      const hasBusinessLicense = !!(parsed.business_license && parsed.business_license.trim() !== '');
+      const hasHealthCert = !!(parsed.health_certificate && parsed.health_certificate.trim() !== '');
+      const hasHalaalCert = !!(parsed.halaal_certificate && parsed.halaal_certificate.trim() !== '');
+      const hasBankConf = !!(parsed.bank_confirmation && parsed.bank_confirmation.trim() !== '');
+      const hasDocs = hasBusinessLicense || hasHealthCert || hasHalaalCert || hasBankConf;
       
       // Check if they already have a restaurant
       const checkRestaurant = async () => {
         try {
-          const response = await api.get('/vendor/restaurant');
+          const token = localStorage.getItem('token');
+          const response = await api.get('/vendor/restaurant', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
           if (response.data && response.data.id) {
             setHasRestaurant(true);
-            // If they have a restaurant and status is pending, redirect to waiting
-            if (parsed.vendor_status === 'pending') {
+            // FIX: Only redirect to the waiting page if a restaurant
+            // exists AND documents have actually been submitted. Without
+            // the hasDocs check here, a vendor who has a restaurant
+            // (created at signup) but hasn't uploaded any documents yet
+            // gets bounced straight to /vendor-waiting and can never
+            // reach the upload form.
+            if (parsed.vendor_status === 'pending' && hasDocs) {
               navigate('/vendor-waiting');
               return;
             }
@@ -79,6 +123,11 @@ export default function VendorOnboarding() {
       } else {
         setCheckingRestaurant(false);
       }
+    } else {
+      // FIX: previously, if there was no stored user at all,
+      // checkingRestaurant was left "true" forever and the page would
+      // spin on the loading state indefinitely.
+      setCheckingRestaurant(false);
     }
   }, [navigate]);
 
@@ -164,6 +213,37 @@ export default function VendorOnboarding() {
     </div>
   );
 
+  const uploadDocument = async (documentKey, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('document_key', documentKey);
+    
+    try {
+      const token = localStorage.getItem('token');
+      console.log(`📤 Uploading ${documentKey}...`);
+      
+      const response = await fetch('https://lloyds-delivery.onrender.com/api/vendor/upload-document', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || `Failed to upload ${documentKey}`);
+      }
+      
+      const data = await response.json();
+      console.log(`✅ Uploaded ${documentKey}:`, data);
+      return data;
+    } catch (error) {
+      console.error(`❌ Error uploading ${documentKey}:`, error);
+      throw error;
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -184,8 +264,23 @@ export default function VendorOnboarding() {
 
     setLoading(true);
     try {
-      // First, create the restaurant
-      const restaurantResponse = await api.post('/vendor/setup-restaurant', {
+      const token = localStorage.getItem('token');
+      
+      // FIX: Check whether a restaurant already exists (it may, since
+      // Signup.jsx creates one at registration time) before deciding
+      // whether to create a new one or update the existing one. This
+      // avoids creating duplicate restaurant rows for the same vendor.
+      let restaurantExists = false;
+      try {
+        const existing = await api.get('/vendor/restaurant', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        restaurantExists = !!(existing.data && existing.data.id);
+      } catch (err) {
+        restaurantExists = false;
+      }
+
+      const restaurantPayload = {
         name: formData.name,
         description: formData.description,
         cuisine_type: formData.cuisine_type,
@@ -194,37 +289,45 @@ export default function VendorOnboarding() {
         delivery_fee: Number(formData.delivery_fee),
         business_registration_number: formData.business_registration_number,
         tax_clearance_number: formData.tax_clearance_number,
-      });
+      };
 
-      if (!restaurantResponse.data.success) {
-        throw new Error('Failed to create restaurant');
-      }
+      console.log(restaurantExists ? '🏪 Updating existing restaurant...' : '🏪 Creating restaurant...');
 
-      const restaurantId = restaurantResponse.data.restaurant_id;
+      const restaurantResponse = restaurantExists
+        ? await api.put('/vendor/restaurant', restaurantPayload, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+        : await api.post('/vendor/setup-restaurant', restaurantPayload, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
 
-      // Upload documents
+      console.log('✅ Restaurant saved:', restaurantResponse.data);
+
+      // Upload documents one by one
       const uploadPromises = [];
+      const docKeys = ['business_license', 'health_certificate', 'halaal_certificate', 'bank_confirmation'];
       
-      for (const [docType, file] of Object.entries(documents)) {
-        if (file) {
-          const formData = new FormData();
-          formData.append('file', file);
-          formData.append('document_key', docType);
+      for (const docKey of docKeys) {
+        if (documents[docKey]) {
+          console.log(`📤 Uploading ${docKey}...`);
+          const uploadPromise = uploadDocument(docKey, documents[docKey]);
+          uploadPromises.push(uploadPromise);
           
-       // Change it to:
-uploadPromises.push(
-  api.post(`/vendor/upload-document`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  })
-);
+          // Show progress toast
+          toast.info(`Uploading ${docKey.replace('_', ' ')}...`);
         }
       }
 
       await Promise.all(uploadPromises);
+      console.log('✅ All documents uploaded successfully');
 
       // Update vendor status to pending approval
       await api.put('/vendor/update-status', { 
         vendor_status: 'pending'
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
 
       toast.success('Restaurant created and documents submitted for review!');
@@ -235,14 +338,23 @@ uploadPromises.push(
       if (stored) {
         const userData = JSON.parse(stored);
         userData.vendor_status = 'pending';
+        // FIX: also persist that documents now exist locally, so any
+        // guard/check that reads from localStorage immediately after
+        // this (before a fresh /me or /vendor/status fetch) reflects
+        // reality and doesn't bounce the user back to onboarding.
+        userData.business_license = userData.business_license || 'submitted';
+        userData.health_certificate = userData.health_certificate || 'submitted';
+        if (documents.halaal_certificate) userData.halaal_certificate = 'submitted';
+        if (documents.bank_confirmation) userData.bank_confirmation = 'submitted';
         localStorage.setItem('user', JSON.stringify(userData));
       }
 
+      // Navigate to waiting page
       navigate('/vendor-waiting');
 
     } catch (error) {
       console.error('Setup error:', error);
-      toast.error(error.response?.data?.message || 'Failed to setup restaurant');
+      toast.error(error.response?.data?.message || error.message || 'Failed to setup restaurant');
     } finally {
       setLoading(false);
     }

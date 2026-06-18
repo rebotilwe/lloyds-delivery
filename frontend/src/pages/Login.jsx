@@ -34,8 +34,10 @@ export default function Login() {
       console.log("📄 Vendor status:", user.vendor_status);
       console.log("📄 Business License:", user.business_license);
       console.log("📄 Health Certificate:", user.health_certificate);
+      console.log("📄 Halaal Certificate:", user.halaal_certificate);
+      console.log("📄 Bank Confirmation:", user.bank_confirmation);
 
-      // Redirect based on role and status
+      // Redirect based on role
       if (user.role === "admin") {
         navigate("/admin");
         return;
@@ -47,16 +49,18 @@ export default function Login() {
       }
       
       if (user.role === "vendor") {
-        // Check if vendor has submitted any documents
-        const hasBusinessLicense = !!user.business_license;
-        const hasHealthCert = !!user.health_certificate;
-        const hasHalaalCert = !!user.halaal_certificate;
-        const hasBankConf = !!user.bank_confirmation;
+        // CRITICAL: Check if vendor has submitted ANY documents
+        const hasBusinessLicense = !!(user.business_license && user.business_license.trim() !== '');
+        const hasHealthCert = !!(user.health_certificate && user.health_certificate.trim() !== '');
+        const hasHalaalCert = !!(user.halaal_certificate && user.halaal_certificate.trim() !== '');
+        const hasBankConf = !!(user.bank_confirmation && user.bank_confirmation.trim() !== '');
         const hasDocuments = hasBusinessLicense || hasHealthCert || hasHalaalCert || hasBankConf;
         
-        console.log(`📄 Has documents: ${hasDocuments}`);
-        console.log(`📄 Business License: ${hasBusinessLicense}`);
-        console.log(`📄 Health Certificate: ${hasHealthCert}`);
+        console.log(`📄 Has ANY documents: ${hasDocuments}`);
+        console.log(`📄 Business License exists: ${hasBusinessLicense}`);
+        console.log(`📄 Health Certificate exists: ${hasHealthCert}`);
+        console.log(`📄 Halaal Certificate exists: ${hasHalaalCert}`);
+        console.log(`📄 Bank Confirmation exists: ${hasBankConf}`);
         
         // If vendor is pending and has NO documents -> go to onboarding
         if (user.vendor_status === "pending" && !hasDocuments) {

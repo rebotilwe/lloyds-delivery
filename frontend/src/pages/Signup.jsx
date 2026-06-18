@@ -87,38 +87,22 @@ export default function Signup() {
         throw new Error(data.message || 'Signup failed');
       }
 
-      // If vendor, create restaurant with pending status
-      if (form.role === 'vendor') {
-        // Login to get token
-        const loginRes = await fetch('https://lloyds-delivery.onrender.com/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: form.email,
-            password: form.password,
-          }),
-        });
-
-        const loginData = await loginRes.json();
-
-        if (loginRes.ok && loginData.user) {
-          // Create restaurant for the vendor (inactive until approved)
-          await fetch('https://lloyds-delivery.onrender.com/api/vendor/setup-restaurant', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${loginData.token}`,
-            },
-            body: JSON.stringify({
-              name: form.restaurant_name,
-              address: form.restaurant_address,
-              phone: form.phone,
-              cuisine_type: 'Various',
-              business_registration_number: form.business_registration_number,
-            }),
-          });
-        }
-      }
+      // FIX: Previously, this is where Signup.jsx called
+      // /vendor/setup-restaurant immediately after registration, before
+      // the vendor had uploaded a single document. That meant a
+      // restaurant record already existed by the time the vendor first
+      // reached VendorOnboarding, which made VendorOnboarding's
+      // "do they already have a restaurant?" check fire immediately
+      // and redirect straight to /vendor-waiting - skipping the
+      // document upload step entirely.
+      //
+      // Restaurant creation now happens in exactly one place:
+      // VendorOnboarding.jsx's handleSubmit, after the vendor has
+      // filled in their restaurant details AND uploaded their
+      // documents. We still carry the restaurant_name / address /
+      // business_registration_number the vendor typed here so we can
+      // pre-fill the onboarding form for them (see below), but we no
+      // longer create the restaurant at this step.
 
       const roleMessage = {
         customer: 'Account created successfully! Please login.',
@@ -127,15 +111,19 @@ export default function Signup() {
       };
 
       toast.success(roleMessage[form.role] || 'Account created successfully!');
-      
-      // For vendors, navigate to onboarding to upload documents
+
+      // For vendors, stash what they entered so VendorOnboarding can
+      // pre-fill the form instead of asking them to retype it.
       if (form.role === 'vendor') {
-        // Store the email for the login redirect
-        localStorage.setItem('pending_vendor_email', form.email);
-        navigate('/login');
-      } else {
-        navigate('/login');
+        localStorage.setItem('pending_vendor_restaurant', JSON.stringify({
+          name: form.restaurant_name,
+          address: form.restaurant_address,
+          phone: form.phone,
+          business_registration_number: form.business_registration_number,
+        }));
       }
+
+      navigate('/login');
 
     } catch (err) {
       console.error(err);

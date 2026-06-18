@@ -19,7 +19,6 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // Check if user exists
     const existing = await db.query("SELECT * FROM users WHERE email = $1", [email]);
     
     if (existing.rows.length > 0) {
@@ -28,14 +27,13 @@ router.post("/register", async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // Set status based on role
     let driver_status = null;
     let vendor_status = null;
     
     if (role === 'driver') {
-      driver_status = null;  // They need to complete onboarding first
+      driver_status = null;
     } else if (role === 'vendor') {
-      vendor_status = 'pending';  // Needs admin approval
+      vendor_status = 'pending';
     }
 
     const result = await db.query(
@@ -57,7 +55,7 @@ router.post("/register", async (req, res) => {
 });
 
 // =========================
-// LOGIN - FIXED
+// LOGIN - FIXED (only select columns that exist)
 // =========================
 router.post("/login", async (req, res) => {
   try {
@@ -69,13 +67,13 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Email and password required" });
     }
 
-    // ✅ FIX: Use correct column names - SELECT all needed fields
+    // ✅ FIX: Only select columns that exist in your database
     const users = await db.query(
       `SELECT id, name, email, role, phone, driver_status, vendor_status, 
               is_available, earnings, vehicle_type, password_hash,
               vendor_rejection_reason,
               business_license, health_certificate, halaal_certificate, bank_confirmation,
-              business_registration_number, tax_clearance_number,
+              business_registration_number,
               available_balance, total_earnings, withdrawn_total,
               vendor_available_balance, vendor_total_earnings, vendor_withdrawn_total
        FROM users WHERE email = $1`,
@@ -89,7 +87,6 @@ router.post("/login", async (req, res) => {
 
     const user = users.rows[0];
     
-    // Check password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     
     console.log("🔑 Password valid:", isValidPassword);
@@ -99,8 +96,7 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    // ✅ FIX: Allow pending vendors to login (they'll be redirected to onboarding/waiting)
-    // Only block if explicitly rejected
+    // Allow pending vendors to login (they'll be redirected)
     if (user.role === 'vendor' && user.vendor_status === 'rejected') {
       return res.status(403).json({ 
         message: "Your vendor application has been rejected. Please contact support.",
@@ -109,7 +105,6 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // Generate JWT token
     const token = jwt.sign(
       { 
         id: user.id, 
@@ -121,7 +116,6 @@ router.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    // Remove password_hash from response
     const { password_hash, ...userWithoutPassword } = user;
 
     console.log("✅ Login successful:", { 
@@ -153,7 +147,6 @@ router.get("/me", async (req, res) => {
     const token = req.headers.authorization?.split(" ")[1];
     
     if (!token) {
-      // Fallback for legacy requests
       const userId = req.headers["user-id"];
       if (!userId) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -224,7 +217,7 @@ router.post("/change-password", async (req, res) => {
 });
 
 // =========================
-// FORGOT PASSWORD - REQUEST RESET
+// FORGOT PASSWORD
 // =========================
 router.post("/forgot-password", async (req, res) => {
   try {
@@ -237,7 +230,6 @@ router.post("/forgot-password", async (req, res) => {
     const users = await db.query("SELECT * FROM users WHERE email = $1", [email]);
     
     if (users.rows.length === 0) {
-      // Don't reveal that email doesn't exist for security
       return res.json({ message: "If an account exists, a reset link will be sent." });
     }
 

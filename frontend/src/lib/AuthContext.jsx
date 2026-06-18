@@ -55,7 +55,6 @@ export const AuthProvider = ({ children }) => {
       if (!res.ok) {
         console.error("Login error response:", data);
         
-        // Handle specific error cases
         if (res.status === 403) {
           toast.error(data.message || "Your account is pending approval or has been rejected.");
         } else {

@@ -6,7 +6,9 @@ import { sendPasswordResetEmail } from "../services/emailService.js";
 
 const router = express.Router();
 
-// In authRoutes.js - update the register endpoint
+// =========================
+// REGISTER
+// =========================
 router.post("/register", async (req, res) => {
   try {
     const { full_name, email, password, role, phone } = req.body;
@@ -17,6 +19,7 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
+    // Check if user exists
     const existing = await db.query("SELECT * FROM users WHERE email = $1", [email]);
     
     if (existing.rows.length > 0) {
@@ -26,7 +29,7 @@ router.post("/register", async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     
     // Set status based on role
-    let driver_status = null;  // ← FIXED: Set to null, not 'pending'
+    let driver_status = null;
     let vendor_status = null;
     
     if (role === 'driver') {
@@ -37,7 +40,7 @@ router.post("/register", async (req, res) => {
 
     const result = await db.query(
       `INSERT INTO users (name, email, password_hash, role, driver_status, vendor_status, phone) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, name, email, role, driver_status, vendor_status`,
       [full_name, email, hashedPassword, role || 'customer', driver_status, vendor_status, phone || null]
     );
 
@@ -45,8 +48,7 @@ router.post("/register", async (req, res) => {
 
     res.status(201).json({ 
       message: "User registered successfully",
-      userId: result.rows[0].id,
-      role: role
+      user: result.rows[0]
     });
   } catch (err) {
     console.error("❌ Registration error:", err);
@@ -54,10 +56,9 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// LOGIN - Add vehicle_type to the SELECT
-/* =========================
-   LOGIN
-========================= */
+// =========================
+// LOGIN - FIXED
+// =========================
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -68,32 +69,38 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Email and password required" });
     }
 
+    // ✅ FIX: Use correct column names - SELECT all needed fields
     const users = await db.query(
       `SELECT id, name, email, role, phone, driver_status, vendor_status, 
               is_available, earnings, vehicle_type, password_hash,
               vendor_rejection_reason,
               business_license, health_certificate, halaal_certificate, bank_confirmation,
-              business_registration_number, tax_clearance_number
+              business_registration_number, tax_clearance_number,
+              available_balance, total_earnings, withdrawn_total,
+              vendor_available_balance, vendor_total_earnings, vendor_withdrawn_total
        FROM users WHERE email = $1`,
       [email]
     );
     
     if (users.rows.length === 0) {
+      console.log("❌ User not found:", email);
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
     const user = users.rows[0];
     
+    // Check password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     
     console.log("🔑 Password valid:", isValidPassword);
 
     if (!isValidPassword) {
+      console.log("❌ Invalid password for:", email);
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    // ✅ FIX: Allow pending vendors to login (they'll be redirected to waiting/onboarding page)
-    // Only block if explicitly rejected (or if we want to block)
+    // ✅ FIX: Allow pending vendors to login (they'll be redirected to onboarding/waiting)
+    // Only block if explicitly rejected
     if (user.role === 'vendor' && user.vendor_status === 'rejected') {
       return res.status(403).json({ 
         message: "Your vendor application has been rejected. Please contact support.",
@@ -102,12 +109,19 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    // Generate JWT token
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role, name: user.name },
+      { 
+        id: user.id, 
+        email: user.email, 
+        role: user.role, 
+        name: user.name 
+      },
       process.env.JWT_SECRET || "your-super-secret-key-change-this",
       { expiresIn: "7d" }
     );
 
+    // Remove password_hash from response
     const { password_hash, ...userWithoutPassword } = user;
 
     console.log("✅ Login successful:", { 
@@ -117,27 +131,29 @@ router.post("/login", async (req, res) => {
       driver_status: user.driver_status
     });
 
-    // Include vendor_status in response so frontend can handle redirect
     return res.json({
       message: "Login successful",
-      user: {
-        ...userWithoutPassword,
-        vendor_status: user.vendor_status || 'pending',
-        driver_status: user.driver_status || null
-      },
+      user: userWithoutPassword,
       token,
     });
   } catch (err) {
     console.error("❌ Login error:", err);
-    return res.status(500).json({ message: "Server error during login" });
+    return res.status(500).json({ 
+      message: "Server error during login",
+      error: err.message 
+    });
   }
 });
-// GET CURRENT USER - Add vehicle_type
+
+// =========================
+// GET CURRENT USER
+// =========================
 router.get("/me", async (req, res) => {
   try {
     const token = req.headers.authorization?.split(" ")[1];
     
     if (!token) {
+      // Fallback for legacy requests
       const userId = req.headers["user-id"];
       if (!userId) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -160,7 +176,9 @@ router.get("/me", async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || "your-super-secret-key-change-this");
     const users = await db.query(
       `SELECT id, name, email, role, phone, driver_status, vendor_status, 
-              is_available, earnings, vehicle_type 
+              is_available, earnings, vehicle_type,
+              available_balance, total_earnings, withdrawn_total,
+              vendor_available_balance, vendor_total_earnings, vendor_withdrawn_total
        FROM users WHERE id = $1`,
       [decoded.id]
     );
@@ -176,7 +194,9 @@ router.get("/me", async (req, res) => {
   }
 });
 
+// =========================
 // CHANGE PASSWORD
+// =========================
 router.post("/change-password", async (req, res) => {
   try {
     const { user_id, current_password, new_password } = req.body;
@@ -203,9 +223,9 @@ router.post("/change-password", async (req, res) => {
   }
 });
 
-/* =========================
-   FORGOT PASSWORD - REQUEST RESET
-========================= */
+// =========================
+// FORGOT PASSWORD - REQUEST RESET
+// =========================
 router.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
@@ -245,9 +265,9 @@ router.post("/forgot-password", async (req, res) => {
   }
 });
 
-/* =========================
-   RESET PASSWORD
-========================= */
+// =========================
+// RESET PASSWORD
+// =========================
 router.post("/reset-password", async (req, res) => {
   try {
     const { token, new_password } = req.body;

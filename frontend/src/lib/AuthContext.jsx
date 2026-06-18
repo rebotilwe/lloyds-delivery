@@ -25,12 +25,13 @@ export const AuthProvider = ({ children }) => {
       try {
         const parsedUser = JSON.parse(storedUser);
         setUser(parsedUser);
-        // Set token in api client for all future requests
         if (api.defaults) {
           api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         }
       } catch (err) {
         console.error('Error restoring user:', err);
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
       }
     }
     setLoading(false);
@@ -39,6 +40,8 @@ export const AuthProvider = ({ children }) => {
   // LOGIN
   const login = async (email, password) => {
     try {
+      console.log("🔐 Attempting login for:", email);
+      
       const res = await fetch('https://lloyds-delivery.onrender.com/api/auth/login', {
         method: "POST",
         headers: {
@@ -50,36 +53,61 @@ export const AuthProvider = ({ children }) => {
       const data = await res.json();
 
       if (!res.ok) {
-        toast.error(data.message || "Login failed");
+        console.error("Login error response:", data);
+        
+        // Handle specific error cases
+        if (res.status === 403) {
+          toast.error(data.message || "Your account is pending approval or has been rejected.");
+        } else {
+          toast.error(data.message || "Login failed");
+        }
         return null;
       }
+
+      console.log("✅ Login response received:", data);
 
       // Store token
       if (data.token) {
         localStorage.setItem("token", data.token);
-        // Set token in api client
         if (api.defaults) {
           api.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
         }
       }
       
-      // Get full user data from database (includes driver_status)
-      const userRes = await fetch(`https://lloyds-delivery.onrender.com/api/users/${data.user.id}`, {
-        headers: {
-          'Authorization': `Bearer ${data.token}`
+      // Get user data from response
+      const userData = data.user;
+      
+      if (userData && userData.id) {
+        // Try to get additional user data from /users endpoint
+        try {
+          const userRes = await fetch(`https://lloyds-delivery.onrender.com/api/users/${userData.id}`, {
+            headers: {
+              'Authorization': `Bearer ${data.token}`
+            }
+          });
+          
+          if (userRes.ok) {
+            const fullUserData = await userRes.json();
+            const mergedUser = { ...userData, ...fullUserData };
+            localStorage.setItem("user", JSON.stringify(mergedUser));
+            setUser(mergedUser);
+            toast.success(`Welcome back, ${mergedUser.name || mergedUser.full_name || email}!`);
+            return mergedUser;
+          }
+        } catch (err) {
+          console.log("Could not fetch full user data, using login response data");
         }
-      });
-      const fullUserData = await userRes.json();
+      }
       
-      localStorage.setItem("user", JSON.stringify(fullUserData));
-      setUser(fullUserData);
-      
-      toast.success(`Welcome back, ${fullUserData.name || fullUserData.full_name || email}!`);
-      return fullUserData;
+      // Fallback to login response data
+      localStorage.setItem("user", JSON.stringify(userData));
+      setUser(userData);
+      toast.success(`Welcome back, ${userData.name || userData.full_name || email}!`);
+      return userData;
       
     } catch (err) {
       console.error('Login error:', err);
-      toast.error("Network error");
+      toast.error("Network error - please check your connection");
       return null;
     }
   };

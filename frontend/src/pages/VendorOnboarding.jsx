@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
 import { Button } from '@/components/ui/button';
@@ -6,12 +6,19 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
-import { Store, MapPin, Phone, DollarSign, Loader2 } from 'lucide-react';
+import { 
+  Store, MapPin, Phone, DollarSign, Loader2, 
+  Upload, FileCheck, AlertCircle, X, FileText,
+  CheckCircle, Building, Clock
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function VendorOnboarding() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [user, setUser] = useState(null);
+  
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -19,11 +26,113 @@ export default function VendorOnboarding() {
     address: '',
     phone: '',
     delivery_fee: 20,
+    business_registration_number: '',
+    tax_clearance_number: '',
   });
+
+  const [documents, setDocuments] = useState({
+    business_license: null,
+    health_certificate: null,
+    halaal_certificate: null,
+    bank_confirmation: null,
+  });
+
+  const [previews, setPreviews] = useState({
+    business_license: null,
+    health_certificate: null,
+    halaal_certificate: null,
+    bank_confirmation: null,
+  });
+
+  // Load user data
+  useEffect(() => {
+    const stored = localStorage.getItem('user');
+    if (stored) {
+      setUser(JSON.parse(stored));
+    }
+  }, []);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
+
+  const handleFileChange = (e, field) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File must be less than 5MB');
+      return;
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Only images (JPG, PNG) and PDF files are allowed');
+      return;
+    }
+
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviews(prev => ({ ...prev, [field]: reader.result }));
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setPreviews(prev => ({ ...prev, [field]: file.name }));
+    }
+
+    setDocuments(prev => ({ ...prev, [field]: file }));
+    toast.success(`${file.name} uploaded successfully`);
+  };
+
+  const removeFile = (field) => {
+    setDocuments(prev => ({ ...prev, [field]: null }));
+    setPreviews(prev => ({ ...prev, [field]: null }));
+    toast.info('File removed');
+  };
+
+  const FileUploadArea = ({ field, label, required, preview, description }) => (
+    <div className="border rounded-lg p-3 sm:p-4">
+      <label className="block text-sm font-medium mb-2">
+        {label} {required && <span className="text-red-500">*</span>}
+      </label>
+      {description && (
+        <p className="text-xs text-gray-500 mb-2">{description}</p>
+      )}
+      {preview ? (
+        <div className="relative">
+          {typeof preview === 'string' && preview.startsWith('data:image') ? (
+            <img src={preview} alt={label} className="w-full h-32 sm:h-40 object-cover rounded-lg" />
+          ) : preview && typeof preview === 'string' ? (
+            <div className="w-full h-24 sm:h-32 bg-gray-100 rounded-lg flex flex-col items-center justify-center">
+              <FileText className="w-8 h-8 sm:w-12 sm:h-12 text-gray-400" />
+              <p className="text-xs text-gray-500 mt-1 truncate max-w-[90%]">{preview}</p>
+            </div>
+          ) : null}
+          <button
+            onClick={() => removeFile(field)}
+            className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition"
+          >
+            <X className="w-3 h-3 sm:w-4 sm:h-4" />
+          </button>
+        </div>
+      ) : (
+        <label className="flex flex-col items-center justify-center w-full h-28 sm:h-32 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 transition">
+          <div className="flex flex-col items-center justify-center pt-4 pb-4">
+            <Upload className="w-6 h-6 sm:w-8 sm:h-8 text-gray-400 mb-1" />
+            <p className="text-xs sm:text-sm text-gray-500 text-center px-2">Click to upload {label}</p>
+            <p className="text-[10px] sm:text-xs text-gray-400">JPG, PNG, PDF (max 5MB)</p>
+          </div>
+          <input
+            type="file"
+            className="hidden"
+            accept="image/jpeg,image/jpg,image/png,application/pdf"
+            onChange={(e) => handleFileChange(e, field)}
+          />
+        </label>
+      )}
+    </div>
+  );
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,22 +142,72 @@ export default function VendorOnboarding() {
       return;
     }
 
+    // Check if required documents are uploaded
+    if (!documents.business_license) {
+      toast.error('Please upload your business license');
+      return;
+    }
+    if (!documents.health_certificate) {
+      toast.error('Please upload your health certificate');
+      return;
+    }
+
     setLoading(true);
     try {
-      const response = await api.post('/vendor/setup-restaurant', {
+      // First, create the restaurant
+      const restaurantResponse = await api.post('/vendor/setup-restaurant', {
         name: formData.name,
         description: formData.description,
         cuisine_type: formData.cuisine_type,
         address: formData.address,
         phone: formData.phone,
         delivery_fee: Number(formData.delivery_fee),
+        business_registration_number: formData.business_registration_number,
+        tax_clearance_number: formData.tax_clearance_number,
       });
 
-     if (response.data.success) {
-  toast.success('Restaurant created successfully!');
-  // Navigate to vendor dashboard instead of menu
-  navigate('/vendor');
-}
+      if (!restaurantResponse.data.success) {
+        throw new Error('Failed to create restaurant');
+      }
+
+      const restaurantId = restaurantResponse.data.restaurant_id;
+
+      // Upload documents
+      const uploadPromises = [];
+      
+      for (const [docType, file] of Object.entries(documents)) {
+        if (file) {
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('document_key', docType);
+          
+          uploadPromises.push(
+            api.post(`/vendor/admin/upload-document/${restaurantId}`, formData, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+            })
+          );
+        }
+      }
+
+      await Promise.all(uploadPromises);
+
+      // Update vendor status to pending approval
+      await api.put('/vendor/update-status', { 
+        vendor_status: 'pending',
+        restaurant_id: restaurantId 
+      });
+
+      toast.success('Restaurant created and documents submitted for review!');
+      setSubmitted(true);
+      
+      // Update user in localStorage
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const userData = JSON.parse(stored);
+        userData.vendor_status = 'pending';
+        localStorage.setItem('user', JSON.stringify(userData));
+      }
+
     } catch (error) {
       console.error('Setup error:', error);
       toast.error(error.response?.data?.message || 'Failed to setup restaurant');
@@ -56,6 +215,75 @@ export default function VendorOnboarding() {
       setLoading(false);
     }
   };
+
+  // Check if vendor status is pending or approved
+  useEffect(() => {
+    const stored = localStorage.getItem('user');
+    if (stored) {
+      const userData = JSON.parse(stored);
+      if (userData.vendor_status === 'pending') {
+        setSubmitted(true);
+      }
+    }
+  }, []);
+
+  // If already submitted or pending, show pending screen
+  if (submitted || (user?.vendor_status === 'pending')) {
+    return (
+      <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
+        <Card>
+          <CardContent className="p-6 text-center space-y-3">
+            <Clock className="w-12 h-12 sm:w-16 sm:h-16 mx-auto text-yellow-500" />
+            <h2 className="text-xl sm:text-2xl font-bold">Application Under Review</h2>
+            <p className="text-sm text-gray-500">
+              Your restaurant application and documents have been submitted and are being reviewed by the admin team.
+            </p>
+            <p className="text-xs text-gray-400 mt-2">
+              You will receive a notification once your application is approved. This usually takes 24-48 hours.
+            </p>
+            <div className="mt-4 p-4 bg-blue-50 rounded-lg text-left">
+              <p className="text-xs font-medium text-blue-800">Documents submitted:</p>
+              <ul className="text-xs text-blue-700 mt-2 space-y-1">
+                <li>✅ Business License</li>
+                <li>✅ Health Certificate</li>
+                {documents.halaal_certificate && <li>✅ Halaal Certificate</li>}
+                {documents.bank_confirmation && <li>✅ Bank Confirmation</li>}
+              </ul>
+            </div>
+            <button
+              onClick={() => navigate('/')}
+              className="mt-4 bg-green text-white px-6 py-2 rounded-lg"
+            >
+              Return to Home
+            </button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // If vendor is rejected
+  if (user?.vendor_status === 'rejected') {
+    return (
+      <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
+        <Card>
+          <CardContent className="p-6 text-center space-y-3">
+            <AlertCircle className="w-12 h-12 sm:w-16 sm:h-16 mx-auto text-red-500" />
+            <h2 className="text-xl sm:text-2xl font-bold">Application Rejected</h2>
+            <p className="text-sm text-gray-500">
+              Your restaurant application was not approved. Please contact support for more information.
+            </p>
+            <button
+              onClick={() => navigate('/contact')}
+              className="mt-4 bg-red-500 text-white px-6 py-2 rounded-lg"
+            >
+              Contact Support
+            </button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
@@ -65,7 +293,7 @@ export default function VendorOnboarding() {
             <Store className="w-8 h-8 text-green" />
           </div>
           <h1 className="text-2xl font-bold">Welcome! Let's set up your restaurant</h1>
-          <p className="text-gray-500 text-sm mt-1">Tell us about your business to start receiving orders</p>
+          <p className="text-gray-500 text-sm mt-1">Tell us about your business and upload required documents</p>
         </div>
 
         <Card>
@@ -157,9 +385,75 @@ export default function VendorOnboarding() {
                 </p>
               </div>
 
+              {/* Business Registration */}
+              <div>
+                <Label className="flex items-center gap-2 mb-1">
+                  <Building className="w-4 h-4" />
+                  Business Registration Number
+                </Label>
+                <Input
+                  name="business_registration_number"
+                  placeholder="e.g., 2020/123456/07"
+                  value={formData.business_registration_number}
+                  onChange={handleChange}
+                />
+              </div>
+
+              {/* Tax Clearance */}
+              <div>
+                <Label>Tax Clearance Number</Label>
+                <Input
+                  name="tax_clearance_number"
+                  placeholder="e.g., TC-123456"
+                  value={formData.tax_clearance_number}
+                  onChange={handleChange}
+                />
+              </div>
+
+              {/* Documents Upload Section */}
+              <div className="border-t pt-4 mt-4">
+                <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-green" />
+                  Required Documents
+                </h3>
+                
+                <FileUploadArea 
+                  field="business_license" 
+                  label="Business License / Registration" 
+                  required 
+                  preview={previews.business_license}
+                  description="Official business registration or license document"
+                />
+                
+                <FileUploadArea 
+                  field="health_certificate" 
+                  label="Health Certificate" 
+                  required 
+                  preview={previews.health_certificate}
+                  description="Food safety or health department certificate"
+                />
+                
+                <FileUploadArea 
+                  field="halaal_certificate" 
+                  label="Halaal Certificate (Optional)" 
+                  required={false}
+                  preview={previews.halaal_certificate}
+                  description="If applicable, upload your Halaal certification"
+                />
+                
+                <FileUploadArea 
+                  field="bank_confirmation" 
+                  label="Bank Confirmation Letter (Optional)" 
+                  required={false}
+                  preview={previews.bank_confirmation}
+                  description="Bank confirmation for payouts"
+                />
+              </div>
+
               <div className="bg-blue-50 rounded-lg p-3">
                 <p className="text-xs text-blue-700">
-                  💡 Tip: After setup, you can add your menu items and start accepting orders!
+                  💡 After setup, your application will be reviewed by our team. 
+                  You'll receive a notification once approved. This usually takes 24-48 hours.
                 </p>
               </div>
 
@@ -171,12 +465,16 @@ export default function VendorOnboarding() {
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Setting up...
+                    Submitting Application...
                   </>
                 ) : (
-                  'Complete Setup'
+                  'Submit for Review'
                 )}
               </Button>
+
+              <p className="text-xs text-center text-gray-400">
+                By submitting, you agree to our vendor terms and conditions
+              </p>
             </form>
           </CardContent>
         </Card>

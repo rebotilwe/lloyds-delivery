@@ -97,7 +97,7 @@ router.get("/restaurant", async (req, res) => {
 });
 
 /* =========================
-   SETUP RESTAURANT (After Approval)
+   SETUP RESTAURANT (Vendor Onboarding)
 ========================= */
 router.post("/setup-restaurant", async (req, res) => {
   try {
@@ -107,7 +107,9 @@ router.post("/setup-restaurant", async (req, res) => {
       cuisine_type,
       address,
       phone,
-      delivery_fee
+      delivery_fee,
+      business_registration_number,
+      tax_clearance_number
     } = req.body;
 
     console.log("🏪 Setting up restaurant for vendor:", req.user.id);
@@ -127,10 +129,11 @@ router.post("/setup-restaurant", async (req, res) => {
       return res.status(400).json({ message: "Restaurant name and address are required" });
     }
 
+    // Create restaurant with pending status
     const result = await db.query(
       `INSERT INTO restaurants 
-       (name, description, cuisine_type, address, phone, delivery_fee, owner_id, markup_percentage, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW()) 
+       (name, description, cuisine_type, address, phone, delivery_fee, owner_id, markup_percentage, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, NOW()) 
        RETURNING id`,
       [
         name, 
@@ -144,13 +147,25 @@ router.post("/setup-restaurant", async (req, res) => {
       ]
     );
 
-    console.log(`✅ Restaurant created: ID ${result.rows[0].id}, Name: ${name}`);
+    const restaurantId = result.rows[0].id;
+    console.log(`✅ Restaurant created: ID ${restaurantId}, Name: ${name}`);
+
+    // Update vendor with business details and set status to pending
+    await db.query(
+      `UPDATE users SET 
+         vendor_status = 'pending',
+         business_registration_number = $1,
+         tax_clearance_number = $2,
+         vendor_submitted_at = NOW()
+       WHERE id = $3`,
+      [business_registration_number || null, tax_clearance_number || null, req.user.id]
+    );
     
     res.status(201).json({ 
       success: true, 
-      restaurant_id: result.rows[0].id,
+      restaurant_id: restaurantId,
       markup_percentage: 12.5,
-      message: "Restaurant setup successfully"
+      message: "Restaurant created successfully. Awaiting admin approval."
     });
   } catch (error) {
     console.error("❌ Error setting up restaurant:", error);
@@ -158,6 +173,48 @@ router.post("/setup-restaurant", async (req, res) => {
       message: "Failed to setup restaurant", 
       error: error.message 
     });
+  }
+});
+
+/* =========================
+   GET VENDOR STATUS
+========================= */
+router.get("/status", async (req, res) => {
+  try {
+    const vendorId = req.user.id;
+    
+    const result = await db.query(
+      `SELECT vendor_status, vendor_submitted_at, vendor_approved_at, 
+              vendor_rejection_reason, vendor_approved_by
+       FROM users 
+       WHERE id = $1`,
+      [vendorId]
+    );
+    
+    res.json(result.rows[0] || { vendor_status: 'pending' });
+  } catch (error) {
+    console.error("Error fetching vendor status:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =========================
+   UPDATE VENDOR STATUS (Admin only via admin routes)
+========================= */
+router.put("/update-status", verifyToken, authorizeRoles("vendor"), async (req, res) => {
+  try {
+    const { vendor_status } = req.body;
+    const vendorId = req.user.id;
+    
+    await db.query(
+      "UPDATE users SET vendor_status = $1 WHERE id = $2",
+      [vendor_status, vendorId]
+    );
+    
+    res.json({ success: true, vendor_status });
+  } catch (err) {
+    console.error("Update status error:", err);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
@@ -730,7 +787,195 @@ router.post(
   }
 );
 
-// Test endpoint to verify admin route is working
+// ==================== ADMIN: VENDOR APPROVAL ROUTES ====================
+
+/* =========================
+   ADMIN: GET PENDING VENDORS
+========================= */
+router.get(
+  "/admin/pending",
+  verifyToken,
+  authorizeRoles("admin"),
+  async (req, res) => {
+    try {
+      const vendors = await db.query(
+        `SELECT u.id, u.name, u.email, u.phone, u.vendor_status, 
+                u.business_registration_number, u.tax_clearance_number,
+                u.business_license, u.health_certificate, u.halaal_certificate, u.bank_confirmation,
+                u.vendor_submitted_at,
+                r.id as restaurant_id, r.name as restaurant_name, r.address, r.description,
+                r.cuisine_type, r.delivery_fee, r.created_at
+         FROM users u
+         LEFT JOIN restaurants r ON u.id = r.owner_id
+         WHERE u.role = 'vendor' AND u.vendor_status = 'pending'
+         ORDER BY u.created_at ASC`
+      );
+      
+      res.json(vendors.rows);
+    } catch (err) {
+      console.error("Get pending vendors error:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+/* =========================
+   ADMIN: GET ALL VENDORS
+========================= */
+router.get(
+  "/admin/all",
+  verifyToken,
+  authorizeRoles("admin"),
+  async (req, res) => {
+    try {
+      const vendors = await db.query(
+        `SELECT u.id, u.name, u.email, u.phone, u.vendor_status,
+                u.business_registration_number,
+                u.business_license, u.health_certificate, u.halaal_certificate, u.bank_confirmation,
+                u.vendor_submitted_at, u.vendor_approved_at,
+                u.vendor_rejection_reason,
+                r.id as restaurant_id, r.name as restaurant_name, r.address,
+                r.cuisine_type, r.delivery_fee, r.is_active, r.created_at
+         FROM users u
+         LEFT JOIN restaurants r ON u.id = r.owner_id
+         WHERE u.role = 'vendor'
+         ORDER BY u.created_at DESC`
+      );
+      
+      res.json(vendors.rows);
+    } catch (err) {
+      console.error("Get all vendors error:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+/* =========================
+   ADMIN: APPROVE VENDOR
+========================= */
+router.put(
+  "/admin/approve/:vendorId",
+  verifyToken,
+  authorizeRoles("admin"),
+  async (req, res) => {
+    try {
+      const { vendorId } = req.params;
+      const { action, rejection_reason } = req.body;
+      const adminId = req.user.id;
+      const io = req.app.get("io");
+      
+      if (action === 'approve') {
+        await db.query(
+          `UPDATE users SET 
+             vendor_status = 'approved', 
+             vendor_approved_at = NOW(),
+             vendor_approved_by = $1
+           WHERE id = $2 AND role = 'vendor'`,
+          [adminId, vendorId]
+        );
+        
+        // Activate the restaurant
+        await db.query(
+          `UPDATE restaurants SET is_active = true WHERE owner_id = $1`,
+          [vendorId]
+        );
+        
+        // Get vendor email for notification
+        const vendor = await db.query(
+          `SELECT email, name FROM users WHERE id = $1`,
+          [vendorId]
+        );
+        
+        // Notify vendor via socket
+        if (io && vendor.rows[0]) {
+          io.to(`vendor_${vendorId}`).emit("vendor-approved", {
+            vendorId: parseInt(vendorId),
+            message: "Your restaurant has been approved! You can now start receiving orders."
+          });
+        }
+        
+        res.json({ 
+          success: true, 
+          message: "Vendor approved successfully",
+          vendorId: vendorId
+        });
+        
+      } else if (action === 'reject') {
+        if (!rejection_reason) {
+          return res.status(400).json({ message: "Rejection reason is required" });
+        }
+        
+        await db.query(
+          `UPDATE users SET 
+             vendor_status = 'rejected', 
+             vendor_rejection_reason = $1,
+             vendor_rejected_at = NOW(),
+             vendor_rejected_by = $2
+           WHERE id = $3 AND role = 'vendor'`,
+          [rejection_reason, adminId, vendorId]
+        );
+        
+        // Get vendor email for notification
+        const vendor = await db.query(
+          `SELECT email, name FROM users WHERE id = $1`,
+          [vendorId]
+        );
+        
+        // Notify vendor via socket
+        if (io && vendor.rows[0]) {
+          io.to(`vendor_${vendorId}`).emit("vendor-rejected", {
+            vendorId: parseInt(vendorId),
+            reason: rejection_reason,
+            message: "Your restaurant application has been rejected."
+          });
+        }
+        
+        res.json({ 
+          success: true, 
+          message: "Vendor rejected",
+          vendorId: vendorId
+        });
+        
+      } else {
+        res.status(400).json({ message: "Invalid action. Use 'approve' or 'reject'" });
+      }
+      
+    } catch (err) {
+      console.error("Approve vendor error:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+/* =========================
+   ADMIN: GET VENDOR STATISTICS
+========================= */
+router.get(
+  "/admin/stats",
+  verifyToken,
+  authorizeRoles("admin"),
+  async (req, res) => {
+    try {
+      const stats = await db.query(
+        `SELECT 
+           COUNT(*) as total,
+           COUNT(CASE WHEN vendor_status = 'pending' THEN 1 END) as pending,
+           COUNT(CASE WHEN vendor_status = 'approved' THEN 1 END) as approved,
+           COUNT(CASE WHEN vendor_status = 'rejected' THEN 1 END) as rejected
+         FROM users 
+         WHERE role = 'vendor'`
+      );
+      
+      res.json(stats.rows[0]);
+    } catch (err) {
+      console.error("Vendor stats error:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+// ==================== ADMIN: TEST ROUTE ====================
+
 router.get(
   "/admin/test",
   verifyToken,

@@ -97,7 +97,7 @@ router.get("/restaurant", async (req, res) => {
 });
 
 /* =========================
-   SETUP RESTAURANT (Vendor Onboarding)
+   SETUP RESTAURANT (Vendor Onboarding) - FIXED
 ========================= */
 router.post("/setup-restaurant", async (req, res) => {
   try {
@@ -108,8 +108,8 @@ router.post("/setup-restaurant", async (req, res) => {
       address,
       phone,
       delivery_fee,
-      business_registration_number,
-      tax_clearance_number
+      business_registration_number
+      // tax_clearance_number REMOVED - column doesn't exist
     } = req.body;
 
     console.log("🏪 Setting up restaurant for vendor:", req.user.id);
@@ -151,14 +151,14 @@ router.post("/setup-restaurant", async (req, res) => {
     console.log(`✅ Restaurant created: ID ${restaurantId}, Name: ${name}`);
 
     // Update vendor with business details and set status to pending
+    // REMOVED: tax_clearance_number from the UPDATE
     await db.query(
       `UPDATE users SET 
          vendor_status = 'pending',
          business_registration_number = $1,
-         tax_clearance_number = $2,
          vendor_submitted_at = NOW()
-       WHERE id = $3`,
-      [business_registration_number || null, tax_clearance_number || null, req.user.id]
+       WHERE id = $2`,
+      [business_registration_number || null, req.user.id]
     );
     
     res.status(201).json({ 
@@ -790,7 +790,7 @@ router.post(
 // ==================== ADMIN: VENDOR APPROVAL ROUTES ====================
 
 /* =========================
-   ADMIN: GET PENDING VENDORS
+   ADMIN: GET PENDING VENDORS - FIXED (removed tax_clearance_number)
 ========================= */
 router.get(
   "/admin/pending",
@@ -800,7 +800,7 @@ router.get(
     try {
       const vendors = await db.query(
         `SELECT u.id, u.name, u.email, u.phone, u.vendor_status, 
-                u.business_registration_number, u.tax_clearance_number,
+                u.business_registration_number,
                 u.business_license, u.health_certificate, u.halaal_certificate, u.bank_confirmation,
                 u.vendor_submitted_at,
                 r.id as restaurant_id, r.name as restaurant_name, r.address, r.description,
@@ -820,7 +820,7 @@ router.get(
 );
 
 /* =========================
-   ADMIN: GET ALL VENDORS
+   ADMIN: GET ALL VENDORS - FIXED (removed tax_clearance_number)
 ========================= */
 router.get(
   "/admin/all",

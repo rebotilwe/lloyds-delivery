@@ -18,6 +18,8 @@ export default function VendorOnboarding() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [user, setUser] = useState(null);
+  const [hasRestaurant, setHasRestaurant] = useState(false);
+  const [checkingRestaurant, setCheckingRestaurant] = useState(true);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -44,13 +46,41 @@ export default function VendorOnboarding() {
     bank_confirmation: null,
   });
 
-  // Load user data
+  // Load user data and check for existing restaurant
   useEffect(() => {
     const stored = localStorage.getItem('user');
     if (stored) {
-      setUser(JSON.parse(stored));
+      const parsed = JSON.parse(stored);
+      setUser(parsed);
+      
+      // Check if they already have a restaurant
+      const checkRestaurant = async () => {
+        try {
+          const response = await api.get('/vendor/restaurant');
+          if (response.data && response.data.id) {
+            setHasRestaurant(true);
+            // If they have a restaurant and status is pending, redirect to waiting
+            if (parsed.vendor_status === 'pending') {
+              navigate('/vendor-waiting');
+              return;
+            }
+          }
+        } catch (err) {
+          // No restaurant found - that's fine, they need to onboard
+          setHasRestaurant(false);
+        } finally {
+          setCheckingRestaurant(false);
+        }
+      };
+      
+      // If vendor is pending, check if they have a restaurant
+      if (parsed.vendor_status === 'pending') {
+        checkRestaurant();
+      } else {
+        setCheckingRestaurant(false);
+      }
     }
-  }, []);
+  }, [navigate]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -193,8 +223,7 @@ export default function VendorOnboarding() {
 
       // Update vendor status to pending approval
       await api.put('/vendor/update-status', { 
-        vendor_status: 'pending',
-        restaurant_id: restaurantId 
+        vendor_status: 'pending'
       });
 
       toast.success('Restaurant created and documents submitted for review!');
@@ -208,6 +237,8 @@ export default function VendorOnboarding() {
         localStorage.setItem('user', JSON.stringify(userData));
       }
 
+      navigate('/vendor-waiting');
+
     } catch (error) {
       console.error('Setup error:', error);
       toast.error(error.response?.data?.message || 'Failed to setup restaurant');
@@ -216,19 +247,17 @@ export default function VendorOnboarding() {
     }
   };
 
-  // Check if vendor status is pending or approved
-  useEffect(() => {
-    const stored = localStorage.getItem('user');
-    if (stored) {
-      const userData = JSON.parse(stored);
-      if (userData.vendor_status === 'pending') {
-        setSubmitted(true);
-      }
-    }
-  }, []);
+  // Show loading while checking for restaurant
+  if (checkingRestaurant) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+      </div>
+    );
+  }
 
-  // If already submitted or pending, show pending screen
-  if (submitted || (user?.vendor_status === 'pending')) {
+  // If they already have a restaurant and are pending, show waiting
+  if (hasRestaurant && user?.vendor_status === 'pending') {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
         <Card>
@@ -241,15 +270,6 @@ export default function VendorOnboarding() {
             <p className="text-xs text-gray-400 mt-2">
               You will receive a notification once your application is approved. This usually takes 24-48 hours.
             </p>
-            <div className="mt-4 p-4 bg-blue-50 rounded-lg text-left">
-              <p className="text-xs font-medium text-blue-800">Documents submitted:</p>
-              <ul className="text-xs text-blue-700 mt-2 space-y-1">
-                <li>✅ Business License</li>
-                <li>✅ Health Certificate</li>
-                {documents.halaal_certificate && <li>✅ Halaal Certificate</li>}
-                {documents.bank_confirmation && <li>✅ Bank Confirmation</li>}
-              </ul>
-            </div>
             <button
               onClick={() => navigate('/')}
               className="mt-4 bg-green text-white px-6 py-2 rounded-lg"
@@ -285,6 +305,7 @@ export default function VendorOnboarding() {
     );
   }
 
+  // Show the onboarding form
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-2xl mx-auto">

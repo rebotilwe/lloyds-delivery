@@ -25,58 +25,79 @@ export default function Login() {
     try {
       const user = await login(email, password);
 
-      if (!user) return;
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+
+      console.log("🔍 Login user data:", user);
+      console.log("📄 Vendor status:", user.vendor_status);
+      console.log("📄 Business License:", user.business_license);
+      console.log("📄 Health Certificate:", user.health_certificate);
 
       // Redirect based on role and status
       if (user.role === "admin") {
         navigate("/admin");
-      } else if (user.role === "driver") {
-        // DriverGuard will handle driver status
-        navigate("/driver");
-      } else if (user.role === "vendor") {
-        // Check vendor status and redirect accordingly
-        if (user.vendor_status === "pending") {
-          // Check if user has submitted any documents
-          const hasDocuments = user.business_license || user.health_certificate || 
-                               user.halaal_certificate || user.bank_confirmation;
-          
-          if (hasDocuments) {
-            // Has documents - waiting for approval
-            navigate("/vendor-waiting");
-          } else {
-            // No documents - need to onboard
-            navigate("/vendor/onboarding");
-          }
-        } else if (user.vendor_status === "rejected") {
-          navigate("/vendor-waiting");
-        } else if (user.vendor_status === "approved") {
-          // Check if they have a restaurant
-          try {
-            const response = await fetch('https://lloyds-delivery.onrender.com/api/vendor/restaurant', {
-              headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-              }
-            });
-            if (response.ok) {
-              navigate("/vendor");
-            } else {
-              // No restaurant yet - need to onboard
-              navigate("/vendor/onboarding");
-            }
-          } catch {
-            navigate("/vendor/onboarding");
-          }
-        } else {
-          // Default fallback - go to onboarding
-          navigate("/vendor/onboarding");
-        }
-      } else {
-        navigate("/");
+        return;
       }
+      
+      if (user.role === "driver") {
+        navigate("/driver");
+        return;
+      }
+      
+      if (user.role === "vendor") {
+        // Check if vendor has submitted any documents
+        const hasBusinessLicense = !!user.business_license;
+        const hasHealthCert = !!user.health_certificate;
+        const hasHalaalCert = !!user.halaal_certificate;
+        const hasBankConf = !!user.bank_confirmation;
+        const hasDocuments = hasBusinessLicense || hasHealthCert || hasHalaalCert || hasBankConf;
+        
+        console.log(`📄 Has documents: ${hasDocuments}`);
+        console.log(`📄 Business License: ${hasBusinessLicense}`);
+        console.log(`📄 Health Certificate: ${hasHealthCert}`);
+        
+        // If vendor is pending and has NO documents -> go to onboarding
+        if (user.vendor_status === "pending" && !hasDocuments) {
+          console.log("➡️ Redirecting to ONBOARDING (no documents)");
+          navigate("/vendor/onboarding");
+          return;
+        }
+        
+        // If vendor is pending and HAS documents -> go to waiting
+        if (user.vendor_status === "pending" && hasDocuments) {
+          console.log("➡️ Redirecting to WAITING (has documents)");
+          navigate("/vendor-waiting");
+          return;
+        }
+        
+        // If vendor is rejected -> go to waiting
+        if (user.vendor_status === "rejected") {
+          console.log("➡️ Redirecting to WAITING (rejected)");
+          navigate("/vendor-waiting");
+          return;
+        }
+        
+        // If vendor is approved -> go to dashboard
+        if (user.vendor_status === "approved") {
+          console.log("➡️ Redirecting to VENDOR DASHBOARD");
+          navigate("/vendor");
+          return;
+        }
+        
+        // Fallback: go to onboarding
+        console.log("➡️ Redirecting to ONBOARDING (fallback)");
+        navigate("/vendor/onboarding");
+        return;
+      }
+      
+      // Default: go to home
+      navigate("/");
 
     } catch (err) {
-      // Error already handled by auth context
       console.error("Login error:", err);
+      toast.error(err.message || "Login failed");
     } finally {
       setLoading(false);
     }

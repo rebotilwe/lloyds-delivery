@@ -74,35 +74,79 @@ export const AuthProvider = ({ children }) => {
       }
       
       // Get user data from response
-      const userData = data.user;
+      let userData = data.user;
       
+      // If we have the user data with documents already, use it
       if (userData && userData.id) {
-        // Try to get additional user data from /users endpoint
-        try {
-          const userRes = await fetch(`https://lloyds-delivery.onrender.com/api/users/${userData.id}`, {
-            headers: {
-              'Authorization': `Bearer ${data.token}`
-            }
-          });
-          
-          if (userRes.ok) {
-            const fullUserData = await userRes.json();
-            const mergedUser = { ...userData, ...fullUserData };
-            localStorage.setItem("user", JSON.stringify(mergedUser));
-            setUser(mergedUser);
-            toast.success(`Welcome back, ${mergedUser.name || mergedUser.full_name || email}!`);
-            return mergedUser;
-          }
-        } catch (err) {
-          console.log("Could not fetch full user data, using login response data");
-        }
+        console.log("📦 User data from login:", {
+          id: userData.id,
+          name: userData.name,
+          email: userData.email,
+          role: userData.role,
+          vendor_status: userData.vendor_status,
+          business_license: userData.business_license,
+          health_certificate: userData.health_certificate,
+          halaal_certificate: userData.halaal_certificate,
+          bank_confirmation: userData.bank_confirmation,
+        });
+        
+        // Ensure document fields exist (even if null)
+        userData = {
+          ...userData,
+          business_license: userData.business_license || null,
+          health_certificate: userData.health_certificate || null,
+          halaal_certificate: userData.halaal_certificate || null,
+          bank_confirmation: userData.bank_confirmation || null,
+        };
+        
+        // Store the user data
+        localStorage.setItem("user", JSON.stringify(userData));
+        setUser(userData);
+        toast.success(`Welcome back, ${userData.name || userData.full_name || email}!`);
+        return userData;
       }
       
-      // Fallback to login response data
-      localStorage.setItem("user", JSON.stringify(userData));
-      setUser(userData);
-      toast.success(`Welcome back, ${userData.name || userData.full_name || email}!`);
-      return userData;
+      // If we don't have user data, try to fetch it
+      try {
+        const userRes = await fetch(`https://lloyds-delivery.onrender.com/api/users/${userData?.id}`, {
+          headers: {
+            'Authorization': `Bearer ${data.token}`
+          }
+        });
+        
+        if (userRes.ok) {
+          const fullUserData = await userRes.json();
+          console.log("📦 Full user data from /users endpoint:", fullUserData);
+          
+          // Merge and ensure all fields exist
+          userData = {
+            ...userData,
+            ...fullUserData,
+            business_license: fullUserData.business_license || null,
+            health_certificate: fullUserData.health_certificate || null,
+            halaal_certificate: fullUserData.halaal_certificate || null,
+            bank_confirmation: fullUserData.bank_confirmation || null,
+          };
+          
+          localStorage.setItem("user", JSON.stringify(userData));
+          setUser(userData);
+          toast.success(`Welcome back, ${userData.name || userData.full_name || email}!`);
+          return userData;
+        }
+      } catch (err) {
+        console.log("Could not fetch full user data, using login response data");
+      }
+      
+      // Fallback: if we have some user data
+      if (userData) {
+        localStorage.setItem("user", JSON.stringify(userData));
+        setUser(userData);
+        toast.success(`Welcome back, ${userData.name || userData.full_name || email}!`);
+        return userData;
+      }
+      
+      toast.error("Could not retrieve user data");
+      return null;
       
     } catch (err) {
       console.error('Login error:', err);

@@ -238,15 +238,20 @@ router.put("/:id", async (req, res) => {
 });
 
 // DELETE user
+// DELETE user - with proper foreign key handling
 router.delete("/:id", async (req, res) => {
   try {
-    const users = await db.query("SELECT * FROM users WHERE id = $1", [req.params.id]);
+    const userId = req.params.id;
+    
+    // Check if user exists
+    const users = await db.query("SELECT * FROM users WHERE id = $1", [userId]);
     if (users.rows.length === 0) {
       return res.status(404).json({ message: "User not found" });
     }
     
     const user = users.rows[0];
     
+    // Prevent deleting the last admin
     if (user.role === 'admin') {
       const admins = await db.query("SELECT COUNT(*) as count FROM users WHERE role = 'admin'");
       if (parseInt(admins.rows[0].count) <= 1) {
@@ -254,15 +259,56 @@ router.delete("/:id", async (req, res) => {
       }
     }
     
-    await db.query("DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1)", [req.params.id]);
-    await db.query("DELETE FROM orders WHERE customer_id = $1", [req.params.id]);
-    await db.query("DELETE FROM orders WHERE driver_id = $1", [req.params.id]);
-    await db.query("DELETE FROM users WHERE id = $1", [req.params.id]);
+    // 🔥 CRITICAL: Delete restaurant first (to avoid foreign key violation)
+    // Check if user owns a restaurant
+    const restaurantCheck = await db.query(
+      "SELECT id, name FROM restaurants WHERE owner_id = $1", 
+      [userId]
+    );
     
-    res.json({ message: "User deleted successfully" });
+    if (restaurantCheck.rows.length > 0) {
+      console.log(`🗑️ Deleting restaurant "${restaurantCheck.rows[0].name}" (ID: ${restaurantCheck.rows[0].id}) owned by user ${userId}`);
+      
+      // Delete the restaurant
+      await db.query("DELETE FROM restaurants WHERE owner_id = $1", [userId]);
+    }
+    
+    // Delete order_items for orders placed by this user
+    await db.query(
+      "DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE customer_id = $1)", 
+      [userId]
+    );
+    
+    // Delete orders where user is customer
+    await db.query("DELETE FROM orders WHERE customer_id = $1", [userId]);
+    
+    // Delete orders where user is driver
+    await db.query("DELETE FROM orders WHERE driver_id = $1", [userId]);
+    
+    // Finally, delete the user
+    const result = await db.query("DELETE FROM users WHERE id = $1", [userId]);
+    
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    
+    console.log(`✅ User ${userId} (${user.name}) deleted successfully`);
+    res.json({ 
+      message: "User deleted successfully",
+      deletedUser: {
+        id: userId,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+    
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err.message });
+    console.error("Error deleting user:", err);
+    res.status(500).json({ 
+      message: "Failed to delete user: " + err.message,
+      detail: err.detail || "Foreign key constraint violation"
+    });
   }
 });
 

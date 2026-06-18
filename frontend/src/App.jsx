@@ -52,11 +52,10 @@ import AdminPackageApprovals from '@/components/admin/AdminPackageApprovals';
 import AdminEarningsOverview from '@/components/admin/AdminEarningsOverview';
 import AdminMenuApprovals from '@/components/admin/AdminMenuApprovals';
 
-
 import AdminDriversPage from '@/components/admin/AdminDriversPage';
 import AdminFinancePage from '@/components/admin/AdminFinancePage';
 import AdminSettingsPage from '@/components/admin/AdminSettingsPage';
-import EdmondDashboard from '@/components/admin/EdmondDashboard';  // ← NEW - Edmond's Dashboard
+import EdmondDashboard from '@/components/admin/EdmondDashboard';
 
 // LOADING COMPONENT
 const Loader = () => (
@@ -125,21 +124,42 @@ function DriverGuard({ children }) {
   }
 }
 
+// UPDATED VendorGuard - Allows pending vendors to access onboarding
 function VendorGuard({ children }) {
   const { user, loading } = useAuth();
   const [hasRestaurant, setHasRestaurant] = useState(null);
   const [checking, setChecking] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const check = async () => {
       if (user && user.role === 'vendor') {
-        // Check vendor status first
-        if (user.vendor_status === 'pending' || user.vendor_status === 'rejected') {
+        // If vendor is pending, allow access to onboarding (document upload)
+        if (user.vendor_status === 'pending') {
+          setHasRestaurant(null);
+          setChecking(false);
+          // Check if they have a restaurant already
+          try {
+            const response = await api.get('/vendor/restaurant');
+            if (response.data?.id) {
+              // If they already have a restaurant, they're waiting for approval
+              setHasRestaurant(true);
+              navigate('/vendor-waiting');
+            }
+          } catch {
+            // No restaurant yet, let them onboard
+          }
+          return;
+        }
+        
+        // If vendor is rejected, redirect to waiting page
+        if (user.vendor_status === 'rejected') {
           setHasRestaurant(null);
           setChecking(false);
           return;
         }
-        // Only check for restaurant if approved
+        
+        // If vendor is approved, check for restaurant
         if (user.vendor_status === 'approved') {
           try {
             const response = await api.get('/vendor/restaurant');
@@ -152,14 +172,19 @@ function VendorGuard({ children }) {
       setChecking(false);
     };
     if (!loading) check();
-  }, [user, loading]);
+  }, [user, loading, navigate]);
 
   if (loading || checking) return <Loader />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role !== 'vendor') return <Navigate to="/" replace />;
   
-  // If vendor is pending or rejected, show waiting page
-  if (user.vendor_status === 'pending' || user.vendor_status === 'rejected') {
+  // If vendor is pending, show onboarding (document upload)
+  if (user.vendor_status === 'pending') {
+    return <VendorOnboarding />;
+  }
+  
+  // If vendor is rejected, show waiting page
+  if (user.vendor_status === 'rejected') {
     return <VendorWaiting />;
   }
   
@@ -326,7 +351,7 @@ function App() {
                     <Route path="package-approvals" element={<AdminPackageApprovals />} />
                     <Route path="/admin/earnings" element={<AdminEarningsOverview />} />
                     <Route path="menu-approvals" element={<AdminMenuApprovals />} />
-                     <Route path="edmond-dashboard" element={<EdmondDashboard />} />  {/* ← ADD THIS LINE */}
+                    <Route path="edmond-dashboard" element={<EdmondDashboard />} />
                   </Route>
 
                   {/* 404 */}

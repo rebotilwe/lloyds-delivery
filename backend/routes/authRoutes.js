@@ -55,6 +55,9 @@ router.post("/register", async (req, res) => {
 });
 
 // LOGIN - Add vehicle_type to the SELECT
+/* =========================
+   LOGIN
+========================= */
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -65,10 +68,12 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Email and password required" });
     }
 
-    // ✅ ADD vehicle_type to the SELECT query
     const users = await db.query(
       `SELECT id, name, email, role, phone, driver_status, vendor_status, 
-              is_available, earnings, vehicle_type, password_hash 
+              is_available, earnings, vehicle_type, password_hash,
+              vendor_rejection_reason,
+              business_license, health_certificate, halaal_certificate, bank_confirmation,
+              business_registration_number, tax_clearance_number
        FROM users WHERE email = $1`,
       [email]
     );
@@ -87,11 +92,13 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    // Don't block pending drivers - they need to login to complete onboarding
-    if (user.role === 'vendor' && user.vendor_status !== 'approved') {
+    // ✅ FIX: Allow pending vendors to login (they'll be redirected to waiting/onboarding page)
+    // Only block if explicitly rejected (or if we want to block)
+    if (user.role === 'vendor' && user.vendor_status === 'rejected') {
       return res.status(403).json({ 
-        message: "Your vendor account is pending approval. You'll receive an email once approved.",
-        status: user.vendor_status
+        message: "Your vendor application has been rejected. Please contact support.",
+        status: user.vendor_status,
+        rejection_reason: user.vendor_rejection_reason
       });
     }
 
@@ -106,13 +113,18 @@ router.post("/login", async (req, res) => {
     console.log("✅ Login successful:", { 
       email, 
       role: user.role, 
-      driver_status: user.driver_status,
-      vehicle_type: user.vehicle_type  // Should now show 'car' for John
+      vendor_status: user.vendor_status,
+      driver_status: user.driver_status
     });
 
+    // Include vendor_status in response so frontend can handle redirect
     return res.json({
       message: "Login successful",
-      user: userWithoutPassword,
+      user: {
+        ...userWithoutPassword,
+        vendor_status: user.vendor_status || 'pending',
+        driver_status: user.driver_status || null
+      },
       token,
     });
   } catch (err) {
@@ -120,7 +132,6 @@ router.post("/login", async (req, res) => {
     return res.status(500).json({ message: "Server error during login" });
   }
 });
-
 // GET CURRENT USER - Add vehicle_type
 router.get("/me", async (req, res) => {
   try {

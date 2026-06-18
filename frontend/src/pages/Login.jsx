@@ -27,17 +27,47 @@ export default function Login() {
 
       if (!user) return;
 
-      // Redirect based on role
+      // Redirect based on role and status
       if (user.role === "admin") {
         navigate("/admin");
       } else if (user.role === "driver") {
+        // DriverGuard will handle driver status
         navigate("/driver");
       } else if (user.role === "vendor") {
-        navigate("/vendor");
+        // Check vendor status and redirect accordingly
+        if (user.vendor_status === "pending") {
+          // Check if they have a restaurant setup (documents uploaded)
+          try {
+            const response = await fetch('https://lloyds-delivery.onrender.com/api/vendor/restaurant', {
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+              }
+            });
+            if (response.ok) {
+              // Has restaurant - waiting for approval
+              navigate("/vendor-waiting");
+            } else {
+              // No restaurant yet - need to onboard
+              navigate("/vendor/onboarding");
+            }
+          } catch {
+            navigate("/vendor/onboarding");
+          }
+        } else if (user.vendor_status === "rejected") {
+          navigate("/vendor-waiting");
+        } else if (user.vendor_status === "approved") {
+          navigate("/vendor");
+        } else {
+          // Default fallback
+          navigate("/vendor");
+        }
       } else {
         navigate("/");
       }
 
+    } catch (err) {
+      // Error already handled by auth context
+      console.error("Login error:", err);
     } finally {
       setLoading(false);
     }
@@ -131,7 +161,6 @@ export default function Login() {
             </div>
           </div>
 
-          {/* Forgot Password Link */}
           <div className="text-right">
             <button
               type="button"
@@ -152,7 +181,6 @@ export default function Login() {
 
         </form>
 
-        {/* Divider */}
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-gray-300"></div>
@@ -162,7 +190,6 @@ export default function Login() {
           </div>
         </div>
 
-        {/* Signup Button */}
         <Button
           onClick={() => navigate('/signup')}
           variant="outline"
@@ -171,7 +198,6 @@ export default function Login() {
           Create New Account
         </Button>
 
-        {/* Demo Accounts Info */}
         <div className="text-center text-xs text-gray-400 pt-4 border-t">
           <p className="font-medium mb-1">Demo Accounts:</p>
           <p>🍔 Customer: customer@lloyds.com / 123456</p>

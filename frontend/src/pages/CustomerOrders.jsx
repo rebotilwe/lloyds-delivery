@@ -202,10 +202,10 @@ function SupportModal({ isOpen, onClose, user }) {
             <label className="text-sm font-medium mb-2 block">Issue Type</label>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { value: 'complaint', label: '📢 Complaint', icon: '⚠️' },
-                { value: 'inquiry', label: '❓ Inquiry', icon: '❓' },
-                { value: 'support', label: '🛠️ Support', icon: '🔧' },
-                { value: 'feedback', label: '💡 Feedback', icon: '💡' },
+                { value: 'complaint', label: '📢 Complaint' },
+                { value: 'inquiry', label: '❓ Inquiry' },
+                { value: 'support', label: '🛠️ Support' },
+                { value: 'feedback', label: '💡 Feedback' },
               ].map((option) => (
                 <button
                   key={option.value}
@@ -259,7 +259,10 @@ function SupportModal({ isOpen, onClose, user }) {
 
           <div className="text-center pt-2">
             <p className="text-xs text-gray-400">
-              Or email us directly at: <a href="mailto:support@lloydsdelivery.com" className="text-green-600">support@lloydsdelivery.com</a>
+              Or email us directly at:{' '}
+              <a href="mailto:support@lloydsdelivery.com" className="text-green-600">
+                support@lloydsdelivery.com
+              </a>
             </p>
           </div>
         </div>
@@ -347,7 +350,9 @@ function CancellationModal({ isOpen, onClose, onConfirm, orderId, orderType }) {
       return;
     }
 
-    const finalReason = reason === 'other' ? otherReason : cancellationReasons.find(r => r.value === reason)?.label;
+    const finalReason = reason === 'other'
+      ? otherReason
+      : cancellationReasons.find(r => r.value === reason)?.label;
     
     if (reason === 'other' && !otherReason.trim()) {
       toast.error('Please provide a reason');
@@ -376,10 +381,15 @@ function CancellationModal({ isOpen, onClose, onConfirm, orderId, orderType }) {
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <label className="text-sm font-medium mb-2 block">Please tell us why you're cancelling:</label>
+            <label className="text-sm font-medium mb-2 block">
+              Please tell us why you're cancelling:
+            </label>
             <div className="space-y-2">
               {cancellationReasons.map((cancellationReason) => (
-                <label key={cancellationReason.value} className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50">
+                <label
+                  key={cancellationReason.value}
+                  className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-gray-50"
+                >
                   <input
                     type="radio"
                     name="cancellationReason"
@@ -595,7 +605,10 @@ function LiveMap({ driverLocation, orderStatus }) {
         popupAnchor: [0, -15]
       });
       
-      driverMarkerRef.current = L.marker([driverLocation.lat, driverLocation.lng], { icon: driverIcon })
+      driverMarkerRef.current = L.marker(
+        [driverLocation.lat, driverLocation.lng],
+        { icon: driverIcon }
+      )
         .addTo(mapRef.current)
         .bindPopup('<b>Your Driver</b><br>En route to your location!');
       
@@ -643,11 +656,19 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
   const isPackage = order.delivery_type && order.delivery_type !== 'food';
   const isRejected = order.status === 'rejected';
 
-  const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+  const items = typeof order.items === 'string'
+    ? JSON.parse(order.items || '[]')
+    : (order.items || []);
   const itemCount = items.length;
-  const canCancel = (order.status === 'pending' || order.status === 'confirmed' || order.status === 'pending_approval') && !isRejected;
+  const canCancel = (
+    order.status === 'pending' ||
+    order.status === 'confirmed' ||
+    order.status === 'pending_approval'
+  ) && !isRejected;
   const showMap = order.status === 'on_the_way';
-  const needsPayment = isPackage && order.payment_status === 'pending_payment' && order.status === 'pending_driver';
+  const needsPayment = isPackage &&
+    order.payment_status === 'pending_payment' &&
+    order.status === 'pending_driver';
 
   const getEstimatedTime = () => {
     if (isRejected) return 'Request rejected';
@@ -664,14 +685,13 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
   };
 
   const getStatusMessage = () => {
-    if (isRejected) {
-      return '❌ This delivery request has been rejected by admin.';
-    }
+    if (isRejected) return '❌ This delivery request has been rejected by admin.';
     if (isPackage) {
       if (order.status === 'pending_approval') return '⏳ Awaiting admin approval';
-      if (order.status === 'pending_driver' && order.payment_status === 'pending_payment') return '✅ Approved! Please complete payment to continue';
+      if (order.status === 'pending_driver' && order.payment_status === 'pending_payment')
+        return '✅ Approved! Please complete payment to continue';
       if (order.status === 'pending_driver') return '🔍 Looking for a driver';
-      if (order.status === 'assigned') return '✅ Driver assigned to your package';
+      if (order.status === 'assigned') return '✅ Driver assigned — show them the code below when they arrive';
       if (order.status === 'picked_up') return '📦 Package picked up';
       if (order.status === 'on_the_way') return '🚚 Package en route';
       if (order.status === 'delivered') return '✅ Package delivered';
@@ -693,9 +713,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
       toast.dismiss();
       if (response.status === 200) {
         toast.success('Payment successful! Driver will be notified shortly.');
-        setTimeout(() => {
-          window.location.reload();
-        }, 1500);
+        setTimeout(() => window.location.reload(), 1500);
       } else {
         throw new Error('Payment failed');
       }
@@ -728,7 +746,13 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
   return (
     <>
       <Card className={`overflow-hidden border-2 ${isRejected ? 'border-red-500/50' : 'border-green-600/20'} shadow-md`}>
-        <div className={`${isRejected ? 'bg-gradient-to-r from-red-600 to-red-500' : (isPackage ? 'bg-gradient-to-r from-purple-600 to-purple-500' : 'bg-gradient-to-r from-green-600 to-green-600/80')} px-3 sm:px-4 py-2 flex items-center justify-between`}>
+        <div className={`${
+          isRejected
+            ? 'bg-gradient-to-r from-red-600 to-red-500'
+            : isPackage
+              ? 'bg-gradient-to-r from-purple-600 to-purple-500'
+              : 'bg-gradient-to-r from-green-600 to-green-600/80'
+        } px-3 sm:px-4 py-2 flex items-center justify-between`}>
           <div className="flex items-center gap-1 sm:gap-2">
             {isRejected ? (
               <XCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
@@ -757,8 +781,8 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
                   <div key={step.key} className="flex flex-col items-center flex-1">
                     <div className={cn(
                       "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold transition-all",
-                      currentStep >= step.step 
-                        ? "bg-green-600 text-white" 
+                      currentStep >= step.step
+                        ? "bg-green-600 text-white"
                         : "bg-gray-200 text-gray-400"
                     )}>
                       {currentStep > step.step ? (
@@ -780,8 +804,12 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
           )}
 
           {getStatusMessage() && (
-            <div className={`${isRejected ? 'bg-red-50' : (isPackage ? 'bg-purple-50' : 'bg-blue-50')} p-2 rounded-lg text-center`}>
-              <p className={`text-[10px] sm:text-xs ${isRejected ? 'text-red-700' : (isPackage ? 'text-purple-700' : 'text-blue-700')}`}>
+            <div className={`${
+              isRejected ? 'bg-red-50' : isPackage ? 'bg-purple-50' : 'bg-blue-50'
+            } p-2 rounded-lg text-center`}>
+              <p className={`text-[10px] sm:text-xs ${
+                isRejected ? 'text-red-700' : isPackage ? 'text-purple-700' : 'text-blue-700'
+              }`}>
                 {getStatusMessage()}
               </p>
             </div>
@@ -858,7 +886,10 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
                     size="sm" 
                     variant="outline" 
                     className="h-6 text-xs ml-auto shrink-0"
-                    onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.pickup_address)}`, '_blank')}
+                    onClick={() => window.open(
+                      `https://maps.google.com/?q=${encodeURIComponent(order.pickup_address)}`,
+                      '_blank'
+                    )}
                   >
                     <Navigation className="w-2.5 h-2.5 mr-1" />
                     Navigate
@@ -886,24 +917,16 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
               
               <div className="flex flex-wrap gap-3 text-xs mt-2">
                 {order.package_weight && (
-                  <span className="flex items-center gap-1">
-                    <span>⚖️</span> {order.package_weight}kg
-                  </span>
+                  <span className="flex items-center gap-1">⚖️ {order.package_weight}kg</span>
                 )}
                 {order.package_dimensions && (
-                  <span className="flex items-center gap-1">
-                    <span>📏</span> {order.package_dimensions}
-                  </span>
+                  <span className="flex items-center gap-1">📏 {order.package_dimensions}</span>
                 )}
                 {order.requires_signature && (
-                  <span className="flex items-center gap-1 text-blue-600">
-                    <span>📝</span> Signature Required
-                  </span>
+                  <span className="flex items-center gap-1 text-blue-600">📝 Signature Required</span>
                 )}
                 {order.is_fragile && (
-                  <span className="flex items-center gap-1 text-orange-600">
-                    <span>⚠️</span> Fragile Item
-                  </span>
+                  <span className="flex items-center gap-1 text-orange-600">⚠️ Fragile Item</span>
                 )}
               </div>
               
@@ -915,22 +938,27 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             </div>
           )}
 
-          {/* Verification Code Display for Package Orders */}
-          {isPackage && order.verification_code && order.status === 'pending_driver' && (
+          {/* ── VERIFICATION CODE ──
+              Show when driver is assigned (on the way to collect) so the 
+              customer can show it to the driver at pickup.
+              Hides once picked_up since the code has already been used. */}
+          {isPackage && order.verification_code && order.status === 'assigned' && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-2">
                 <KeyRound className="w-5 h-5 text-yellow-600" />
-                <span className="text-sm font-semibold text-yellow-800">Collection Verification Code</span>
+                <span className="text-sm font-semibold text-yellow-800">
+                  Collection Verification Code
+                </span>
               </div>
               <p className="text-3xl font-bold text-yellow-700 tracking-wider text-center font-mono">
                 {order.verification_code}
               </p>
               <p className="text-xs text-yellow-600 mt-2 text-center">
-                Give this code to your driver when they arrive for pickup
+                Show this code to your driver when they arrive to collect the package
               </p>
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 className="mt-3 w-full border-yellow-300 text-yellow-700 hover:bg-yellow-50"
                 onClick={() => {
                   navigator.clipboard.writeText(order.verification_code);
@@ -945,16 +973,19 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
           <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
             <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 mt-0.5 shrink-0" />
             <div className="flex-1">
-              <p className="text-[10px] text-gray-500">
-                {isPackage ? 'Delivery Address' : 'Delivery Address'}
-              </p>
-              <span className="text-xs sm:text-sm break-words">{order.delivery_address || 'No address provided'}</span>
+              <p className="text-[10px] text-gray-500">Delivery Address</p>
+              <span className="text-xs sm:text-sm break-words">
+                {order.delivery_address || 'No address provided'}
+              </span>
             </div>
             <Button 
               size="sm" 
               variant="outline" 
               className="h-7 text-xs shrink-0"
-              onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
+              onClick={() => window.open(
+                `https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`,
+                '_blank'
+              )}
             >
               <Navigation className="w-3 h-3 mr-1" />
               Navigate
@@ -970,7 +1001,10 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
               size="sm"
               variant="outline"
               className="w-full border-purple-300 text-purple-600 hover:bg-purple-50"
-              onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
+              onClick={() => window.open(
+                `https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`,
+                '_blank'
+              )}
             >
               <Navigation className="w-3 h-3 mr-1" />
               Track Package
@@ -1040,7 +1074,9 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
               className="flex items-center justify-between w-full text-xs sm:text-sm text-gray-500 hover:text-gray-700"
             >
               <span>View order details</span>
-              {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4" />}
+              {expanded
+                ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4" />
+                : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4" />}
             </button>
           )}
 
@@ -1101,7 +1137,9 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
     return formatOrderStatus(status);
   };
 
-  const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+  const items = typeof order.items === 'string'
+    ? JSON.parse(order.items || '[]')
+    : (order.items || []);
   const hasDriverRating = order.driver_rated !== undefined ? !order.driver_rated : true;
 
   return (
@@ -1113,15 +1151,13 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
             <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center shrink-0 ${isPackage ? 'bg-purple-100' : 'bg-primary/10'}`}>
-              {isPackage ? (
-                <Package className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
-              ) : (
-                <Package className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
-              )}
+              <Package className={`w-4 h-4 sm:w-5 sm:h-5 ${isPackage ? 'text-purple-600' : 'text-primary'}`} />
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-gray-900 text-sm sm:text-base truncate">
-                {isPackage ? (isRejected ? '❌ Package Delivery (Rejected)' : 'Package Delivery') : (order.restaurant_name || 'Restaurant')}
+                {isPackage
+                  ? (isRejected ? '❌ Package Delivery (Rejected)' : 'Package Delivery')
+                  : (order.restaurant_name || 'Restaurant')}
               </h3>
               <div className="flex items-center gap-2 mt-0.5">
                 <p className="text-[10px] sm:text-xs text-gray-500">
@@ -1137,8 +1173,12 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
             <span className={`px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-full text-[9px] sm:text-xs font-medium ${getStatusColor(order.status)} whitespace-nowrap`}>
               {getStatusLabel(order.status)}
             </span>
-            <span className="font-bold text-green-600 text-xs sm:text-sm whitespace-nowrap">R{Number(order.total).toFixed(2)}</span>
-            {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />}
+            <span className="font-bold text-green-600 text-xs sm:text-sm whitespace-nowrap">
+              R{Number(order.total).toFixed(2)}
+            </span>
+            {expanded
+              ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />
+              : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 shrink-0" />}
           </div>
         </div>
       </CardHeader>
@@ -1230,12 +1270,11 @@ function OrderHistoryCard({ order, onReviewOrder, onReorder, onRateDriver }) {
           {order.driver_name && (
             <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">
               <Truck className="w-3 h-3" />
-              <span>{isPackage ? 'Delivered by courier:' : 'Delivered by driver:'} {order.driver_name}</span>
+              <span>
+                {isPackage ? 'Delivered by courier:' : 'Delivered by driver:'} {order.driver_name}
+              </span>
               {order.driver_phone && (
-                <a 
-                  href={`tel:${order.driver_phone}`}
-                  className="text-blue-600 hover:underline ml-auto"
-                >
+                <a href={`tel:${order.driver_phone}`} className="text-blue-600 hover:underline ml-auto">
                   <Phone className="w-3 h-3" />
                 </a>
               )}
@@ -1311,12 +1350,8 @@ function CustomerOrdersComponent() {
       if (!user?.id) return [];
       try {
         const response = await api.get(`/orders/customer/${user.id}`);
-        if (Array.isArray(response)) {
-          return response;
-        }
-        if (response && response.data && Array.isArray(response.data)) {
-          return response.data;
-        }
+        if (Array.isArray(response)) return response;
+        if (response && response.data && Array.isArray(response.data)) return response.data;
         return [];
       } catch (err) {
         console.error('Error fetching orders:', err);
@@ -1328,11 +1363,9 @@ function CustomerOrdersComponent() {
   });
 
   // Sort orders by created_at (newest first)
-  const sortedOrders = [...orders].sort((a, b) => {
-    const dateA = new Date(a.created_at);
-    const dateB = new Date(b.created_at);
-    return dateB - dateA;
-  });
+  const sortedOrders = [...orders].sort((a, b) =>
+    new Date(b.created_at) - new Date(a.created_at)
+  );
 
   useEffect(() => {
     if (socket && online) {
@@ -1365,9 +1398,7 @@ function CustomerOrdersComponent() {
   };
 
   useEffect(() => {
-    if (showTicketsModal) {
-      fetchUserTickets();
-    }
+    if (showTicketsModal) fetchUserTickets();
   }, [showTicketsModal]);
 
   const handleCancelOrder = async (orderId, reason) => {
@@ -1375,10 +1406,7 @@ function CustomerOrdersComponent() {
       const response = await fetch(`https://lloyds-delivery.onrender.com/api/orders/cancel/${orderId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          customer_id: user?.id,
-          cancellation_reason: reason 
-        }),
+        body: JSON.stringify({ customer_id: user?.id, cancellation_reason: reason }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Failed to cancel order');
@@ -1396,7 +1424,9 @@ function CustomerOrdersComponent() {
       navigate('/package-delivery');
       toast.info('Fill in the package delivery form to book again');
     } else {
-      const items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []);
+      const items = typeof order.items === 'string'
+        ? JSON.parse(order.items || '[]')
+        : (order.items || []);
       if (window.confirm(`Add items from ${order.restaurant_name} to your cart? This will replace your current cart.`)) {
         items.forEach(item => {
           addToCart({
@@ -1446,21 +1476,25 @@ function CustomerOrdersComponent() {
     }
   }, [socket, user, sortedOrders, online, refetch]);
 
-  const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'pending_approval', 'pending_driver', 'assigned', 'rejected'];
+  const activeStatuses = [
+    'pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up',
+    'on_the_way', 'pending_approval', 'pending_driver', 'assigned', 'rejected'
+  ];
   const activeOrders = sortedOrders.filter(o => activeStatuses.includes(o.status));
-  const pastOrders = sortedOrders.filter(o => !activeStatuses.includes(o.status) || o.status === 'cancelled');
+  const pastOrders = sortedOrders.filter(
+    o => !activeStatuses.includes(o.status) || o.status === 'cancelled'
+  );
   
   useEffect(() => {
     if (activeOrders.length > 0) {
-      const orderIds = activeOrders.map(o => o.id);
-      markOrdersAsViewed(orderIds);
+      markOrdersAsViewed(activeOrders.map(o => o.id));
     }
   }, [activeOrders]);
   
-  const filteredPastOrders = pastOrders.filter(order => 
-    (order.restaurant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     order.id?.toString().includes(searchTerm) ||
-     (order.delivery_type === 'package' && 'package'.includes(searchTerm.toLowerCase())))
+  const filteredPastOrders = pastOrders.filter(order =>
+    order.restaurant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    order.id?.toString().includes(searchTerm) ||
+    (order.delivery_type === 'package' && 'package'.includes(searchTerm.toLowerCase()))
   );
   
   const displayedPastOrders = filteredPastOrders.slice(0, visibleCount);
@@ -1468,9 +1502,9 @@ function CustomerOrdersComponent() {
   const loadMore = () => setVisibleCount(prev => prev + 10);
 
   const quickFilters = [
-    { label: 'All Orders', value: '', icon: Package },
-    { label: '📦 Packages', value: 'package', icon: Package },
-    { label: '🍔 Food', value: 'food', icon: Truck },
+    { label: 'All Orders', value: '' },
+    { label: '📦 Packages', value: 'package' },
+    { label: '🍔 Food', value: 'food' },
   ];
 
   if (isLoading) {
@@ -1510,7 +1544,12 @@ function CustomerOrdersComponent() {
               <p className="text-sm text-red-700 mt-1">Order #{rejectedOrder.orderId} was rejected.</p>
               <p className="text-sm font-medium text-red-800 mt-2">Reason:</p>
               <p className="text-sm text-red-700">{rejectedOrder.reason}</p>
-              <Button size="sm" variant="outline" className="mt-3 border-red-300 text-red-600 hover:bg-red-100" onClick={() => setShowRejectionAlert(false)}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-3 border-red-300 text-red-600 hover:bg-red-100"
+                onClick={() => setShowRejectionAlert(false)}
+              >
                 Dismiss
               </Button>
             </div>
@@ -1527,7 +1566,11 @@ function CustomerOrdersComponent() {
           <Button variant="outline" size="sm" onClick={() => setShowTicketsModal(true)} className="text-xs">
             <MessageCircle className="w-3 h-3 mr-1" /> My Tickets
           </Button>
-          {online && <span className="text-[10px] sm:text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">🟢 Live updates active</span>}
+          {online && (
+            <span className="text-[10px] sm:text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+              🟢 Live updates active
+            </span>
+          )}
         </div>
       </div>
 
@@ -1546,8 +1589,14 @@ function CustomerOrdersComponent() {
           <p className="text-sm sm:text-base text-gray-500">No orders yet</p>
           <p className="text-xs sm:text-sm text-gray-400 mt-1">Browse restaurants or book a package delivery</p>
           <div className="flex flex-col sm:flex-row gap-2 justify-center mt-4">
-            <Button onClick={() => navigate('/')} className="bg-green-600 text-white">Browse Restaurants</Button>
-            <Button onClick={() => navigate('/package-delivery')} variant="outline" className="border-purple-500 text-purple-600">
+            <Button onClick={() => navigate('/')} className="bg-green-600 text-white">
+              Browse Restaurants
+            </Button>
+            <Button
+              onClick={() => navigate('/package-delivery')}
+              variant="outline"
+              className="border-purple-500 text-purple-600"
+            >
               <Package className="w-4 h-4 mr-2" /> Book Package Delivery
             </Button>
           </div>
@@ -1573,7 +1622,9 @@ function CustomerOrdersComponent() {
                 <CheckCircle className="w-12 h-12 text-green-300 mx-auto mb-2" />
                 <p className="text-gray-500">No active orders</p>
                 <p className="text-xs text-gray-400 mt-1">Your active orders will appear here</p>
-                <Button onClick={() => navigate('/')} variant="outline" className="mt-4">Browse Restaurants</Button>
+                <Button onClick={() => navigate('/')} variant="outline" className="mt-4">
+                  Browse Restaurants
+                </Button>
               </div>
             )
           )}
@@ -1585,7 +1636,11 @@ function CustomerOrdersComponent() {
                   <Badge
                     key={filter.label}
                     variant={searchTerm === filter.value ? 'default' : 'outline'}
-                    className={`cursor-pointer text-xs ${searchTerm === filter.value ? 'bg-green-600 text-white' : 'hover:bg-gray-100'}`}
+                    className={`cursor-pointer text-xs ${
+                      searchTerm === filter.value
+                        ? 'bg-green-600 text-white'
+                        : 'hover:bg-gray-100'
+                    }`}
                     onClick={() => setSearchTerm(filter.value)}
                   >
                     {filter.label}
@@ -1602,7 +1657,10 @@ function CustomerOrdersComponent() {
                   className="pl-8 h-8 text-sm"
                 />
                 {searchTerm && (
-                  <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
                     <XCircle className="w-3 h-3" />
                   </button>
                 )}
@@ -1672,7 +1730,7 @@ function CustomerOrdersComponent() {
           }}
           onSubmitted={() => {
             refetch();
-            toast.info('Support ticket created. We\'ll respond within 24 hours.');
+            toast.info("Support ticket created. We'll respond within 24 hours.");
           }}
         />
       )}
@@ -1691,14 +1749,22 @@ function CustomerOrdersComponent() {
               </div>
             ) : (
               userTickets.map((ticket) => (
-                <Card key={ticket.id} className="cursor-pointer hover:shadow-md transition" onClick={() => setSelectedTicket(ticket)}>
+                <Card
+                  key={ticket.id}
+                  className="cursor-pointer hover:shadow-md transition"
+                  onClick={() => setSelectedTicket(ticket)}
+                >
                   <CardContent className="p-3">
                     <div className="flex justify-between items-start">
                       <div>
                         <p className="font-semibold text-sm">#{ticket.id}</p>
-                        <p className="text-xs text-gray-500">{issueTypeLabels[ticket.issue_type] || ticket.issue_type}</p>
+                        <p className="text-xs text-gray-500">
+                          {issueTypeLabels[ticket.issue_type] || ticket.issue_type}
+                        </p>
                       </div>
-                      <Badge className={statusColors[ticket.status]}>{ticket.status?.toUpperCase()}</Badge>
+                      <Badge className={statusColors[ticket.status]}>
+                        {ticket.status?.toUpperCase()}
+                      </Badge>
                     </div>
                     <p className="text-xs text-gray-600 mt-2 line-clamp-2">{ticket.description}</p>
                     {ticket.admin_response && (
@@ -1714,7 +1780,9 @@ function CustomerOrdersComponent() {
               ))
             )}
           </div>
-          <Button onClick={() => setShowTicketsModal(false)} variant="outline" className="mt-4">Close</Button>
+          <Button onClick={() => setShowTicketsModal(false)} variant="outline" className="mt-4">
+            Close
+          </Button>
         </DialogContent>
       </Dialog>
 

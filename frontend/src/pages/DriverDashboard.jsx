@@ -988,22 +988,39 @@ export default function DriverDashboard() {
           <Button 
             variant="outline" 
             size="sm"
-            onClick={() => {
-              const bankName = prompt('Enter Bank Name:', bankDetails.bank_name || '');
-              const accountHolder = prompt('Enter Account Holder Name:', bankDetails.account_holder || '');
-              const accountNumber = prompt('Enter Account Number:', bankDetails.account_number || '');
-              const branchCode = prompt('Enter Branch Code (optional):', bankDetails.branch_code || '');
-              
-              if (bankName && accountHolder && accountNumber) {
-                setBankDetails({
-                  bank_name: bankName,
-                  account_holder: accountHolder,
-                  account_number: accountNumber,
-                  branch_code: branchCode || '',
-                });
-                saveBankDetails();
-              }
-            }}
+          onClick={async () => {
+  const bankName = prompt('Enter Bank Name:', bankDetails.bank_name || '');
+  const accountHolder = prompt('Enter Account Holder Name:', bankDetails.account_holder || '');
+  const accountNumber = prompt('Enter Account Number:', bankDetails.account_number || '');
+  const branchCode = prompt('Enter Branch Code (optional):', bankDetails.branch_code || '');
+  
+  if (bankName && accountHolder && accountNumber) {
+    const newDetails = {
+      bank_name: bankName,
+      account_holder: accountHolder,
+      account_number: accountNumber,
+      branch_code: branchCode || '',
+    };
+    setBankDetails(newDetails);
+
+    // Save directly with the new values instead of relying on state
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/bank-details', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(newDetails)  // ← use newDetails, not state
+      });
+      if (!res.ok) throw new Error('Failed to save bank details');
+      toast.success('Bank details saved successfully');
+    } catch (err) {
+      toast.error('Failed to save bank details');
+    }
+  }
+}}
           >
             {bankDetails.bank_name ? 'Update Bank Details' : 'Add Bank Details'}
           </Button>

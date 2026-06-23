@@ -436,24 +436,44 @@ export default function Cart() {
           <>
             <div className="p-4 space-y-4">
               {cart.items.map((item) => (
-                <div key={item.id} className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex-1">
-                    <p className="font-medium">{item.name}</p>
+                <div key={item.id} className="flex items-center gap-3 py-1">
+                  {/* Name + unit price */}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium leading-tight truncate">{item.name}</p>
                     <p className="text-sm text-green">R{formatPrice(item.price)}</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button size="icon" variant="outline" onClick={() => updateQuantity(item.id, item.quantity - 1)} className="h-8 w-8">
+
+                  {/* Quantity controls */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                      className="h-8 w-8"
+                    >
                       <Minus className="w-3 h-3" />
                     </Button>
-                    <span className="w-6 text-center">{item.quantity}</span>
-                    <Button size="icon" variant="outline" onClick={() => updateQuantity(item.id, item.quantity + 1)} className="h-8 w-8">
+                    <span className="w-6 text-center text-sm">{item.quantity}</span>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                      className="h-8 w-8"
+                    >
                       <Plus className="w-3 h-3" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => removeFromCart(item.id)} className="h-8 w-8">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => removeFromCart(item.id)}
+                      className="h-8 w-8"
+                    >
                       <Trash2 className="w-3 h-3 text-red-500" />
                     </Button>
                   </div>
-                  <p className="font-semibold min-w-[80px] text-right">
+
+                  {/* Line total */}
+                  <p className="font-semibold text-sm w-16 text-right shrink-0">
                     R{formatPrice(getNumericPrice(item.price) * item.quantity)}
                   </p>
                 </div>

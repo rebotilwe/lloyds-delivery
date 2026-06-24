@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
+import AddressAutocomplete from '@/components/AddressAutocomplete';
 import { 
   Store, MapPin, Phone, DollarSign, Loader2, 
   Upload, FileCheck, AlertCircle, X, FileText,
@@ -30,6 +31,8 @@ export default function VendorOnboarding() {
     delivery_fee: 20,
     business_registration_number: '',
     tax_clearance_number: '',
+    latitude: null,
+    longitude: null,
   });
 
   const [documents, setDocuments] = useState({
@@ -46,8 +49,7 @@ export default function VendorOnboarding() {
     bank_confirmation: null,
   });
 
-  // Pre-fill restaurant details the vendor already typed in at signup,
-  // so they don't have to enter the same info twice.
+  // Pre-fill restaurant details the vendor already typed in at signup
   useEffect(() => {
     const pending = localStorage.getItem('pending_vendor_restaurant');
     if (pending) {
@@ -75,19 +77,12 @@ export default function VendorOnboarding() {
       const parsed = JSON.parse(stored);
       setUser(parsed);
 
-      // FIX: Determine if documents have actually been uploaded.
-      // A restaurant record existing is NOT the same as documents being
-      // submitted - Signup.jsx creates the restaurant immediately at
-      // registration time, before any documents exist. So "has a
-      // restaurant" must never be used on its own to decide whether
-      // someone has finished onboarding.
       const hasBusinessLicense = !!(parsed.business_license && parsed.business_license.trim() !== '');
       const hasHealthCert = !!(parsed.health_certificate && parsed.health_certificate.trim() !== '');
       const hasHalaalCert = !!(parsed.halaal_certificate && parsed.halaal_certificate.trim() !== '');
       const hasBankConf = !!(parsed.bank_confirmation && parsed.bank_confirmation.trim() !== '');
       const hasDocs = hasBusinessLicense || hasHealthCert || hasHalaalCert || hasBankConf;
       
-      // Check if they already have a restaurant
       const checkRestaurant = async () => {
         try {
           const token = localStorage.getItem('token');
@@ -98,41 +93,39 @@ export default function VendorOnboarding() {
           });
           if (response.data && response.data.id) {
             setHasRestaurant(true);
-            // FIX: Only redirect to the waiting page if a restaurant
-            // exists AND documents have actually been submitted. Without
-            // the hasDocs check here, a vendor who has a restaurant
-            // (created at signup) but hasn't uploaded any documents yet
-            // gets bounced straight to /vendor-waiting and can never
-            // reach the upload form.
             if (parsed.vendor_status === 'pending' && hasDocs) {
               navigate('/vendor-waiting');
               return;
             }
           }
         } catch (err) {
-          // No restaurant found - that's fine, they need to onboard
           setHasRestaurant(false);
         } finally {
           setCheckingRestaurant(false);
         }
       };
       
-      // If vendor is pending, check if they have a restaurant
       if (parsed.vendor_status === 'pending') {
         checkRestaurant();
       } else {
         setCheckingRestaurant(false);
       }
     } else {
-      // FIX: previously, if there was no stored user at all,
-      // checkingRestaurant was left "true" forever and the page would
-      // spin on the loading state indefinitely.
       setCheckingRestaurant(false);
     }
   }, [navigate]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleAddressSelect = (fullAddress, coords) => {
+    setFormData({ 
+      ...formData, 
+      address: fullAddress,
+      latitude: coords?.lat || null,
+      longitude: coords?.lng || null
+    });
   };
 
   const handleFileChange = (e, field) => {
@@ -252,7 +245,6 @@ export default function VendorOnboarding() {
       return;
     }
 
-    // Check if required documents are uploaded
     if (!documents.business_license) {
       toast.error('Please upload your business license');
       return;
@@ -266,10 +258,6 @@ export default function VendorOnboarding() {
     try {
       const token = localStorage.getItem('token');
       
-      // FIX: Check whether a restaurant already exists (it may, since
-      // Signup.jsx creates one at registration time) before deciding
-      // whether to create a new one or update the existing one. This
-      // avoids creating duplicate restaurant rows for the same vendor.
       let restaurantExists = false;
       try {
         const existing = await api.get('/vendor/restaurant', {
@@ -289,6 +277,8 @@ export default function VendorOnboarding() {
         delivery_fee: Number(formData.delivery_fee),
         business_registration_number: formData.business_registration_number,
         tax_clearance_number: formData.tax_clearance_number,
+        latitude: formData.latitude,
+        longitude: formData.longitude,
       };
 
       console.log(restaurantExists ? '🏪 Updating existing restaurant...' : '🏪 Creating restaurant...');
@@ -303,7 +293,6 @@ export default function VendorOnboarding() {
 
       console.log('✅ Restaurant saved:', restaurantResponse.data);
 
-      // Upload documents one by one
       const uploadPromises = [];
       const docKeys = ['business_license', 'health_certificate', 'halaal_certificate', 'bank_confirmation'];
       
@@ -312,8 +301,6 @@ export default function VendorOnboarding() {
           console.log(`📤 Uploading ${docKey}...`);
           const uploadPromise = uploadDocument(docKey, documents[docKey]);
           uploadPromises.push(uploadPromise);
-          
-          // Show progress toast
           toast.info(`Uploading ${docKey.replace('_', ' ')}...`);
         }
       }
@@ -321,7 +308,6 @@ export default function VendorOnboarding() {
       await Promise.all(uploadPromises);
       console.log('✅ All documents uploaded successfully');
 
-      // Update vendor status to pending approval
       await api.put('/vendor/update-status', { 
         vendor_status: 'pending'
       }, {
@@ -333,15 +319,10 @@ export default function VendorOnboarding() {
       toast.success('Restaurant created and documents submitted for review!');
       setSubmitted(true);
       
-      // Update user in localStorage
       const stored = localStorage.getItem('user');
       if (stored) {
         const userData = JSON.parse(stored);
         userData.vendor_status = 'pending';
-        // FIX: also persist that documents now exist locally, so any
-        // guard/check that reads from localStorage immediately after
-        // this (before a fresh /me or /vendor/status fetch) reflects
-        // reality and doesn't bounce the user back to onboarding.
         userData.business_license = userData.business_license || 'submitted';
         userData.health_certificate = userData.health_certificate || 'submitted';
         if (documents.halaal_certificate) userData.halaal_certificate = 'submitted';
@@ -349,7 +330,6 @@ export default function VendorOnboarding() {
         localStorage.setItem('user', JSON.stringify(userData));
       }
 
-      // Navigate to waiting page
       navigate('/vendor-waiting');
 
     } catch (error) {
@@ -360,7 +340,6 @@ export default function VendorOnboarding() {
     }
   };
 
-  // Show loading while checking for restaurant
   if (checkingRestaurant) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -369,7 +348,6 @@ export default function VendorOnboarding() {
     );
   }
 
-  // If they already have a restaurant and are pending, show waiting
   if (hasRestaurant && user?.vendor_status === 'pending') {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
@@ -395,7 +373,6 @@ export default function VendorOnboarding() {
     );
   }
 
-  // If vendor is rejected
   if (user?.vendor_status === 'rejected') {
     return (
       <div className="max-w-xl mx-auto py-8 sm:py-10 px-4">
@@ -418,7 +395,6 @@ export default function VendorOnboarding() {
     );
   }
 
-  // Show the onboarding form
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="max-w-2xl mx-auto">
@@ -471,19 +447,24 @@ export default function VendorOnboarding() {
                 />
               </div>
 
-              {/* Address */}
+              {/* Address with Google Autocomplete */}
               <div>
                 <Label className="flex items-center gap-2 mb-1">
                   <MapPin className="w-4 h-4" />
                   Restaurant Address *
                 </Label>
-                <Input
-                  name="address"
-                  placeholder="Full street address, city, postal code"
+                <AddressAutocomplete
                   value={formData.address}
-                  onChange={handleChange}
+                  onChange={(val) => setFormData({ ...formData, address: val })}
+                  onSelect={handleAddressSelect}
+                  placeholder="Full street address, city, postal code"
                   required
                 />
+                {formData.latitude && formData.longitude && (
+                  <p className="text-xs text-green-600 mt-1">
+                    ✅ Location coordinates saved
+                  </p>
+                )}
               </div>
 
               {/* Phone */}

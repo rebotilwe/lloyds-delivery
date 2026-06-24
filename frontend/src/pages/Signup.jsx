@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import AddressAutocomplete from '@/components/AddressAutocomplete';
 import { Store, User, Truck, Eye, EyeOff, Building2 } from 'lucide-react';
 
 export default function Signup() {
@@ -17,6 +18,8 @@ export default function Signup() {
     restaurant_name: '',
     restaurant_address: '',
     business_registration_number: '',
+    restaurant_lat: null,
+    restaurant_lng: null,
   });
 
   const [showPassword, setShowPassword] = useState(false);
@@ -26,6 +29,15 @@ export default function Signup() {
     setForm(prev => ({
       ...prev,
       [e.target.name]: e.target.value,
+    }));
+  };
+
+  const handleAddressSelect = (fullAddress, coords) => {
+    setForm(prev => ({
+      ...prev,
+      restaurant_address: fullAddress,
+      restaurant_lat: coords?.lat || null,
+      restaurant_lng: coords?.lng || null,
     }));
   };
 
@@ -42,7 +54,6 @@ export default function Signup() {
       return;
     }
 
-    // Validate vendor-specific fields
     if (form.role === 'vendor') {
       if (!form.restaurant_name) {
         toast.error('Please enter your restaurant name');
@@ -57,7 +68,6 @@ export default function Signup() {
     setLoading(true);
 
     try {
-      // Build registration data based on role
       const registrationData = {
         full_name: form.full_name,
         email: form.email,
@@ -66,13 +76,13 @@ export default function Signup() {
         phone: form.phone,
       };
 
-      // Add vendor-specific fields
       if (form.role === 'vendor') {
         registrationData.vendor_status = 'pending';
         registrationData.business_registration_number = form.business_registration_number;
+        registrationData.restaurant_lat = form.restaurant_lat;
+        registrationData.restaurant_lng = form.restaurant_lng;
       }
 
-      // Register the user
       const res = await fetch('https://lloyds-delivery.onrender.com/api/auth/register', {
         method: 'POST',
         headers: {
@@ -87,23 +97,6 @@ export default function Signup() {
         throw new Error(data.message || 'Signup failed');
       }
 
-      // FIX: Previously, this is where Signup.jsx called
-      // /vendor/setup-restaurant immediately after registration, before
-      // the vendor had uploaded a single document. That meant a
-      // restaurant record already existed by the time the vendor first
-      // reached VendorOnboarding, which made VendorOnboarding's
-      // "do they already have a restaurant?" check fire immediately
-      // and redirect straight to /vendor-waiting - skipping the
-      // document upload step entirely.
-      //
-      // Restaurant creation now happens in exactly one place:
-      // VendorOnboarding.jsx's handleSubmit, after the vendor has
-      // filled in their restaurant details AND uploaded their
-      // documents. We still carry the restaurant_name / address /
-      // business_registration_number the vendor typed here so we can
-      // pre-fill the onboarding form for them (see below), but we no
-      // longer create the restaurant at this step.
-
       const roleMessage = {
         customer: 'Account created successfully! Please login.',
         driver: 'Driver application submitted. Await admin approval. You will be notified once approved.',
@@ -112,14 +105,14 @@ export default function Signup() {
 
       toast.success(roleMessage[form.role] || 'Account created successfully!');
 
-      // For vendors, stash what they entered so VendorOnboarding can
-      // pre-fill the form instead of asking them to retype it.
       if (form.role === 'vendor') {
         localStorage.setItem('pending_vendor_restaurant', JSON.stringify({
           name: form.restaurant_name,
           address: form.restaurant_address,
           phone: form.phone,
           business_registration_number: form.business_registration_number,
+          latitude: form.restaurant_lat,
+          longitude: form.restaurant_lng,
         }));
       }
 
@@ -287,13 +280,18 @@ export default function Signup() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Restaurant Address *
                 </label>
-                <Input
-                  name="restaurant_address"
-                  placeholder="Street address, city, postal code"
+                <AddressAutocomplete
                   value={form.restaurant_address}
-                  onChange={handleChange}
-                  className="w-full"
+                  onChange={(val) => setForm(prev => ({ ...prev, restaurant_address: val }))}
+                  onSelect={handleAddressSelect}
+                  placeholder="Street address, city, postal code"
+                  required
                 />
+                {form.restaurant_lat && form.restaurant_lng && (
+                  <p className="text-xs text-green-600 mt-1">
+                    ✅ Location coordinates saved
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">

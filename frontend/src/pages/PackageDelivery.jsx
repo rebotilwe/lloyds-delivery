@@ -3,22 +3,21 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { MapPin, Package, FileText, Truck, Weight, Ruler, AlertCircle, Lock, Info } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { MapPin, Package, FileText, Truck, Weight, Ruler, Info } from 'lucide-react';
 import { toast } from 'sonner';
+import AddressAutocomplete from '@/components/AddressAutocomplete';
 
 const deliveryTypes = {
-  package: { label: 'Package Delivery', icon: Package, basePrice: 50, maxWeight: 30, maxDimension: 100 },
-  document: { label: 'Document Delivery', icon: FileText, basePrice: 35, maxWeight: 2, maxDimension: 40 },
-  other: { label: 'Other Delivery', icon: Truck, basePrice: 60, maxWeight: 50, maxDimension: 150 },
+  package:  { label: 'Package Delivery',  icon: Package,  basePrice: 50, maxWeight: 30,  maxDimension: 100 },
+  document: { label: 'Document Delivery', icon: FileText, basePrice: 35, maxWeight: 2,   maxDimension: 40  },
+  other:    { label: 'Other Delivery',    icon: Truck,    basePrice: 60, maxWeight: 50,  maxDimension: 150 },
 };
 
-// Platform service fee - This is what the platform earns per package
-const PLATFORM_SERVICE_FEE = 15; // R15 per package
+const PLATFORM_SERVICE_FEE = 15;
 
-// Phone number validation function
 const validatePhoneNumber = (phone) => {
   if (!phone) return false;
   const digits = phone.replace(/\D/g, '');
@@ -28,7 +27,6 @@ const validatePhoneNumber = (phone) => {
   return false;
 };
 
-// Format phone number for display
 const formatPhoneNumber = (value) => {
   const digits = value.replace(/\D/g, '');
   if (digits.length <= 4) return digits;
@@ -60,84 +58,62 @@ export default function PackageDelivery() {
 
   const deliveryInfo = deliveryTypes[deliveryType] || deliveryTypes.package;
 
-  // Helper function to calculate total without validation (UPDATED with platform fee)
   const calculateTotal = () => {
-    const basePrice = deliveryInfo.basePrice;
     const weightNum = parseFloat(formData.weight) || 0;
-    const weightPrice = weightNum * 5;
-    const signatureFee = formData.requires_signature ? 10 : 0;
-    const fragileFee = formData.is_fragile ? 15 : 0;
-    const platformFee = PLATFORM_SERVICE_FEE;
-    const total = basePrice + weightPrice + signatureFee + fragileFee + platformFee;
-    return Math.max(35, total); // Increased minimum to R35
+    return Math.max(35,
+      deliveryInfo.basePrice +
+      weightNum * 5 +
+      (formData.requires_signature ? 10 : 0) +
+      (formData.is_fragile ? 15 : 0) +
+      PLATFORM_SERVICE_FEE
+    );
   };
 
-  // Validate form (without auto-calculating)
   const validateForm = () => {
     const newErrors = {};
-    
-    if (!formData.pickup_address.trim()) {
-      newErrors.pickup_address = 'Pickup address is required';
-    }
-    
-    if (!formData.delivery_address.trim()) {
-      newErrors.delivery_address = 'Delivery address is required';
-    }
-    
-    if (!formData.recipient_name.trim()) {
-      newErrors.recipient_name = 'Recipient name is required';
-    }
-    
+
+    if (!formData.pickup_address.trim()) newErrors.pickup_address = 'Pickup address is required';
+    if (!formData.delivery_address.trim()) newErrors.delivery_address = 'Delivery address is required';
+    if (!formData.recipient_name.trim()) newErrors.recipient_name = 'Recipient name is required';
+
     if (!formData.recipient_phone.trim()) {
       newErrors.recipient_phone = 'Recipient phone number is required';
     } else if (!validatePhoneNumber(formData.recipient_phone)) {
-      newErrors.recipient_phone = 'Please enter a valid South African phone number (e.g., 0712345678 or 27712345678)';
+      newErrors.recipient_phone = 'Please enter a valid South African phone number (e.g., 0712345678)';
     }
-    
+
     const weightNum = parseFloat(formData.weight);
     if (formData.weight && (isNaN(weightNum) || weightNum < 0)) {
       newErrors.weight = 'Please enter a valid weight';
     } else if (formData.weight && weightNum > deliveryInfo.maxWeight) {
-      newErrors.weight = `Maximum weight allowed is ${deliveryInfo.maxWeight}kg for ${deliveryInfo.label}`;
+      newErrors.weight = `Maximum weight for ${deliveryInfo.label} is ${deliveryInfo.maxWeight}kg`;
     }
-    
+
     if (formData.dimensions) {
-      const dimensionMatch = formData.dimensions.match(/^(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)$/i);
-      if (!dimensionMatch) {
+      const match = formData.dimensions.match(/^(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)$/i);
+      if (!match) {
         newErrors.dimensions = 'Please use format: L x W x H (e.g., 30x20x10)';
       } else {
-        const [_, l, w, h] = dimensionMatch;
-        const maxDim = Math.max(parseFloat(l), parseFloat(w), parseFloat(h));
+        const maxDim = Math.max(...match.slice(1).map(parseFloat));
         if (maxDim > deliveryInfo.maxDimension) {
-          newErrors.dimensions = `Maximum dimension allowed is ${deliveryInfo.maxDimension}cm for ${deliveryInfo.label}`;
+          newErrors.dimensions = `Maximum dimension for ${deliveryInfo.label} is ${deliveryInfo.maxDimension}cm`;
         }
       }
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  // Calculate quote with proper validation
   const calculateQuote = () => {
-    if (!validateForm()) {
-      toast.error('Please fix the errors before calculating quote');
-      return;
-    }
-    
-    const total = calculateTotal();
-    setQuote({ total });
+    if (!validateForm()) { toast.error('Please fix the errors before calculating quote'); return; }
+    setQuote({ total: calculateTotal() });
   };
 
   const handlePhoneChange = (e) => {
-    const rawValue = e.target.value;
-    const digitsOnly = rawValue.replace(/\D/g, '');
-    const formatted = formatPhoneNumber(digitsOnly);
+    const formatted = formatPhoneNumber(e.target.value.replace(/\D/g, ''));
     setFormData({ ...formData, recipient_phone: formatted });
-    
-    if (errors.recipient_phone && formatted) {
-      setErrors({ ...errors, recipient_phone: '' });
-    }
+    if (errors.recipient_phone && formatted) setErrors({ ...errors, recipient_phone: '' });
   };
 
   const handleWeightChange = (e) => {
@@ -145,54 +121,19 @@ export default function PackageDelivery() {
     if (value === '' || /^\d*\.?\d*$/.test(value)) {
       setFormData({ ...formData, weight: value });
       if (errors.weight) setErrors({ ...errors, weight: '' });
-      if (quote) {
-        const total = calculateTotal();
-        setQuote({ total });
-      }
+      if (quote) setQuote({ total: calculateTotal() });
     }
   };
 
-  const handleDimensionsChange = (e) => {
-    const value = e.target.value;
-    setFormData({ ...formData, dimensions: value });
-    if (errors.dimensions) setErrors({ ...errors, dimensions: '' });
-  };
-
-  const handleSignatureChange = (e) => {
-    const checked = e.target.checked;
-    setFormData({ ...formData, requires_signature: checked });
-    if (quote) {
-      const total = calculateTotal();
-      setQuote({ total });
-    }
-  };
-
-  const handleFragileChange = (e) => {
-    const checked = e.target.checked;
-    setFormData({ ...formData, is_fragile: checked });
-    if (quote) {
-      const total = calculateTotal();
-      setQuote({ total });
-    }
+  const handleOptionChange = (field, checked) => {
+    setFormData({ ...formData, [field]: checked });
+    if (quote) setQuote({ total: calculateTotal() });
   };
 
   const handleSubmit = async () => {
-    if (!isAuthenticated) {
-      toast.error('Please login to continue');
-      navigate('/login');
-      return;
-    }
-
-    if (!validateForm()) {
-      toast.error('Please fix all errors before submitting');
-      return;
-    }
-
-    if (!quote) {
-      calculateQuote();
-      toast.info('Please calculate quote first');
-      return;
-    }
+    if (!isAuthenticated) { toast.error('Please login to continue'); navigate('/login'); return; }
+    if (!validateForm()) { toast.error('Please fix all errors before submitting'); return; }
+    if (!quote) { calculateQuote(); toast.info('Please calculate quote first'); return; }
 
     setLoading(true);
     try {
@@ -225,18 +166,15 @@ export default function PackageDelivery() {
           package_dimensions: formData.dimensions,
           requires_signature: formData.requires_signature,
           is_fragile: formData.is_fragile,
-          platform_service_fee: PLATFORM_SERVICE_FEE  // ← ADD THIS
+          platform_service_fee: PLATFORM_SERVICE_FEE,
         }),
       });
 
       const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to create order');
-      }
+      if (!response.ok) throw new Error(data.message || 'Failed to create order');
 
       toast.success('Package request submitted! Awaiting admin approval.');
       navigate('/orders');
-
     } catch (err) {
       console.error(err);
       toast.error(err.message);
@@ -245,22 +183,18 @@ export default function PackageDelivery() {
     }
   };
 
-  // Calculate display values for breakdown
-  const basePrice = deliveryInfo.basePrice;
+  // Live price breakdown values
   const weightNum = parseFloat(formData.weight) || 0;
   const weightPrice = weightNum * 5;
   const signatureFee = formData.requires_signature ? 10 : 0;
   const fragileFee = formData.is_fragile ? 15 : 0;
-  const platformFee = PLATFORM_SERVICE_FEE;
-  const displayTotal = basePrice + weightPrice + signatureFee + fragileFee + platformFee;
-  const finalTotal = Math.max(35, displayTotal);
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <h1 className="text-2xl font-bold mb-2">{deliveryInfo.label}</h1>
       <p className="text-gray-500 mb-6">Fast and reliable delivery service</p>
 
-      {/* Pricing Rules Disclosure - UPDATED */}
+      {/* Pricing info */}
       <Card className="mb-6 bg-blue-50 border-blue-200">
         <CardContent className="p-4">
           <div className="flex items-start gap-3">
@@ -272,7 +206,7 @@ export default function PackageDelivery() {
                 <p>• Weight charge: <strong>R5 per kg</strong> (Max: {deliveryInfo.maxWeight}kg)</p>
                 <p>• Signature required: <strong>+R10</strong></p>
                 <p>• Fragile item handling: <strong>+R15</strong></p>
-                <p>• Platform service fee: <strong>+R{PLATFORM_SERVICE_FEE}</strong> (covers platform costs)</p>
+                <p>• Platform service fee: <strong>+R{PLATFORM_SERVICE_FEE}</strong></p>
                 <p className="text-xs mt-2 text-blue-600">Maximum dimensions: {deliveryInfo.maxDimension}cm per side</p>
               </div>
             </div>
@@ -281,45 +215,54 @@ export default function PackageDelivery() {
       </Card>
 
       <div className="space-y-6">
-        {/* Pickup Address */}
+
+        {/* ── Pickup Address — Google Places autocomplete ── */}
         <Card className={`border ${errors.pickup_address ? 'border-red-500' : 'border-gray-200'}`}>
           <CardContent className="p-5">
             <Label className="flex items-center gap-2 mb-3">
               <MapPin className="w-4 h-4 text-green-600" />
               Pickup Address *
             </Label>
-            <Input
-              placeholder="Where should we pick up from?"
+            <AddressAutocomplete
               value={formData.pickup_address}
-              onChange={(e) => {
-                setFormData({ ...formData, pickup_address: e.target.value });
+              onChange={(val) => {
+                setFormData({ ...formData, pickup_address: val });
                 if (errors.pickup_address) setErrors({ ...errors, pickup_address: '' });
               }}
+              onSelect={(fullAddress) => {
+                setFormData({ ...formData, pickup_address: fullAddress });
+                if (errors.pickup_address) setErrors({ ...errors, pickup_address: '' });
+              }}
+              placeholder="Where should we pick up from?"
             />
             {errors.pickup_address && <p className="text-xs text-red-500 mt-1">{errors.pickup_address}</p>}
           </CardContent>
         </Card>
 
-        {/* Delivery Address */}
+        {/* ── Delivery Address — Google Places autocomplete ── */}
         <Card className={`border ${errors.delivery_address ? 'border-red-500' : 'border-gray-200'}`}>
           <CardContent className="p-5">
             <Label className="flex items-center gap-2 mb-3">
               <MapPin className="w-4 h-4 text-red-500" />
               Delivery Address *
             </Label>
-            <Input
-              placeholder="Where should we deliver to?"
+            <AddressAutocomplete
               value={formData.delivery_address}
-              onChange={(e) => {
-                setFormData({ ...formData, delivery_address: e.target.value });
+              onChange={(val) => {
+                setFormData({ ...formData, delivery_address: val });
                 if (errors.delivery_address) setErrors({ ...errors, delivery_address: '' });
               }}
+              onSelect={(fullAddress) => {
+                setFormData({ ...formData, delivery_address: fullAddress });
+                if (errors.delivery_address) setErrors({ ...errors, delivery_address: '' });
+              }}
+              placeholder="Where should we deliver to?"
             />
             {errors.delivery_address && <p className="text-xs text-red-500 mt-1">{errors.delivery_address}</p>}
           </CardContent>
         </Card>
 
-        {/* Recipient Info - REQUIRED */}
+        {/* Recipient */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Card className={`border ${errors.recipient_name ? 'border-red-500' : 'border-gray-200'}`}>
             <CardContent className="p-5">
@@ -327,10 +270,7 @@ export default function PackageDelivery() {
               <Input
                 placeholder="Who is receiving?"
                 value={formData.recipient_name}
-                onChange={(e) => {
-                  setFormData({ ...formData, recipient_name: e.target.value });
-                  if (errors.recipient_name) setErrors({ ...errors, recipient_name: '' });
-                }}
+                onChange={(e) => { setFormData({ ...formData, recipient_name: e.target.value }); if (errors.recipient_name) setErrors({ ...errors, recipient_name: '' }); }}
                 className="mt-1"
               />
               {errors.recipient_name && <p className="text-xs text-red-500 mt-1">{errors.recipient_name}</p>}
@@ -339,20 +279,14 @@ export default function PackageDelivery() {
           <Card className={`border ${errors.recipient_phone ? 'border-red-500' : 'border-gray-200'}`}>
             <CardContent className="p-5">
               <Label className="text-sm">Recipient Phone *</Label>
-              <Input
-                placeholder="e.g., 0712345678"
-                value={formData.recipient_phone}
-                onChange={handlePhoneChange}
-                className="mt-1"
-                type="tel"
-              />
+              <Input placeholder="e.g., 0712345678" value={formData.recipient_phone} onChange={handlePhoneChange} className="mt-1" type="tel" />
               {errors.recipient_phone && <p className="text-xs text-red-500 mt-1">{errors.recipient_phone}</p>}
               <p className="text-[10px] text-gray-400 mt-1">South African format (e.g., 0712345678)</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Package Details with Constraints */}
+        {/* Weight & Dimensions */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Card className={`border ${errors.weight ? 'border-red-500' : 'border-gray-200'}`}>
             <CardContent className="p-5">
@@ -360,14 +294,7 @@ export default function PackageDelivery() {
                 <Weight className="w-4 h-4 text-green-600" />
                 Weight (kg) <span className="text-xs text-gray-400">(Max: {deliveryInfo.maxWeight}kg)</span>
               </Label>
-              <Input
-                type="text"
-                placeholder="e.g., 2.5"
-                value={formData.weight}
-                onChange={handleWeightChange}
-                onBlur={calculateQuote}
-                className="mt-1"
-              />
+              <Input type="text" placeholder="e.g., 2.5" value={formData.weight} onChange={handleWeightChange} onBlur={calculateQuote} className="mt-1" />
               {errors.weight && <p className="text-xs text-red-500 mt-1">{errors.weight}</p>}
             </CardContent>
           </Card>
@@ -380,7 +307,7 @@ export default function PackageDelivery() {
               <Input
                 placeholder="e.g., 30x20x10"
                 value={formData.dimensions}
-                onChange={handleDimensionsChange}
+                onChange={(e) => { setFormData({ ...formData, dimensions: e.target.value }); if (errors.dimensions) setErrors({ ...errors, dimensions: '' }); }}
                 onBlur={calculateQuote}
                 className="mt-1"
               />
@@ -395,12 +322,7 @@ export default function PackageDelivery() {
           <Card>
             <CardContent className="p-4">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.requires_signature}
-                  onChange={handleSignatureChange}
-                  className="w-4 h-4"
-                />
+                <input type="checkbox" checked={formData.requires_signature} onChange={(e) => handleOptionChange('requires_signature', e.target.checked)} className="w-4 h-4" />
                 <span className="text-sm">📝 Requires Signature (+R10)</span>
               </label>
             </CardContent>
@@ -408,12 +330,7 @@ export default function PackageDelivery() {
           <Card>
             <CardContent className="p-4">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.is_fragile}
-                  onChange={handleFragileChange}
-                  className="w-4 h-4"
-                />
+                <input type="checkbox" checked={formData.is_fragile} onChange={(e) => handleOptionChange('is_fragile', e.target.checked)} className="w-4 h-4" />
                 <span className="text-sm">⚠️ Fragile Item (+R15)</span>
               </label>
             </CardContent>
@@ -434,7 +351,7 @@ export default function PackageDelivery() {
           </CardContent>
         </Card>
 
-        {/* Quote & Submission - UPDATED */}
+        {/* Quote & Submit */}
         <Card className="bg-gradient-to-r from-green-50 to-blue-50">
           <CardContent className="p-5">
             {quote ? (
@@ -449,16 +366,10 @@ export default function PackageDelivery() {
                   <p className="text-blue-600 font-medium">Platform service fee: +R{PLATFORM_SERVICE_FEE}.00</p>
                   <p className="text-gray-400 text-[10px] mt-1">Minimum charge: R35</p>
                 </div>
-                <Button 
-                  onClick={handleSubmit}
-                  disabled={loading}
-                  className="mt-4 bg-green-600 text-white w-full"
-                >
+                <Button onClick={handleSubmit} disabled={loading} className="mt-4 bg-green-600 text-white w-full">
                   {loading ? 'Processing...' : `Submit Package Request • R${quote.total.toFixed(2)}`}
                 </Button>
-                <p className="text-xs text-center text-gray-400 mt-3">
-                  You'll pay after admin approves your request
-                </p>
+                <p className="text-xs text-center text-gray-400 mt-3">You'll pay after admin approves your request</p>
               </div>
             ) : (
               <Button onClick={calculateQuote} className="w-full bg-green-600 text-white">

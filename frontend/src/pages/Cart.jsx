@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { useCart } from '@/lib/cartStore';
 import { toast } from 'sonner';
 import PromoCode from '@/components/PromoCode';
+import AddressAutocomplete from '@/components/AddressAutocomplete';
 
 const DELIVERY_FEE = 20;
 const API_URL = import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com/api';
@@ -506,14 +507,24 @@ export default function Cart() {
           </div>
         )}
 
-        {/* Delivery Address (for food only) */}
+        {/* Delivery Address (for food only) - NOW WITH AUTOCOMPLETE */}
         {deliveryType === 'food' && (
           <>
             <Separator />
             <div className="p-4 space-y-3">
               <h3 className="font-semibold">Delivery Address</h3>
-              <Input placeholder="Street address *" value={address} onChange={(e) => setAddress(e.target.value)} />
-              <Textarea placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+              <AddressAutocomplete
+                value={address}
+                onChange={setAddress}
+                placeholder="Enter your delivery address *"
+                className="w-full"
+              />
+              <Textarea 
+                placeholder="Notes (optional)" 
+                value={notes} 
+                onChange={(e) => setNotes(e.target.value)} 
+                rows={2} 
+              />
             </div>
           </>
         )}

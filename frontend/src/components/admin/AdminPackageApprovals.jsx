@@ -73,7 +73,7 @@ export default function AdminPackageApprovals() {
       const order = selectedPackage;
       
       // 1. Update order status in database
-      const response = await api.put(`/orders/admin/approve-package/${orderId}`, { 
+      await api.put(`/orders/admin/approve-package/${orderId}`, { 
         action: 'reject', 
         rejection_reason: rejectionReason 
       });
@@ -96,7 +96,6 @@ export default function AdminPackageApprovals() {
       // 3. Send email notification
       if (order && order.customer_email) {
         try {
-          // Call backend email endpoint
           await api.post('/notifications/send-rejection-email', {
             orderId: order.id,
             customerEmail: order.customer_email,
@@ -110,11 +109,10 @@ export default function AdminPackageApprovals() {
           console.log(`📧 Rejection email sent to ${order.customer_email}`);
         } catch (emailError) {
           console.error('Failed to send email:', emailError);
-          // Don't block the rejection process
         }
       }
       
-      toast.success('Package rejected successfully. Customer has been notified via app notification and email.', {
+      toast.success('Package rejected. Customer has been notified.', {
         duration: 6000,
       });
       
@@ -192,7 +190,11 @@ export default function AdminPackageApprovals() {
       ) : (
         <div className="space-y-3">
           {pendingPackages.map((pkg) => (
-            <Card key={pkg.id} className="border-yellow-200 hover:shadow-md transition cursor-pointer" onClick={() => { setSelectedPackage(pkg); setShowModal(true); }}>
+            <Card
+              key={pkg.id}
+              className="border-yellow-200 hover:shadow-md transition cursor-pointer"
+              onClick={() => { setSelectedPackage(pkg); setShowModal(true); }}
+            >
               <CardContent className="p-4">
                 <div className="flex flex-col lg:flex-row justify-between gap-4">
                   <div className="flex-1">
@@ -306,13 +308,17 @@ export default function AdminPackageApprovals() {
 
               <div className="bg-green-50 p-3 rounded-lg">
                 <p className="font-semibold text-sm">Payment Amount</p>
-                <p className="text-2xl font-bold text-green-600">R{parseFloat(selectedPackage.total).toFixed(2)}</p>
+                <p className="text-2xl font-bold text-green-600">
+                  R{parseFloat(selectedPackage.total).toFixed(2)}
+                </p>
                 <p className="text-xs text-gray-500 mt-1">Customer will pay after approval</p>
               </div>
 
               {/* Rejection Reason Input */}
               <div>
-                <label className="text-sm font-medium block mb-2">Rejection Reason (required if rejecting)</label>
+                <label className="text-sm font-medium block mb-2">
+                  Rejection Reason (required if rejecting)
+                </label>
                 <Textarea
                   placeholder="Enter reason for rejection. This will be shown to the customer..."
                   value={rejectionReason}
@@ -336,30 +342,49 @@ export default function AdminPackageApprovals() {
                     <p><strong>Order #:</strong> {selectedPackage.id}</p>
                     <p><strong>Status:</strong> Rejected</p>
                     <p><strong>Reason:</strong> {rejectionReason}</p>
-                    <p><strong>Next Steps:</strong> Please contact support or submit a new request with corrected information.</p>
+                    <p><strong>Next Steps:</strong> Please contact support or submit a new request.</p>
                   </div>
                 </div>
               )}
 
+              {/* FIX: Use inline styles to guarantee colors are applied regardless of
+                  shadcn theme overrides. Approve = solid green, Reject = solid red. */}
               <div className="flex gap-3 pt-2">
-                <Button 
-                  onClick={() => approvePackage(selectedPackage.id)} 
+                <button
+                  onClick={() => approvePackage(selectedPackage.id)}
                   disabled={processing}
-                  className="flex-1 bg-green-600 text-white hover:bg-green-700"
+                  style={{ backgroundColor: processing ? '#86efac' : '#16a34a' }}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-md text-white font-medium text-sm transition-opacity disabled:opacity-60"
                 >
-                  {processing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                  {processing ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4" />
+                  )}
                   Approve Package
-                </Button>
-                <Button 
-                  onClick={() => rejectPackage(selectedPackage.id)} 
+                </button>
+
+                <button
+                  onClick={() => rejectPackage(selectedPackage.id)}
                   disabled={processing || !rejectionReason.trim()}
-                  variant="destructive" 
-                  className="flex-1"
+                  style={{ backgroundColor: (processing || !rejectionReason.trim()) ? '#fca5a5' : '#dc2626' }}
+                  className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-md text-white font-medium text-sm transition-opacity disabled:opacity-60"
                 >
-                  {sendingEmail ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <XCircle className="w-4 h-4 mr-2" />}
+                  {sendingEmail ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <XCircle className="w-4 h-4" />
+                  )}
                   Reject & Notify
-                </Button>
+                </button>
               </div>
+
+              {/* Helper text when reject is disabled */}
+              {!rejectionReason.trim() && (
+                <p className="text-xs text-center text-gray-400">
+                  Enter a rejection reason above to enable the reject button
+                </p>
+              )}
             </div>
           )}
         </DialogContent>

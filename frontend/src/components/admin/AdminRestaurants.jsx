@@ -15,7 +15,8 @@ import {
   Phone,
   Clock,
   DollarSign,
-  Star
+  Star,
+  Navigation
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,6 +39,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import AddressAutocomplete from '@/components/AddressAutocomplete';
 
 export default function AdminRestaurants({ restaurants = [], onRefresh }) {
   const queryClient = useQueryClient();
@@ -58,7 +60,9 @@ export default function AdminRestaurants({ restaurants = [], onRefresh }) {
     image_url: '',
     rating: '',
     delivery_fee: '',
-    estimated_delivery_time: ''
+    estimated_delivery_time: '',
+    latitude: null,
+    longitude: null,
   });
 
   // Filter restaurants by search term - with safety check
@@ -80,7 +84,9 @@ export default function AdminRestaurants({ restaurants = [], onRefresh }) {
         image_url: restaurant.image_url || '',
         rating: restaurant.rating || '',
         delivery_fee: restaurant.delivery_fee || '',
-        estimated_delivery_time: restaurant.estimated_delivery_time || ''
+        estimated_delivery_time: restaurant.estimated_delivery_time || '',
+        latitude: restaurant.latitude || null,
+        longitude: restaurant.longitude || null,
       });
     } else {
       setEditingRestaurant(null);
@@ -93,10 +99,27 @@ export default function AdminRestaurants({ restaurants = [], onRefresh }) {
         image_url: '',
         rating: '',
         delivery_fee: '',
-        estimated_delivery_time: ''
+        estimated_delivery_time: '',
+        latitude: null,
+        longitude: null,
       });
     }
     setIsModalOpen(true);
+  };
+
+  const handleAddressSelect = (fullAddress, coords) => {
+    setFormData({ 
+      ...formData, 
+      address: fullAddress,
+      latitude: coords?.lat || null,
+      longitude: coords?.lng || null
+    });
+  };
+
+  const openInGoogleMaps = (address) => {
+    if (address) {
+      window.open(`https://maps.google.com/?q=${encodeURIComponent(address)}`, '_blank');
+    }
   };
 
   const handleImageUpload = async (e) => {
@@ -160,7 +183,9 @@ export default function AdminRestaurants({ restaurants = [], onRefresh }) {
         image_url: formData.image_url,
         rating: formData.rating ? parseFloat(formData.rating) : null,
         delivery_fee: formData.delivery_fee ? parseFloat(formData.delivery_fee) : 0,
-        estimated_delivery_time: formData.estimated_delivery_time
+        estimated_delivery_time: formData.estimated_delivery_time,
+        latitude: formData.latitude,
+        longitude: formData.longitude,
       };
 
       if (editingRestaurant) {
@@ -202,7 +227,7 @@ export default function AdminRestaurants({ restaurants = [], onRefresh }) {
     }
   };
 
-  // Mobile Restaurant Card Component
+  // Mobile Restaurant Card Component with Map Integration
   const MobileRestaurantCard = ({ restaurant }) => (
     <div className="border rounded-lg overflow-hidden bg-white shadow-sm hover:shadow-md transition">
       <div className="aspect-video relative">
@@ -224,7 +249,16 @@ export default function AdminRestaurants({ restaurants = [], onRefresh }) {
         
         <div className="flex items-start gap-1 mt-2">
           <MapPin className="w-3 h-3 text-gray-400 mt-0.5 shrink-0" />
-          <p className="text-xs text-gray-500 line-clamp-1">{restaurant.address || 'No address'}</p>
+          <p className="text-xs text-gray-500 line-clamp-1 flex-1">{restaurant.address || 'No address'}</p>
+          {restaurant.address && (
+            <button
+              onClick={() => openInGoogleMaps(restaurant.address)}
+              className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition shrink-0"
+              title="View on Google Maps"
+            >
+              <Navigation className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
         
         <div className="flex flex-wrap justify-between items-center mt-3 gap-2">
@@ -255,6 +289,13 @@ export default function AdminRestaurants({ restaurants = [], onRefresh }) {
             </button>
           </div>
         </div>
+
+        {/* Show location coordinates if available */}
+        {restaurant.latitude && restaurant.longitude && (
+          <div className="mt-1 text-[10px] text-gray-400">
+            📍 {restaurant.latitude.toFixed(4)}, {restaurant.longitude.toFixed(4)}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -428,15 +469,35 @@ export default function AdminRestaurants({ restaurants = [], onRefresh }) {
                 />
               </div>
 
+              {/* Address with Google Autocomplete */}
               <div>
                 <Label>Address</Label>
-                <Input
+                <AddressAutocomplete
                   value={formData.address}
-                  onChange={e => setFormData({ ...formData, address: e.target.value })}
+                  onChange={(val) => setFormData({ ...formData, address: val })}
+                  onSelect={handleAddressSelect}
                   placeholder="Restaurant address"
-                  className="mt-1"
                 />
+                {formData.latitude && formData.longitude && (
+                  <p className="text-xs text-green-600 mt-1">
+                    ✅ Location coordinates saved
+                  </p>
+                )}
               </div>
+
+              {/* View on Map button (only when editing) */}
+              {editingRestaurant && formData.address && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-blue-500 border-blue-200 hover:bg-blue-50"
+                  onClick={() => openInGoogleMaps(formData.address)}
+                >
+                  <Navigation className="w-4 h-4 mr-2" />
+                  View on Google Maps
+                </Button>
+              )}
 
               <div>
                 <Label>Phone</Label>

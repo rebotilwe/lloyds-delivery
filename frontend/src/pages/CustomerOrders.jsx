@@ -6,7 +6,7 @@ import {
   Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, 
   AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
   Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car,
-  Lock, Loader2, XCircle, Headset, Send, KeyRound
+  Lock, Loader2, XCircle, Headset, Send, KeyRound, RefreshCw
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -114,7 +114,7 @@ function loadGoogleMapsScript() {
 }
 
 // ── Live Map (Google Maps) ───────────────────────────────────────────────────
-function LiveMap({ driverLocation, deliveryAddress, orderStatus }) {
+function LiveMap({ driverLocation, deliveryAddress, orderStatus, orderId }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const driverMarkerRef = useRef(null);
@@ -122,6 +122,9 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus }) {
   const directionsRendererRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const [showFallback, setShowFallback] = useState(false);
+  const { socket, online } = useSocket();
 
   useEffect(() => {
     if (!GOOGLE_MAPS_API_KEY) { 
@@ -129,7 +132,6 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus }) {
       return; 
     }
     
-    // Check if already loaded
     if (window.google?.maps) {
       setMapReady(true);
       return;
@@ -139,6 +141,29 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus }) {
       .then(() => setMapReady(true))
       .catch(() => setLoadError(true));
   }, []);
+
+  // Retry loading map if driver location is available but map isn't ready
+  useEffect(() => {
+    if (driverLocation?.lat && driverLocation?.lng && !mapReady && retryCount < 3) {
+      const timer = setTimeout(() => {
+        setRetryCount(prev => prev + 1);
+        loadGoogleMapsScript()
+          .then(() => setMapReady(true))
+          .catch(() => setLoadError(true));
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [driverLocation, mapReady, retryCount]);
+
+  // Show fallback after 15 seconds of waiting
+  useEffect(() => {
+    if (!driverLocation?.lat && !driverLocation?.lng && orderStatus === 'on_the_way') {
+      const timer = setTimeout(() => {
+        setShowFallback(true);
+      }, 15000);
+      return () => clearTimeout(timer);
+    }
+  }, [driverLocation, orderStatus]);
 
   useEffect(() => {
     if (!mapReady || !mapContainerRef.current || mapRef.current) return;
@@ -230,6 +255,14 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus }) {
     }
   }, [driverLocation, deliveryAddress, orderStatus, mapReady]);
 
+  // Request driver location manually
+  const requestDriverLocation = () => {
+    if (socket && online && orderId) {
+      socket.emit('request-driver-location', { orderId });
+      toast.info('Requesting driver location update...');
+    }
+  };
+
   if (orderStatus !== 'on_the_way') return null;
 
   if (loadError || !GOOGLE_MAPS_API_KEY) {
@@ -251,12 +284,45 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus }) {
     );
   }
 
+  // ── UPDATED: Better waiting state with fallback ──
   if (!driverLocation?.lat || !driverLocation?.lng) {
     return (
-      <div className="mt-3 h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+      <div className="mt-3 h-48 bg-gray-100 rounded-lg flex flex-col items-center justify-center">
         <div className="text-center">
           <Loader2 className="w-6 h-6 text-green-600 animate-spin mx-auto mb-2" />
           <p className="text-xs text-gray-500">Waiting for driver location...</p>
+          <p className="text-[10px] text-gray-400 mt-1">
+            {retryCount > 0 ? `Retrying... (${retryCount}/3)` : 'Driver will share location shortly'}
+          </p>
+          {showFallback && (
+            <div className="mt-3 space-y-2">
+              <p className="text-[10px] text-orange-500">Driver location taking longer than expected</p>
+              <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="text-xs border-blue-300 text-blue-600"
+                  onClick={() => {
+                    if (deliveryAddress) {
+                      window.open(`https://maps.google.com/?q=${encodeURIComponent(deliveryAddress)}`, '_blank');
+                    }
+                  }}
+                >
+                  <Navigation className="w-3 h-3 mr-1" />
+                  Open Delivery Address
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="text-xs border-purple-300 text-purple-600"
+                  onClick={requestDriverLocation}
+                >
+                  <RefreshCw className="w-3 h-3 mr-1" />
+                  Request Location Update
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -935,7 +1001,8 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
             <LiveMap 
               driverLocation={driverLocation} 
               deliveryAddress={order.delivery_address} 
-              orderStatus={order.status} 
+              orderStatus={order.status}
+              orderId={order.id}
             />
           )}
 
@@ -1267,12 +1334,65 @@ function CustomerOrdersComponent() {
 
   const sortedOrders = [...orders].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
+  // ── UPDATED: Better driver location handling with localStorage cache ──
+  useEffect(() => {
+    // Check localStorage for cached driver location
+    const saved = localStorage.getItem('last_driver_location');
+    if (saved && !driverLocation) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Only use if less than 5 minutes old
+        if (Date.now() - parsed.timestamp < 5 * 60 * 1000) {
+          setDriverLocation({ lat: parsed.lat, lng: parsed.lng });
+          console.log('📦 Loaded cached driver location:', parsed);
+        }
+      } catch (e) {}
+    }
+  }, []);
+
   useEffect(() => {
     if (socket && online) {
-      socket.on('driver-location-update', (data) => setDriverLocation({ lat: data.lat, lng: data.lng }));
-      return () => socket.off('driver-location-update');
+      // Listen for driver location updates
+      socket.on('driver-location-update', (data) => {
+        console.log('📍 Driver location received:', data);
+        if (data?.lat && data?.lng) {
+          setDriverLocation({ lat: data.lat, lng: data.lng });
+          // Cache in localStorage
+          localStorage.setItem('last_driver_location', JSON.stringify({ 
+            lat: data.lat, 
+            lng: data.lng,
+            timestamp: Date.now()
+          }));
+        }
+      });
+
+      // Request current driver location if we have an active order on_the_way
+      const activeOnTheWay = sortedOrders.find(o => o.status === 'on_the_way');
+      if (activeOnTheWay) {
+        console.log('📤 Requesting driver location for order:', activeOnTheWay.id);
+        socket.emit('request-driver-location', { orderId: activeOnTheWay.id });
+        // Also request again after 5 seconds if no response
+        setTimeout(() => {
+          socket.emit('request-driver-location', { orderId: activeOnTheWay.id });
+        }, 5000);
+      }
+
+      // Listen for order status updates to trigger location requests
+      socket.on('order-status-update', (data) => {
+        if (data.status === 'on_the_way') {
+          console.log('🔔 Order is on_the_way, requesting driver location');
+          setTimeout(() => {
+            socket.emit('request-driver-location', { orderId: data.orderId });
+          }, 1000);
+        }
+      });
+
+      return () => {
+        socket.off('driver-location-update');
+        socket.off('order-status-update');
+      };
     }
-  }, [socket, online]);
+  }, [socket, online, sortedOrders]);
 
   useEffect(() => {
     if (socket && online) {

@@ -27,6 +27,8 @@ import {
   MessageCircle,
   KeyRound,
   PenTool,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formatOrderStatus } from '@/lib/utils';
@@ -43,6 +45,8 @@ import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import SignaturePad from '@/components/SignaturePad';
 
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+
 // STATUS FLOW - Food orders (Driver only sees ready_for_pickup and beyond)
 const FOOD_STATUS_FLOW = {
   ready_for_pickup: 'picked_up',
@@ -50,7 +54,7 @@ const FOOD_STATUS_FLOW = {
   on_the_way: 'delivered',
 };
 
-// STATUS FLOW - Package deliveries (UPDATED)
+// STATUS FLOW - Package deliveries
 const PACKAGE_STATUS_FLOW = {
   pending_driver: 'assigned',
   assigned: 'picked_up',
@@ -78,7 +82,41 @@ function cn(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
-// Helper to calculate distance (Haversine formula) - for display only
+// ── GOOGLE MAPS DISTANCE MATRIX API ──────────────────────────────────────
+async function getDistanceMatrix(originLat, originLng, destinationAddress) {
+  if (!originLat || !originLng || !destinationAddress) return null;
+  
+  try {
+    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?` +
+      `origins=${originLat},${originLng}&` +
+      `destinations=${encodeURIComponent(destinationAddress)}&` +
+      `key=${GOOGLE_MAPS_API_KEY}&` +
+      `region=za&` +
+      `units=metric`;
+
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.status === 'OK' && data.rows[0]?.elements[0]?.status === 'OK') {
+      const element = data.rows[0].elements[0];
+      return {
+        distance: element.distance.value / 1000, // km
+        distanceText: element.distance.text,
+        duration: element.duration.value / 60, // minutes
+        durationText: element.duration.text,
+        durationInSeconds: element.duration.value,
+        originAddress: data.origin_addresses[0],
+        destinationAddress: data.destination_addresses[0],
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error('Distance Matrix API error:', err);
+    return null;
+  }
+}
+
+// ── HELPER: Calculate distance (Haversine - fallback) ──────────────────────
 function calculateDistance(lat1, lon1, lat2, lon2) {
   if (!lat1 || !lon1 || !lat2 || !lon2) return null;
   const R = 6371;
@@ -91,15 +129,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// Helper to estimate delivery time based on distance
-function estimateDeliveryTime(distanceKm) {
-  if (!distanceKm) return null;
-  const avgSpeed = 30;
-  const minutes = Math.ceil((distanceKm / avgSpeed) * 60);
-  return minutes;
-}
-
-// Helper to format phone number for WhatsApp
+// ── HELPER: Format phone for WhatsApp ──────────────────────────────────────
 const formatWhatsAppNumber = (phone) => {
   if (!phone) return '#';
   let cleaned = phone.replace(/\D/g, '');
@@ -110,6 +140,25 @@ const formatWhatsAppNumber = (phone) => {
     cleaned = '27' + cleaned;
   }
   return cleaned;
+};
+
+// ── HELPER: Get status color ──────────────────────────────────────────────
+const getStatusColor = (status) => {
+  const colors = {
+    pending: 'bg-yellow-100 text-yellow-800',
+    confirmed: 'bg-blue-100 text-blue-800',
+    preparing: 'bg-purple-100 text-purple-800',
+    ready_for_pickup: 'bg-green-100 text-green-800',
+    picked_up: 'bg-indigo-100 text-indigo-800',
+    on_the_way: 'bg-orange-100 text-orange-800',
+    delivered: 'bg-green-100 text-green-800',
+    cancelled: 'bg-red-100 text-red-800',
+    pending_approval: 'bg-yellow-100 text-yellow-800',
+    rejected: 'bg-red-100 text-red-800',
+    pending_driver: 'bg-blue-100 text-blue-800',
+    assigned: 'bg-purple-100 text-purple-800',
+  };
+  return colors[status] || 'bg-gray-100 text-gray-800';
 };
 
 export default function DriverDashboard() {
@@ -129,6 +178,7 @@ export default function DriverDashboard() {
   const [expandedOrders, setExpandedOrders] = useState({});
   const [restaurantDistances, setRestaurantDistances] = useState({});
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [etaCache, setEtaCache] = useState({});
 
   // Package Offer States
   const [packageOffer, setPackageOffer] = useState(null);
@@ -168,7 +218,7 @@ export default function DriverDashboard() {
     return !isNaN(num) ? num.toFixed(2) : '0.00';
   };
 
-  // LOAD USER
+  // ── LOAD USER ──────────────────────────────────────────────────────────────
   useEffect(() => {
     const stored = localStorage.getItem('user');
     if (stored) {
@@ -181,7 +231,7 @@ export default function DriverDashboard() {
     }
   }, [authUser]);
 
-  // Fetch orders when user is available
+  // ── FETCH ORDERS ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (user && user.id) {
       console.log('User loaded, fetching orders...');
@@ -201,7 +251,7 @@ export default function DriverDashboard() {
     }
   }, [user]);
 
-  // Load declined orders from localStorage
+  // ── LOAD DECLINED ORDERS ─────────────────────────────────────────────────
   useEffect(() => {
     const saved = localStorage.getItem('declined_orders');
     if (saved) {
@@ -211,29 +261,67 @@ export default function DriverDashboard() {
     }
   }, []);
 
-  // Save declined orders to localStorage
   useEffect(() => {
     localStorage.setItem('declined_orders', JSON.stringify(declinedOrders));
   }, [declinedOrders]);
 
-  // Calculate distances for available orders
+  // ── CALCULATE DISTANCES WITH GOOGLE MAPS API ─────────────────────────────
   useEffect(() => {
     if (availableOrders.length > 0 && driverLocation.lat && driverLocation.lng) {
-      const distances = {};
-      availableOrders.forEach(order => {
-        const restaurantLat = order.restaurant_lat || -29.65;
-        const restaurantLng = order.restaurant_lng || 31.05;
-        const distance = calculateDistance(
-          driverLocation.lat, driverLocation.lng,
-          restaurantLat, restaurantLng
-        );
-        distances[order.id] = distance;
-      });
-      setRestaurantDistances(distances);
+      const fetchDistances = async () => {
+        const newDistances = {};
+        const newEtas = {};
+        
+        for (const order of availableOrders) {
+          const address = order.delivery_type !== 'food' 
+            ? order.pickup_address 
+            : order.restaurant_address || order.restaurant_name;
+          
+          if (address) {
+            try {
+              const result = await getDistanceMatrix(
+                driverLocation.lat,
+                driverLocation.lng,
+                address
+              );
+              
+              if (result) {
+                newDistances[order.id] = result.distance;
+                newEtas[order.id] = {
+                  durationText: result.durationText,
+                  durationMinutes: Math.round(result.duration),
+                  distanceText: result.distanceText,
+                };
+              } else {
+                // Fallback to Haversine
+                const fallbackDist = calculateDistance(
+                  driverLocation.lat, driverLocation.lng,
+                  -29.65, 31.05 // Default to Durban
+                );
+                if (fallbackDist) {
+                  newDistances[order.id] = fallbackDist;
+                  newEtas[order.id] = {
+                    durationText: `${Math.round(fallbackDist / 30 * 60)} mins`,
+                    durationMinutes: Math.round(fallbackDist / 30 * 60),
+                    distanceText: `${fallbackDist.toFixed(1)} km`,
+                  };
+                }
+              }
+            } catch (err) {
+              console.error('Error fetching distance for order:', order.id, err);
+            }
+          }
+        }
+        
+        setRestaurantDistances(newDistances);
+        setEtaCache(newEtas);
+      };
+      
+      fetchDistances();
     }
   }, [availableOrders, driverLocation]);
 
-  // Location tracking
+  // ── LOCATION TRACKING ──────────────────────────────────────────────────────
   useEffect(() => {
     if (navigator.geolocation && isAvailable) {
       const watchId = navigator.geolocation.watchPosition(
@@ -262,7 +350,7 @@ export default function DriverDashboard() {
     }
   }, [isAvailable, trackingOrder, socket, online]);
 
-  // Socket connection for order offers and package offers
+  // ── SOCKET CONNECTIONS ────────────────────────────────────────────────────
   useEffect(() => {
     if (socket && user?.id && online) {
       socket.emit('join-driver', user.id);
@@ -340,6 +428,7 @@ export default function DriverDashboard() {
     }
   }, []);
 
+  // ── API CALLS ──────────────────────────────────────────────────────────────
   const fetchUserData = async () => {
     if (!user?.id) return;
     try {
@@ -630,31 +719,25 @@ export default function DriverDashboard() {
     return FOOD_STATUS_LABELS[order.status] || 'Update Status';
   };
 
-  // FIXED: Force packages to use verification flow
   const handleOrderAction = (order) => {
     const isPackage = order.delivery_type && order.delivery_type !== 'food';
     
     if (isPackage) {
-      // FOR PACKAGES - MUST use verification flow
       if (order.status === 'pending_driver') {
         acceptPackageOrder(order.id);
       } 
       else if (order.status === 'assigned') {
-        // Show verification modal instead of status update
         setCurrentOrderForSignature(order);
         setShowCodeModal(true);
       }
       else if (order.status === 'picked_up') {
-        // Show delivery signature modal
         setCurrentOrderForSignature(order);
         setShowDeliverySignatureModal(true);
       }
       else {
-        // Don't allow regular status update for packages
         toast.error('Please use the verification buttons to update this delivery');
       }
     } else {
-      // Food orders - regular flow
       if (order.status === 'ready_for_pickup') {
         acceptFoodOrder(order.id);
       } else {
@@ -673,48 +756,21 @@ export default function DriverDashboard() {
     return address;
   };
 
-  const activeOrders = useMemo(
-    () => myOrders.filter((o) =>
-      ['picked_up', 'on_the_way', 'assigned'].includes(o.status)
-    ),
-    [myOrders]
-  );
-
-  const completedOrders = useMemo(
-    () => myOrders.filter((o) => o.status === 'delivered'),
-    [myOrders]
-  );
-
-  const totalEarnings = useMemo(() => {
-    return completedOrders.reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
-  }, [completedOrders]);
-
-  const weeklyEarnings = useMemo(() => {
-    const oneWeekAgo = new Date();
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-    return completedOrders
-      .filter(order => new Date(order.created_at) > oneWeekAgo)
-      .reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
-  }, [completedOrders]);
-
-  const averageRating = useMemo(() => {
-    const ratedOrders = completedOrders.filter(o => o.driver_rating);
-    if (ratedOrders.length === 0) return 0;
-    const sum = ratedOrders.reduce((acc, o) => acc + (o.driver_rating || 0), 0);
-    return (sum / ratedOrders.length).toFixed(1);
-  }, [completedOrders]);
-
-  const hasActiveOrder = useMemo(() => {
-    return myOrders.some(order => 
-      ['picked_up', 'on_the_way', 'assigned'].includes(order.status)
-    );
-  }, [myOrders]);
-
   const openGoogleMaps = (address) => {
     const encodedAddress = encodeURIComponent(address);
     window.open(`https://maps.google.com/?q=${encodedAddress}`, '_blank');
   };
 
+  const openGoogleMapsWithDirections = (fromAddress, toAddress) => {
+    const encodedFrom = encodeURIComponent(fromAddress || '');
+    const encodedTo = encodeURIComponent(toAddress || '');
+    window.open(
+      `https://www.google.com/maps/dir/?api=1&origin=${encodedFrom}&destination=${encodedTo}&travelmode=driving`,
+      '_blank'
+    );
+  };
+
+  // ── FETCH EARNINGS ────────────────────────────────────────────────────────
   const fetchEarningsData = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -770,31 +826,6 @@ export default function DriverDashboard() {
     }
   };
 
-  const saveBankDetails = async () => {
-    if (!bankDetails.bank_name || !bankDetails.account_number || !bankDetails.account_holder) {
-      toast.error('Please fill in bank name, account holder, and account number');
-      return;
-    }
-
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/bank-details', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(bankDetails)
-      });
-      
-      if (!res.ok) throw new Error('Failed to save bank details');
-      
-      toast.success('Bank details saved successfully');
-    } catch (err) {
-      toast.error('Failed to save bank details');
-    }
-  };
-
   const handleWithdrawRequest = async () => {
     const amount = parseFloat(withdrawAmount);
     
@@ -805,6 +836,11 @@ export default function DriverDashboard() {
     
     if (amount > (earningsSummary?.available_balance || 0)) {
       toast.error(`Insufficient balance. Available: R${formatCurrency(earningsSummary?.available_balance)}`);
+      return;
+    }
+    
+    if (!bankDetails.bank_name || !bankDetails.account_number) {
+      toast.error('Please add your bank details first');
       return;
     }
     
@@ -841,7 +877,45 @@ export default function DriverDashboard() {
     }
   };
 
-  // Show loading skeleton while data is being fetched
+  // ── COMPUTED VALUES ──────────────────────────────────────────────────────
+  const activeOrders = useMemo(
+    () => myOrders.filter((o) =>
+      ['picked_up', 'on_the_way', 'assigned'].includes(o.status)
+    ),
+    [myOrders]
+  );
+
+  const completedOrders = useMemo(
+    () => myOrders.filter((o) => o.status === 'delivered'),
+    [myOrders]
+  );
+
+  const totalEarnings = useMemo(() => {
+    return completedOrders.reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
+  }, [completedOrders]);
+
+  const weeklyEarnings = useMemo(() => {
+    const oneWeekAgo = new Date();
+    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+    return completedOrders
+      .filter(order => new Date(order.created_at) > oneWeekAgo)
+      .reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
+  }, [completedOrders]);
+
+  const averageRating = useMemo(() => {
+    const ratedOrders = completedOrders.filter(o => o.driver_rating);
+    if (ratedOrders.length === 0) return 0;
+    const sum = ratedOrders.reduce((acc, o) => acc + (o.driver_rating || 0), 0);
+    return (sum / ratedOrders.length).toFixed(1);
+  }, [completedOrders]);
+
+  const hasActiveOrder = useMemo(() => {
+    return myOrders.some(order => 
+      ['picked_up', 'on_the_way', 'assigned'].includes(order.status)
+    );
+  }, [myOrders]);
+
+  // ── RENDER ────────────────────────────────────────────────────────────────
   if (loading && !dataLoaded) {
     return (
       <div className="max-w-5xl mx-auto px-3 sm:px-4 py-6 sm:py-8">
@@ -852,7 +926,6 @@ export default function DriverDashboard() {
     );
   }
 
-  // Show message if no user found
   if (!user) {
     return (
       <div className="max-w-5xl mx-auto px-4 py-8 text-center">
@@ -915,7 +988,7 @@ export default function DriverDashboard() {
       {/* Status Indicators */}
       <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
         <span className={`text-[10px] sm:text-xs px-2 py-1 rounded-full ${online ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-          {online ? '🟢 Live Updates Active' : '🔴 Connecting...'}
+          {online ? <><Wifi className="w-3 h-3 inline mr-1" /> Live Updates Active</> : <><WifiOff className="w-3 h-3 inline mr-1" /> Connecting...</>}
         </span>
         {trackingOrder && (
           <span className="text-[10px] sm:text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full animate-pulse">
@@ -988,39 +1061,38 @@ export default function DriverDashboard() {
           <Button 
             variant="outline" 
             size="sm"
-          onClick={async () => {
-  const bankName = prompt('Enter Bank Name:', bankDetails.bank_name || '');
-  const accountHolder = prompt('Enter Account Holder Name:', bankDetails.account_holder || '');
-  const accountNumber = prompt('Enter Account Number:', bankDetails.account_number || '');
-  const branchCode = prompt('Enter Branch Code (optional):', bankDetails.branch_code || '');
-  
-  if (bankName && accountHolder && accountNumber) {
-    const newDetails = {
-      bank_name: bankName,
-      account_holder: accountHolder,
-      account_number: accountNumber,
-      branch_code: branchCode || '',
-    };
-    setBankDetails(newDetails);
+            onClick={async () => {
+              const bankName = prompt('Enter Bank Name:', bankDetails.bank_name || '');
+              const accountHolder = prompt('Enter Account Holder Name:', bankDetails.account_holder || '');
+              const accountNumber = prompt('Enter Account Number:', bankDetails.account_number || '');
+              const branchCode = prompt('Enter Branch Code (optional):', bankDetails.branch_code || '');
+              
+              if (bankName && accountHolder && accountNumber) {
+                const newDetails = {
+                  bank_name: bankName,
+                  account_holder: accountHolder,
+                  account_number: accountNumber,
+                  branch_code: branchCode || '',
+                };
+                setBankDetails(newDetails);
 
-    // Save directly with the new values instead of relying on state
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/bank-details', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(newDetails)  // ← use newDetails, not state
-      });
-      if (!res.ok) throw new Error('Failed to save bank details');
-      toast.success('Bank details saved successfully');
-    } catch (err) {
-      toast.error('Failed to save bank details');
-    }
-  }
-}}
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch('https://lloyds-delivery.onrender.com/api/driver/bank-details', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(newDetails)
+                  });
+                  if (!res.ok) throw new Error('Failed to save bank details');
+                  toast.success('Bank details saved successfully');
+                } catch (err) {
+                  toast.error('Failed to save bank details');
+                }
+              }
+            }}
           >
             {bankDetails.bank_name ? 'Update Bank Details' : 'Add Bank Details'}
           </Button>
@@ -1095,6 +1167,7 @@ export default function DriverDashboard() {
             {activeOrders.map((order) => {
               const isPackage = order.delivery_type && order.delivery_type !== 'food';
               const pickupLocation = isPackage ? order.pickup_address : (order.restaurant_address || order.restaurant_name);
+              const orderEta = etaCache[order.id];
               
               return (
                 <Card key={order.id} className="overflow-hidden">
@@ -1105,6 +1178,9 @@ export default function DriverDashboard() {
                           <p className="font-semibold text-sm sm:text-base truncate">
                             {isPackage ? '📦 Package Delivery' : (order.restaurant_name || 'Restaurant')}
                           </p>
+                          <Badge className={getStatusColor(order.status)}>
+                            {formatOrderStatus(order.status)}
+                          </Badge>
                           {order.delivery_type && order.delivery_type !== 'food' && (
                             <Badge className={
                               order.delivery_type === 'package' ? 'bg-purple-100 text-purple-800' :
@@ -1118,14 +1194,29 @@ export default function DriverDashboard() {
                           )}
                         </div>
                         <p className="text-xs text-gray-500">Order #{order.id}</p>
-                        <p className="text-xs text-gray-400 mt-1">
-                          Status: <span className="font-medium">{formatOrderStatus(order.status)}</span>
-                        </p>
                       </div>
                       <span className="text-base sm:text-lg font-bold text-green shrink-0 ml-2">
                         R{Number(order.total).toFixed(2)}
                       </span>
                     </div>
+
+                    {/* ETA Info - Using Google Maps Distance Matrix */}
+                    {orderEta && (
+                      <div className="bg-blue-50 rounded-lg p-2 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-blue-600" />
+                          <span className="text-sm font-medium text-blue-700">
+                            ETA: {orderEta.durationText}
+                          </span>
+                          <span className="text-xs text-blue-500">
+                            ({orderEta.distanceText})
+                          </span>
+                        </div>
+                        <Badge className="bg-blue-200 text-blue-800 text-[10px]">
+                          Google Maps
+                        </Badge>
+                      </div>
+                    )}
 
                     {/* Customer/Sender Info */}
                     {order.customer_name && (
@@ -1177,7 +1268,7 @@ export default function DriverDashboard() {
                       )
                     )}
 
-                    {/* Pickup Location */}
+                    {/* Pickup Location with Directions */}
                     {pickupLocation && (
                       <div className="flex items-start gap-2 bg-gray-50 rounded-lg p-2">
                         <MapPin className={`w-3 h-3 ${isPackage ? 'text-purple-500' : 'text-orange-500'} mt-0.5 shrink-0`} />
@@ -1199,7 +1290,7 @@ export default function DriverDashboard() {
                       </div>
                     )}
 
-                    {/* Delivery Location */}
+                    {/* Delivery Location with Directions */}
                     <div className="flex items-center justify-between gap-2 bg-gray-50 rounded-lg p-2">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <MapPin className="w-3 h-3 text-red-500 shrink-0" />
@@ -1218,6 +1309,19 @@ export default function DriverDashboard() {
                         Navigate
                       </Button>
                     </div>
+
+                    {/* Route between Pickup and Delivery */}
+                    {pickupLocation && order.delivery_address && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full border-green-300 text-green-700 hover:bg-green-50 text-xs"
+                        onClick={() => openGoogleMapsWithDirections(pickupLocation, order.delivery_address)}
+                      >
+                        <NavigateIcon className="w-3 h-3 mr-2" />
+                        Get Directions (Pickup → Delivery)
+                      </Button>
+                    )}
 
                     {/* Package details */}
                     {isPackage && (
@@ -1260,7 +1364,7 @@ export default function DriverDashboard() {
                       </Button>
                     )}
 
-                    {/* Regular button - ONLY for food orders (NOT for packages) */}
+                    {/* Regular button - ONLY for food orders */}
                     {!isPackage && (
                       <Button
                         className="w-full bg-green hover:bg-green/90 text-white text-sm h-9 sm:h-10"
@@ -1335,9 +1439,10 @@ export default function DriverDashboard() {
           <div className="space-y-3">
             {availableOrders.map((order) => {
               const distance = restaurantDistances[order.id];
-              const estimatedTime = distance ? estimateDeliveryTime(distance) : null;
+              const etaInfo = etaCache[order.id];
               const requiredVehicle = order.required_vehicle_type || 'bike';
               const isPackage = order.delivery_type && order.delivery_type !== 'food';
+              const pickupLocation = isPackage ? order.pickup_address : (order.restaurant_address || order.restaurant_name);
               
               return (
                 <Card key={order.id} className="hover:shadow-md transition">
@@ -1382,30 +1487,47 @@ export default function DriverDashboard() {
                           Order #{order.id} • {order.customer_name || 'Customer'}
                         </p>
                         
-                        {isPackage && order.pickup_address && (
+                        {pickupLocation && (
                           <div className="flex items-start gap-1 mt-2">
-                            <MapPin className="w-3 h-3 text-purple-500 mt-0.5 shrink-0" />
-                            <p className="text-xs text-gray-500 truncate">Pickup: {formatAddress(order.pickup_address)}</p>
+                            <MapPin className={`w-3 h-3 ${isPackage ? 'text-purple-500' : 'text-orange-500'} mt-0.5 shrink-0`} />
+                            <p className="text-xs text-gray-500 truncate">
+                              {isPackage ? 'Pickup: ' : 'From: '}{formatAddress(pickupLocation)}
+                            </p>
                           </div>
                         )}
                         
                         <div className="flex items-start gap-1 mt-1">
-                          <MapPin className="w-3 h-3 text-gray-400 mt-0.5 shrink-0" />
+                          <MapPin className="w-3 h-3 text-red-500 mt-0.5 shrink-0" />
                           <p className="text-xs text-gray-500 truncate">
-                            {isPackage ? 'Delivery: ' : ''}{formatAddress(order.delivery_address)}
+                            {isPackage ? 'Delivery: ' : 'To: '}{formatAddress(order.delivery_address)}
                           </p>
                         </div>
                         
-                        {distance && (
+                        {/* Distance and ETA from Google Maps */}
+                        {etaInfo && (
+                          <div className="flex flex-wrap items-center gap-3 mt-2">
+                            <span className="text-xs text-blue-600">📍 {etaInfo.distanceText} away</span>
+                            <span className="text-xs text-green-600">⏱️ ETA: {etaInfo.durationText}</span>
+                          </div>
+                        )}
+                        {!etaInfo && distance && (
                           <div className="flex flex-wrap items-center gap-3 mt-2">
                             <span className="text-xs text-gray-500">📍 {distance.toFixed(1)} km away</span>
-                            {estimatedTime && <span className="text-xs text-green-600">⏱️ ~{estimatedTime} min</span>}
                           </div>
                         )}
                         
                         <p className="text-xs text-green-600 mt-2 font-medium">
                           Delivery Fee: R{Number(order.delivery_fee || 0).toFixed(2)}
                         </p>
+
+                        {/* Package details preview */}
+                        {isPackage && order.package_weight && (
+                          <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-500">
+                            <span>⚖️ {order.package_weight}kg</span>
+                            {order.is_fragile && <span className="text-orange-500">⚠️ Fragile</span>}
+                            {order.requires_signature && <span className="text-blue-500">📝 Signature</span>}
+                          </div>
+                        )}
                       </div>
                       <div className="flex flex-row sm:flex-col justify-between sm:justify-center items-center gap-2">
                         <p className="font-bold text-green text-base sm:text-lg">R{Number(order.total).toFixed(2)}</p>
@@ -1692,7 +1814,7 @@ export default function DriverDashboard() {
   );
 }
 
-// Simplified Stat Card Component
+// ── STAT CARD COMPONENT ────────────────────────────────────────────────────
 function StatCard({ label, value, icon: Icon, color }) {
   return (
     <Card>

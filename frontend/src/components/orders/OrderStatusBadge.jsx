@@ -14,7 +14,7 @@ const statusConfig = {
 export default function OrderStatusBadge({ status }) {
   const config = statusConfig[status] || statusConfig.pending;
   return (
-    <Badge variant="outline" className={config.className}>
+    <Badge variant="outline" className={`${config.className} font-medium`}>
       {config.label}
     </Badge>
   );

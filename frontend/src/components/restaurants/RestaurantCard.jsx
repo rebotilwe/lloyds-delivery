@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Star, Clock, Bike } from 'lucide-react';
+import { Star, Clock, Bike, MapPin, Navigation } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 // Different food images for variety based on cuisine type
 const CUISINE_IMAGES = {
@@ -62,6 +63,15 @@ const getRestaurantImage = (restaurant) => {
   return DEFAULT_IMAGE;
 };
 
+// Format distance for display
+const formatDistance = (distance) => {
+  if (!distance || distance === Infinity) return null;
+  if (distance < 1) {
+    return `${Math.round(distance * 1000)}m`;
+  }
+  return `${distance.toFixed(1)}km`;
+};
+
 export default function RestaurantCard({ restaurant }) {
   // Safe rating parsing with fallback
   const rating = restaurant?.rating ? parseFloat(restaurant.rating) : null;
@@ -72,10 +82,27 @@ export default function RestaurantCard({ restaurant }) {
   const isValidDeliveryFee = !isNaN(deliveryFee);
   
   const imageUrl = getRestaurantImage(restaurant);
+  
+  // Get distance from restaurant object (added by Home page when sorting by distance)
+  const distance = restaurant?.distance || null;
+  const formattedDistance = formatDistance(distance);
+
+  // Get restaurant address for Google Maps
+  const restaurantAddress = restaurant?.address || restaurant?.location || '';
+
+  const handleOpenInMaps = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (restaurantAddress) {
+      const encodedAddress = encodeURIComponent(restaurantAddress);
+      window.open(`https://maps.google.com/?q=${encodedAddress}`, '_blank');
+    }
+  };
 
   return (
     <Link to={`/restaurant/${restaurant.id}`} className="group block">
-      <div className="bg-white rounded-lg md:rounded-xl overflow-hidden shadow-sm border border-gray-200 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+      <div className="bg-white rounded-lg md:rounded-xl overflow-hidden shadow-sm border border-gray-200 hover:shadow-lg transition-all duration-300 hover:-translate-y-1 h-full flex flex-col">
+        {/* Image Section */}
         <div className="aspect-[16/10] relative overflow-hidden">
           <img
             src={imageUrl}
@@ -85,14 +112,45 @@ export default function RestaurantCard({ restaurant }) {
               e.target.src = DEFAULT_IMAGE;
             }}
           />
+          {/* Cuisine Type Badge */}
           {restaurant.cuisine_type && (
             <span className="absolute top-2 left-2 md:top-3 md:left-3 bg-black/70 text-white text-[10px] md:text-xs px-1.5 py-0.5 md:px-2 md:py-1 rounded-full">
               {restaurant.cuisine_type}
             </span>
           )}
+          {/* Distance Badge - Shows when user has location enabled */}
+          {distance !== null && distance !== undefined && (
+            <span className="absolute top-2 right-2 md:top-3 md:right-3 bg-green/90 text-white text-[10px] md:text-xs px-1.5 py-0.5 md:px-2 md:py-1 rounded-full flex items-center gap-1 shadow-md">
+              <MapPin className="w-2.5 h-2.5 md:w-3 md:h-3" />
+              {formattedDistance}
+            </span>
+          )}
         </div>
-        <div className="p-3 md:p-4">
+        
+        {/* Content Section */}
+        <div className="p-3 md:p-4 flex-1 flex flex-col">
           <h3 className="font-semibold text-sm md:text-lg line-clamp-1">{restaurant.name}</h3>
+          
+          {/* Address with Google Maps link */}
+          {restaurantAddress && (
+            <div className="flex items-center gap-1 mt-1">
+              <MapPin className="w-2.5 h-2.5 md:w-3 md:h-3 text-gray-400 shrink-0" />
+              <span className="text-[10px] md:text-xs text-gray-400 line-clamp-1 flex-1">
+                {restaurantAddress}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 w-5 p-0 shrink-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                onClick={handleOpenInMaps}
+                title="Open in Google Maps"
+              >
+                <Navigation className="w-3 h-3" />
+              </Button>
+            </div>
+          )}
+
+          {/* Rating and Delivery Info */}
           <div className="flex items-center gap-2 md:gap-4 mt-2 text-[11px] md:text-sm text-gray-500">
             {isValidRating && (
               <span className="flex items-center gap-0.5 md:gap-1">
@@ -111,6 +169,36 @@ export default function RestaurantCard({ restaurant }) {
               R{isValidDeliveryFee ? deliveryFee.toFixed(0) : 15}
             </span>
           </div>
+
+          {/* Distance Indicator - Shows when location is enabled */}
+          {distance !== null && distance !== undefined && (
+            <div className="mt-2">
+              {distance < 2 && (
+                <span className="text-[8px] md:text-[10px] text-green-600 font-medium flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+                  Very close
+                </span>
+              )}
+              {distance >= 2 && distance < 5 && (
+                <span className="text-[8px] md:text-[10px] text-blue-600 font-medium flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 inline-block" />
+                  Nearby
+                </span>
+              )}
+              {distance >= 5 && distance < 10 && (
+                <span className="text-[8px] md:text-[10px] text-yellow-600 font-medium flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 inline-block" />
+                  Within 10km
+                </span>
+              )}
+              {distance >= 10 && (
+                <span className="text-[8px] md:text-[10px] text-orange-600 font-medium flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-500 inline-block" />
+                  {formattedDistance} away
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </Link>

@@ -2,11 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { Search, MapPin, Package, FileText, Truck, ShoppingBag } from 'lucide-react';
+import { Search, MapPin, Package, FileText, Truck, ShoppingBag, Navigation, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent } from '@/components/ui/card';
+import { toast } from 'sonner';
 import RestaurantCard from '@/components/restaurants/RestaurantCard';
 
 const cuisineFilters = [
@@ -29,43 +30,108 @@ export default function Home() {
   const [activeCuisine, setActiveCuisine] = useState('All');
   const [showAllFilters, setShowAllFilters] = useState(false);
   const [selectedDeliveryType, setSelectedDeliveryType] = useState('food');
+  const [userLocation, setUserLocation] = useState(null);
+  const [gettingLocation, setGettingLocation] = useState(false);
+  const [sortBy, setSortBy] = useState('relevance'); // 'relevance', 'distance', 'rating'
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(timer);
   }, [search]);
 
-  const { data: restaurants = [], isLoading, error } = useQuery({
+  const { data: restaurants = [], isLoading, error, refetch } = useQuery({
     queryKey: ['restaurants'],
     queryFn: () => base44.entities.Restaurant.list(),
   });
 
-  const filtered = useMemo(() => {
+  // Get user location for "Near me" feature
+  const getUserLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported by your browser');
+      return;
+    }
+
+    setGettingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setUserLocation({ lat: latitude, lng: longitude });
+        toast.success('Location detected! Showing nearby restaurants');
+        setGettingLocation(false);
+        // Sort restaurants by distance
+        setSortBy('distance');
+      },
+      (error) => {
+        console.error('Geolocation error:', error);
+        toast.error('Unable to get your location. Please enable location services.');
+        setGettingLocation(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // Calculate distance between two coordinates (Haversine formula)
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Filter and sort restaurants
+  const filteredAndSorted = useMemo(() => {
     if (!restaurants.length) return [];
-    return restaurants.filter(r => {
+    
+    // First apply filters
+    let filtered = restaurants.filter(r => {
       const matchesSearch = !debouncedSearch ||
         r.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
         (r.description && r.description.toLowerCase().includes(debouncedSearch.toLowerCase()));
       const matchesCuisine = activeCuisine === 'All' || r.cuisine_type === activeCuisine;
       return matchesSearch && matchesCuisine;
     });
-  }, [restaurants, debouncedSearch, activeCuisine]);
+
+    // Then sort
+    if (sortBy === 'distance' && userLocation) {
+      filtered = filtered.map(r => {
+        const distance = calculateDistance(
+          userLocation.lat, userLocation.lng,
+          r.latitude || -29.8587, r.longitude || 31.0218
+        );
+        return { ...r, distance };
+      }).sort((a, b) => (a.distance || 999) - (b.distance || 999));
+    } else if (sortBy === 'rating') {
+      filtered = filtered.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    }
+    
+    return filtered;
+  }, [restaurants, debouncedSearch, activeCuisine, sortBy, userLocation]);
 
   const visibleFilters = showAllFilters ? cuisineFilters : cuisineFilters.slice(0, 6);
 
   const handleDeliveryTypeSelect = (type) => {
     setSelectedDeliveryType(type);
     if (type !== 'food') {
-      // Navigate to package delivery page
       navigate('/package-delivery', { state: { deliveryType: type } });
     }
+  };
+
+  const openGoogleMaps = (address) => {
+    if (!address) return;
+    const encodedAddress = encodeURIComponent(address);
+    window.open(`https://maps.google.com/?q=${encodedAddress}`, '_blank');
   };
 
   if (error) {
     return (
       <div className="text-center py-20 px-4">
         <p className="text-red-500">Error loading restaurants. Please try again later.</p>
-        <Button onClick={() => window.location.reload()} className="mt-4">Retry</Button>
+        <Button onClick={() => refetch()} className="mt-4">Retry</Button>
       </div>
     );
   }
@@ -97,16 +163,35 @@ export default function Home() {
                   className="pl-9 md:pl-10 h-10 md:h-12 bg-white border-0 shadow-lg rounded-xl text-sm md:text-base"
                 />
               </div>
-              <Button className="h-10 md:h-12 px-4 md:px-6 bg-green hover:bg-green/90 text-white rounded-xl shadow-sm text-sm md:text-base">
-                <MapPin className="w-4 h-4 mr-1 md:mr-2" />
-                Near me
+              <Button 
+                className="h-10 md:h-12 px-4 md:px-6 bg-green hover:bg-green/90 text-white rounded-xl shadow-sm text-sm md:text-base flex items-center gap-2 whitespace-nowrap"
+                onClick={getUserLocation}
+                disabled={gettingLocation}
+              >
+                {gettingLocation ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <MapPin className="w-4 h-4" />
+                )}
+                {gettingLocation ? 'Detecting...' : 'Near me'}
               </Button>
             </div>
+            {userLocation && (
+              <p className="text-xs text-white/50 mt-2">
+                📍 Location detected - showing nearby restaurants
+                <button 
+                  onClick={() => setSortBy('distance')}
+                  className="ml-2 text-green-400 hover:text-green-300 underline"
+                >
+                  Sort by distance
+                </button>
+              </p>
+            )}
           </div>
         </div>
       </section>
 
-      {/* Delivery Type Cards - New Section */}
+      {/* Delivery Type Cards */}
       <section className="max-w-7xl mx-auto px-4 pt-6 md:pt-8">
         <h2 className="text-sm md:text-base font-semibold mb-3">What would you like to deliver?</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -138,12 +223,24 @@ export default function Home() {
         <section className="max-w-7xl mx-auto px-4 pt-6 md:pt-8">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm md:text-base font-semibold">Browse by Cuisine</h2>
-            <button
-              onClick={() => setShowAllFilters(!showAllFilters)}
-              className="text-xs text-green md:hidden"
-            >
-              {showAllFilters ? 'Show Less' : `+${cuisineFilters.length - 6} more`}
-            </button>
+            <div className="flex items-center gap-2">
+              {userLocation && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={`text-xs ${sortBy === 'distance' ? 'bg-green-50 border-green-300 text-green-700' : ''}`}
+                  onClick={() => setSortBy(sortBy === 'distance' ? 'relevance' : 'distance')}
+                >
+                  {sortBy === 'distance' ? '📍 Distance' : 'Sort by Distance'}
+                </Button>
+              )}
+              <button
+                onClick={() => setShowAllFilters(!showAllFilters)}
+                className="text-xs text-green md:hidden"
+              >
+                {showAllFilters ? 'Show Less' : `+${cuisineFilters.length - 6} more`}
+              </button>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             {visibleFilters.map(c => (
@@ -172,7 +269,10 @@ export default function Home() {
             <h2 className="text-lg md:text-2xl font-bold text-gray-900">
               {activeCuisine === 'All' ? 'All Restaurants' : activeCuisine}
             </h2>
-            <span className="text-xs md:text-sm text-gray-500">{filtered.length} places</span>
+            <span className="text-xs md:text-sm text-gray-500">
+              {filteredAndSorted.length} places
+              {userLocation && sortBy === 'distance' && ' • Sorted by distance'}
+            </span>
           </div>
 
           {isLoading ? (
@@ -187,14 +287,14 @@ export default function Home() {
                 </div>
               ))}
             </div>
-          ) : filtered.length === 0 ? (
+          ) : filteredAndSorted.length === 0 ? (
             <div className="text-center py-12 md:py-20">
               <p className="text-base md:text-lg font-semibold">No restaurants found</p>
               <p className="text-xs md:text-sm text-gray-500 mt-1">Try adjusting your search</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-              {filtered.map(r => (
+              {filteredAndSorted.map(r => (
                 <RestaurantCard key={r.id} restaurant={r} />
               ))}
             </div>

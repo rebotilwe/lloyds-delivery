@@ -322,6 +322,7 @@ export default function DriverDashboard() {
   }, [availableOrders, driverLocation]);
 
   // ── LOCATION TRACKING ──────────────────────────────────────────────────────
+  // ── FIXED: Emit to both event names for compatibility ──
   useEffect(() => {
     if (navigator.geolocation && isAvailable) {
       const watchId = navigator.geolocation.watchPosition(
@@ -329,12 +330,27 @@ export default function DriverDashboard() {
           const { latitude, longitude } = position.coords;
           setDriverLocation({ lat: latitude, lng: longitude });
           
-          if (socket && online && trackingOrder) {
-            socket.emit('driver-location', {
-              orderId: trackingOrder,
+          if (socket && online) {
+            const locationData = {
               lat: latitude,
               lng: longitude,
-            });
+              timestamp: Date.now()
+            };
+            
+            if (trackingOrder) {
+              const orderData = {
+                orderId: trackingOrder,
+                ...locationData
+              };
+              // Emit to both event names to ensure customer receives it
+              socket.emit('driver-location', orderData);
+              socket.emit('driver-location-update', orderData);
+              console.log('📍 Emitting location for order:', trackingOrder, locationData);
+            } else {
+              // If not tracking a specific order, emit as driver status
+              socket.emit('driver-location', locationData);
+              console.log('📍 Emitting driver location:', locationData);
+            }
           }
         },
         (error) => {
@@ -412,15 +428,32 @@ export default function DriverDashboard() {
         fetchEarningsData();
       });
 
+      // ── NEW: Listen for location requests from customers ──
+      socket.on('request-driver-location', (data) => {
+        console.log('📥 Location requested for order:', data.orderId);
+        if (trackingOrder && trackingOrder === data.orderId && driverLocation.lat && driverLocation.lng) {
+          const locationData = {
+            orderId: trackingOrder,
+            lat: driverLocation.lat,
+            lng: driverLocation.lng,
+            timestamp: Date.now()
+          };
+          socket.emit('driver-location-update', locationData);
+          socket.emit('driver-location', locationData);
+          console.log('📤 Sent location update in response to request:', locationData);
+        }
+      });
+
       return () => {
         socket.off('order-ready');
         socket.off('order-offered');
         socket.off('new-package-offer');
         socket.off('package-offer-taken');
         socket.off('earnings-updated');
+        socket.off('request-driver-location');
       };
     }
-  }, [socket, user, online, declinedOrders, packageOffer]);
+  }, [socket, user, online, declinedOrders, packageOffer, trackingOrder, driverLocation]);
 
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {

@@ -6,7 +6,8 @@ import {
   Package, ChevronDown, ChevronUp, MapPin, Truck, CheckCircle, 
   AlertCircle, Navigation, Star, Search, Phone, RotateCcw, 
   Calendar, Clock as ClockIcon, MessageCircle, User, Bike, Car,
-  Lock, Loader2, XCircle, Headset, Send, KeyRound, RefreshCw
+  Lock, Loader2, XCircle, Headset, Send, KeyRound, RefreshCw,
+  Wifi, WifiOff
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -104,7 +105,8 @@ function loadGoogleMapsScript() {
     }
     const script = document.createElement('script');
     script.id = 'google-maps-script';
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places,geometry`;
+    // Use loading=async for better performance
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places,geometry&loading=async`;
     script.async = true; 
     script.defer = true;
     script.onload = resolve; 
@@ -114,7 +116,7 @@ function loadGoogleMapsScript() {
 }
 
 // ── Live Map (Google Maps) ───────────────────────────────────────────────────
-function LiveMap({ driverLocation, deliveryAddress, orderStatus, orderId }) {
+function LiveMap({ driverLocation, deliveryAddress, orderStatus, orderId, onRequestLocation }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const driverMarkerRef = useRef(null);
@@ -124,6 +126,7 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus, orderId }) {
   const [loadError, setLoadError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const [showFallback, setShowFallback] = useState(false);
+  const [locationRequestCount, setLocationRequestCount] = useState(0);
   const { socket, online } = useSocket();
 
   useEffect(() => {
@@ -155,15 +158,29 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus, orderId }) {
     }
   }, [driverLocation, mapReady, retryCount]);
 
-  // Show fallback after 15 seconds of waiting
+  // Show fallback after 10 seconds of waiting
   useEffect(() => {
     if (!driverLocation?.lat && !driverLocation?.lng && orderStatus === 'on_the_way') {
       const timer = setTimeout(() => {
         setShowFallback(true);
-      }, 15000);
+      }, 10000);
       return () => clearTimeout(timer);
     }
   }, [driverLocation, orderStatus]);
+
+  // Auto-request location every 15 seconds if not received
+  useEffect(() => {
+    if (!driverLocation?.lat && !driverLocation?.lng && orderStatus === 'on_the_way' && online && socket) {
+      const interval = setInterval(() => {
+        console.log('🔄 Auto-requesting driver location (attempt:', locationRequestCount + 1, ')');
+        setLocationRequestCount(prev => prev + 1);
+        if (onRequestLocation) {
+          onRequestLocation();
+        }
+      }, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [driverLocation, orderStatus, online, socket, locationRequestCount, onRequestLocation]);
 
   useEffect(() => {
     if (!mapReady || !mapContainerRef.current || mapRef.current) return;
@@ -255,10 +272,10 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus, orderId }) {
     }
   }, [driverLocation, deliveryAddress, orderStatus, mapReady]);
 
-  // Request driver location manually
-  const requestDriverLocation = () => {
-    if (socket && online && orderId) {
-      socket.emit('request-driver-location', { orderId });
+  const handleRequestLocation = () => {
+    if (onRequestLocation) {
+      onRequestLocation();
+      setLocationRequestCount(prev => prev + 1);
       toast.info('Requesting driver location update...');
     }
   };
@@ -287,7 +304,7 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus, orderId }) {
   // ── UPDATED: Better waiting state with fallback ──
   if (!driverLocation?.lat || !driverLocation?.lng) {
     return (
-      <div className="mt-3 h-48 bg-gray-100 rounded-lg flex flex-col items-center justify-center">
+      <div className="mt-3 h-48 bg-gray-100 rounded-lg flex flex-col items-center justify-center p-4">
         <div className="text-center">
           <Loader2 className="w-6 h-6 text-green-600 animate-spin mx-auto mb-2" />
           <p className="text-xs text-gray-500">Waiting for driver location...</p>
@@ -295,7 +312,7 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus, orderId }) {
             {retryCount > 0 ? `Retrying... (${retryCount}/3)` : 'Driver will share location shortly'}
           </p>
           {showFallback && (
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 space-y-2 w-full">
               <p className="text-[10px] text-orange-500">Driver location taking longer than expected</p>
               <div className="flex flex-col sm:flex-row gap-2 justify-center">
                 <Button 
@@ -312,15 +329,24 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus, orderId }) {
                   Open Delivery Address
                 </Button>
                 <Button 
-                  variant="outline" 
+                  variant="default" 
                   size="sm" 
-                  className="text-xs border-purple-300 text-purple-600"
-                  onClick={requestDriverLocation}
+                  className="text-xs bg-green-600 hover:bg-green-700 text-white"
+                  onClick={handleRequestLocation}
                 >
                   <RefreshCw className="w-3 h-3 mr-1" />
                   Request Location Update
                 </Button>
               </div>
+              <p className="text-[10px] text-gray-400 mt-2">
+                {locationRequestCount > 0 ? `Location requested ${locationRequestCount} time(s)` : 'Click to request location'}
+              </p>
+              {!online && (
+                <p className="text-[10px] text-red-500 mt-1">
+                  <WifiOff className="w-3 h-3 inline mr-1" />
+                  Not connected to server. Please check your connection.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -330,13 +356,29 @@ function LiveMap({ driverLocation, deliveryAddress, orderStatus, orderId }) {
 
   return (
     <div className="mt-3">
-      <div className="flex items-center gap-2 mb-2">
-        <Navigation className="w-4 h-4 text-green-600 animate-pulse" />
-        <span className="text-xs font-medium text-green-600">Live Driver Location</span>
-        <span className="ml-auto text-[10px] text-gray-400">Powered by Google Maps</span>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <Navigation className="w-4 h-4 text-green-600 animate-pulse" />
+          <span className="text-xs font-medium text-green-600">Live Driver Location</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {online && <Wifi className="w-3 h-3 text-green-500" />}
+          <span className="text-[10px] text-gray-400">Powered by Google Maps</span>
+        </div>
       </div>
       <div ref={mapContainerRef} className="w-full h-48 rounded-lg overflow-hidden border shadow-sm" />
-      <p className="text-xs text-gray-500 text-center mt-1">Driver is en route — map updates live</p>
+      <div className="flex justify-between items-center mt-1">
+        <p className="text-xs text-gray-500">Driver is en route — map updates live</p>
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          className="h-6 px-2 text-[10px] text-blue-500"
+          onClick={handleRequestLocation}
+        >
+          <RefreshCw className="w-3 h-3 mr-1" />
+          Refresh
+        </Button>
+      </div>
     </div>
   );
 }
@@ -718,7 +760,7 @@ function DriverRatingModal({ isOpen, onClose, onSubmitted, order, driver, userId
 }
 
 // ── Active Order Card ────────────────────────────────────────────────────────
-function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLocation }) {
+function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLocation, onRequestLocation }) {
   const [expanded, setExpanded] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancellingOrderId, setCancellingOrderId] = useState(null);
@@ -1003,6 +1045,7 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
               deliveryAddress={order.delivery_address} 
               orderStatus={order.status}
               orderId={order.id}
+              onRequestLocation={onRequestLocation}
             />
           )}
 
@@ -1316,6 +1359,7 @@ function CustomerOrdersComponent() {
   const [showDriverRatingModal, setShowDriverRatingModal] = useState(false);
   const [selectedDriverForRating, setSelectedDriverForRating] = useState(null);
   const [selectedOrderForRating, setSelectedOrderForRating] = useState(null);
+  const [locationRequestCount, setLocationRequestCount] = useState(0);
 
   const { data: orders = [], isLoading, error, refetch } = useQuery({
     queryKey: ['customerOrders', user?.id],
@@ -1350,6 +1394,23 @@ function CustomerOrdersComponent() {
     }
   }, []);
 
+  // ── Function to request driver location ──
+  const requestDriverLocation = useCallback(() => {
+    if (socket && online) {
+      const activeOnTheWay = sortedOrders.find(o => o.status === 'on_the_way');
+      if (activeOnTheWay) {
+        console.log('📤 Requesting driver location for order:', activeOnTheWay.id);
+        setLocationRequestCount(prev => prev + 1);
+        socket.emit('request-driver-location', { orderId: activeOnTheWay.id });
+        toast.info('Requesting driver location update...');
+      } else {
+        toast.info('No active delivery to track');
+      }
+    } else {
+      toast.error('Not connected to server. Please check your connection.');
+    }
+  }, [socket, online, sortedOrders]);
+
   useEffect(() => {
     if (socket && online) {
       // Listen for driver location updates
@@ -1363,6 +1424,7 @@ function CustomerOrdersComponent() {
             lng: data.lng,
             timestamp: Date.now()
           }));
+          toast.success('Driver location updated!');
         }
       });
 
@@ -1585,7 +1647,8 @@ function CustomerOrdersComponent() {
                       setSelectedOrderForIssue(o); 
                       setShowIssueModal(true); 
                     }} 
-                    driverLocation={driverLocation} 
+                    driverLocation={driverLocation}
+                    onRequestLocation={requestDriverLocation}
                   />
                 ))}
               </div>

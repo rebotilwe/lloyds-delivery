@@ -50,6 +50,7 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  Navigation,
 } from 'lucide-react';
 import OrderStatusBadge from '@/components/orders/OrderStatusBadge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -111,6 +112,12 @@ function OrderDetailsModal({ order, isOpen, onClose, drivers = [] }) {
       case 'cancelled': return <XCircle className="w-5 h-5 text-red-500" />;
       case 'rejected': return <AlertCircle className="w-5 h-5 text-red-500" />;
       default: return <Clock className="w-5 h-5 text-yellow-500" />;
+    }
+  };
+
+  const openInGoogleMaps = (address) => {
+    if (address) {
+      window.open(`https://maps.google.com/?q=${encodeURIComponent(address)}`, '_blank');
     }
   };
 
@@ -236,6 +243,15 @@ function OrderDetailsModal({ order, isOpen, onClose, drivers = [] }) {
                         <div>
                           <p className="text-xs text-gray-500">Pickup Address</p>
                           <p className="text-sm">{order.pickup_address}</p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs text-blue-500 mt-1"
+                            onClick={() => openInGoogleMaps(order.pickup_address)}
+                          >
+                            <Navigation className="w-3 h-3 mr-1" />
+                            Open in Maps
+                          </Button>
                         </div>
                       </div>
                     )}
@@ -285,14 +301,27 @@ function OrderDetailsModal({ order, isOpen, onClose, drivers = [] }) {
               </Card>
             )}
 
-            {/* Delivery Address */}
+            {/* Delivery Address with Google Maps */}
             <Card>
               <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <MapPin className="w-4 h-4 text-red-500" />
-                  <h3 className="font-semibold">Delivery Address</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-red-500" />
+                    Delivery Location
+                  </h3>
+                  {order.delivery_address && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-blue-300 text-blue-600 hover:bg-blue-50"
+                      onClick={() => openInGoogleMaps(order.delivery_address)}
+                    >
+                      <Navigation className="w-4 h-4 mr-2" />
+                      Open in Maps
+                    </Button>
+                  )}
                 </div>
-                <p>{order.delivery_address || 'No address provided'}</p>
+                <p className="text-sm text-gray-600">{order.delivery_address || 'No address provided'}</p>
               </CardContent>
             </Card>
 

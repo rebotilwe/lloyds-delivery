@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { 
   Loader2, CheckCircle, XCircle, Eye, RefreshCw, Download, 
   Edit, Save, X, Upload, FileText, User, Phone, Mail, Car, 
-  CreditCard, Calendar, MapPin, AlertCircle
+  CreditCard, Calendar, MapPin, AlertCircle, Navigation
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -40,6 +40,8 @@ function DriverDocumentsModal({ driver, onClose, onApprove, onReject, onRefresh 
     bank_account_name: driver.bank_account_name || '',
     bank_account_number: driver.bank_account_number || '',
     bank_branch_code: driver.bank_branch_code || '',
+    latitude: driver.latitude || null,
+    longitude: driver.longitude || null,
   });
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -59,6 +61,12 @@ function DriverDocumentsModal({ driver, onClose, onApprove, onReject, onRefresh 
     if (p.startsWith('http')) return p;
     if (p.startsWith('/uploads')) return `${import.meta.env.VITE_API_URL || ''}${p}`;
     return null;
+  };
+
+  const openInGoogleMaps = (lat, lng) => {
+    if (lat && lng) {
+      window.open(`https://maps.google.com/?q=${lat},${lng}`, '_blank');
+    }
   };
 
   const handleApprove = async () => {
@@ -295,6 +303,30 @@ function DriverDocumentsModal({ driver, onClose, onApprove, onReject, onRefresh 
               </div>
             </div>
 
+            {/* Driver Location - Google Maps Integration */}
+            {(driver.latitude || driver.longitude) && (
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold text-sm flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-blue-500" />
+                    Driver Location
+                  </h4>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-blue-300 text-blue-600 hover:bg-blue-100"
+                    onClick={() => openInGoogleMaps(driver.latitude, driver.longitude)}
+                  >
+                    <Navigation className="w-3 h-3 mr-1" />
+                    View on Map
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  📍 {driver.latitude?.toFixed(6)}, {driver.longitude?.toFixed(6)}
+                </p>
+              </div>
+            )}
+
             {/* Documents Section */}
             <div>
               <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
@@ -419,6 +451,8 @@ function EditDriverModal({ driver, onClose, onRefresh }) {
     bank_account_name: driver.bank_account_name || '',
     bank_account_number: driver.bank_account_number || '',
     bank_branch_code: driver.bank_branch_code || '',
+    latitude: driver.latitude || null,
+    longitude: driver.longitude || null,
   });
   const [saving, setSaving] = useState(false);
 
@@ -533,6 +567,12 @@ export default function AdminDriversPage() {
                 <p className="font-semibold text-sm">{d.full_name || d.name}</p>
                 <p className="text-xs text-slate-400">{d.email}</p>
                 <p className="text-xs text-slate-400 mt-1">{d.phone || 'No phone'}</p>
+                {d.latitude && d.longitude && (
+                  <p className="text-xs text-blue-500 mt-1 flex items-center gap-1">
+                    <MapPin className="w-3 h-3" />
+                    Location available
+                  </p>
+                )}
               </div>
               <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', STATUS_COLOR[d.driver_status] ?? 'bg-slate-100 text-slate-500')}>
                 {d.driver_status ?? 'none'}

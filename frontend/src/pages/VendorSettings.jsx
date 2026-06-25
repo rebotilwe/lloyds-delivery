@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Save, Clock, Bell, AlertCircle } from 'lucide-react';
+import { Save, Clock, Bell, AlertCircle, MapPin, Navigation } from 'lucide-react';
+import AddressAutocomplete from '@/components/AddressAutocomplete';
 
 export default function VendorSettings() {
   const [loading, setLoading] = useState(false);
@@ -20,6 +21,8 @@ export default function VendorSettings() {
     name: '',
     phone: '',
     address: '',
+    latitude: null,
+    longitude: null,
   });
 
   useEffect(() => {
@@ -39,6 +42,8 @@ export default function VendorSettings() {
         name: restaurantData?.name || '',
         phone: restaurantData?.phone || '',
         address: restaurantData?.address || '',
+        latitude: restaurantData?.latitude || null,
+        longitude: restaurantData?.longitude || null,
       });
       setSettings(prev => ({
         ...prev,
@@ -47,6 +52,23 @@ export default function VendorSettings() {
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load settings');
+    }
+  };
+
+  const handleAddressSelect = (fullAddress, coords) => {
+    setRestaurantForm({
+      ...restaurantForm,
+      address: fullAddress,
+      latitude: coords?.lat || null,
+      longitude: coords?.lng || null,
+    });
+  };
+
+  const openInGoogleMaps = () => {
+    if (restaurantForm.latitude && restaurantForm.longitude) {
+      window.open(`https://maps.google.com/?q=${restaurantForm.latitude},${restaurantForm.longitude}`, '_blank');
+    } else if (restaurantForm.address) {
+      window.open(`https://maps.google.com/?q=${encodeURIComponent(restaurantForm.address)}`, '_blank');
     }
   };
 
@@ -112,12 +134,32 @@ export default function VendorSettings() {
             />
           </div>
           <div>
-            <Label>Address</Label>
-            <Input
+            <Label className="flex items-center gap-2">
+              <MapPin className="w-4 h-4" />
+              Restaurant Address
+            </Label>
+            <AddressAutocomplete
               value={restaurantForm.address}
-              onChange={(e) => setRestaurantForm({ ...restaurantForm, address: e.target.value })}
-              className="mt-1"
+              onChange={(val) => setRestaurantForm({ ...restaurantForm, address: val })}
+              onSelect={handleAddressSelect}
+              placeholder="Enter your restaurant address"
             />
+            {restaurantForm.latitude && restaurantForm.longitude && (
+              <div className="flex items-center gap-2 mt-2">
+                <p className="text-xs text-green-600">
+                  ✅ Location coordinates saved
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-blue-500"
+                  onClick={openInGoogleMaps}
+                >
+                  <Navigation className="w-3 h-3 mr-1" />
+                  View on Map
+                </Button>
+              </div>
+            )}
           </div>
           <Button onClick={updateRestaurant} disabled={loading} className="bg-green text-white">
             <Save className="w-4 h-4 mr-2" />

@@ -3,19 +3,18 @@ import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { User, Mail, Phone, Save, Key, LogOut, Eye, EyeOff, Shield, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { User, Mail, Phone, Save, Key, LogOut, Eye, EyeOff, Shield, AlertCircle, CheckCircle, Loader2, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/api/client';
+import AddressAutocomplete from '@/components/AddressAutocomplete';
 
 // Phone number validation function
 const validatePhoneNumber = (phone) => {
-  if (!phone) return true; // Empty is allowed (optional field)
-  // Remove any non-digit characters for validation
+  if (!phone) return true;
   const digits = phone.replace(/\D/g, '');
-  // South African phone numbers: 10 digits (starting with 0) or 11 digits (starting with 27)
   if (digits.length === 10 && digits.startsWith('0')) return true;
   if (digits.length === 11 && digits.startsWith('27')) return true;
-  if (digits.length === 9) return true; // Local format without prefix
+  if (digits.length === 9) return true;
   return false;
 };
 
@@ -39,6 +38,9 @@ export default function CustomerProfile() {
     name: '',
     email: '',
     phone: '',
+    address: '',
+    latitude: null,
+    longitude: null,
   });
   const [passwordData, setPasswordData] = useState({
     current_password: '',
@@ -62,6 +64,9 @@ export default function CustomerProfile() {
         name: user.name || user.full_name || '',
         email: user.email || '',
         phone: user.phone || '',
+        address: user.address || '',
+        latitude: user.latitude || null,
+        longitude: user.longitude || null,
       });
     }
   }, [user]);
@@ -69,18 +74,25 @@ export default function CustomerProfile() {
   // Handle phone number change with validation and formatting
   const handlePhoneChange = (e) => {
     const rawValue = e.target.value;
-    // Only allow numeric input
     const digitsOnly = rawValue.replace(/\D/g, '');
     const formatted = formatPhoneNumber(digitsOnly);
     
     setFormData({ ...formData, phone: formatted });
     
-    // Validate and show error if needed
     if (formatted && !validatePhoneNumber(formatted)) {
       setPhoneError('Please enter a valid South African phone number (e.g., 0712345678 or 27712345678)');
     } else {
       setPhoneError('');
     }
+  };
+
+  const handleAddressSelect = (fullAddress, coords) => {
+    setFormData({
+      ...formData,
+      address: fullAddress,
+      latitude: coords?.lat || null,
+      longitude: coords?.lng || null,
+    });
   };
 
   const handleUpdateProfile = async () => {
@@ -89,7 +101,6 @@ export default function CustomerProfile() {
       return;
     }
     
-    // Validate phone number if provided
     if (formData.phone && !validatePhoneNumber(formData.phone)) {
       toast.error('Please enter a valid phone number');
       return;
@@ -101,9 +112,20 @@ export default function CustomerProfile() {
         name: formData.name,
         phone: formData.phone,
         full_name: formData.name,
+        address: formData.address,
+        latitude: formData.latitude,
+        longitude: formData.longitude,
       });
       
-      const updatedUser = { ...user, name: formData.name, full_name: formData.name, phone: formData.phone };
+      const updatedUser = { 
+        ...user, 
+        name: formData.name, 
+        full_name: formData.name, 
+        phone: formData.phone,
+        address: formData.address,
+        latitude: formData.latitude,
+        longitude: formData.longitude,
+      };
       localStorage.setItem('user', JSON.stringify(updatedUser));
       setUser(updatedUser);
       toast.success('Profile updated successfully');
@@ -232,6 +254,25 @@ export default function CustomerProfile() {
                 </p>
               )}
               <p className="text-xs text-gray-500 mt-1">South African format (e.g., 0712345678 or 27712345678)</p>
+            </div>
+
+            {/* Address with Google Autocomplete */}
+            <div>
+              <label className="block text-sm font-medium mb-1 flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-gray-400" />
+                Delivery Address
+              </label>
+              <AddressAutocomplete
+                value={formData.address}
+                onChange={(val) => setFormData({ ...formData, address: val })}
+                onSelect={handleAddressSelect}
+                placeholder="Enter your default delivery address"
+              />
+              {formData.latitude && formData.longitude && (
+                <p className="text-xs text-green-600 mt-1">
+                  ✅ Location coordinates saved
+                </p>
+              )}
             </div>
 
             <Button

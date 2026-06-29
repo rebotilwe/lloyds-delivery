@@ -1,15 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MapPin, Loader2, AlertCircle } from 'lucide-react';
 
-// ── FIX: Add fallback and debug ──
-console.log('🔑 Raw env var:', import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
-
-// Use the env var with a fallback for testing
+// Use the env var with a fallback
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyBON7MrLqDdb3KxNJwcO0cnWoCsfQEC4nM';
 
 console.log('🔑 Using API key:', GOOGLE_MAPS_API_KEY ? GOOGLE_MAPS_API_KEY.substring(0, 10) + '...' : 'NOT SET');
 
-// Load Google Maps script with the correct libraries
 function loadGoogleMapsScript() {
   return new Promise((resolve, reject) => {
     if (window.google?.maps) {
@@ -29,6 +25,7 @@ function loadGoogleMapsScript() {
 
     const script = document.createElement('script');
     script.id = 'google-maps-script';
+    // Use the legacy API with places library
     script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places&loading=async`;
     script.async = true;
     script.defer = true;
@@ -38,10 +35,6 @@ function loadGoogleMapsScript() {
   });
 }
 
-/**
- * AddressAutocomplete using Google Places API (New)
- * Uses the modern PlaceAutocompleteElement
- */
 export default function AddressAutocomplete({
   value,
   onChange,
@@ -52,14 +45,12 @@ export default function AddressAutocomplete({
   disabled = false,
   required = false,
 }) {
-  const containerRef = useRef(null);
   const inputRef = useRef(null);
+  const autocompleteRef = useRef(null);
   const [scriptReady, setScriptReady] = useState(!!window.google?.maps);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [selectedAddress, setSelectedAddress] = useState(value || '');
 
-  // Load script on mount
   useEffect(() => {
     if (!GOOGLE_MAPS_API_KEY) {
       setError('Google Maps API key is not configured');
@@ -82,135 +73,50 @@ export default function AddressAutocomplete({
       .finally(() => setLoading(false));
   }, []);
 
-  // Update internal state when value prop changes
   useEffect(() => {
-    setSelectedAddress(value || '');
-  }, [value]);
-
-  // Initialize PlaceAutocompleteElement
-  useEffect(() => {
-    if (!scriptReady || !containerRef.current || !window.google?.maps) return;
+    if (!scriptReady || !inputRef.current || autocompleteRef.current) return;
 
     try {
-      // Clear container first
-      containerRef.current.innerHTML = '';
-
-      // Create the PlaceAutocompleteElement (modern API)
-      const autocompleteElement = document.createElement('gmp-place-autocomplete');
+      console.log('🔧 Initializing Google Places Autocomplete...');
       
-      // Set attributes
-      autocompleteElement.setAttribute('country', 'za');
-      autocompleteElement.setAttribute('placeholder', placeholder);
-      autocompleteElement.setAttribute('style', 'width: 100%;');
-      
-      // Add class for styling
-      autocompleteElement.className = `w-full pl-9 pr-3 py-2 text-sm rounded-md border border-input bg-background ${inputClassName}`;
+      autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
+        componentRestrictions: { country: 'za' },
+        fields: ['formatted_address', 'geometry', 'place_id'],
+        types: ['address'],
+      });
 
-      // Set initial value if present
-      if (selectedAddress) {
-        autocompleteElement.value = selectedAddress;
-      }
-
-      // Handle place selection - THIS IS WHERE THE FULL ADDRESS IS SET
-      autocompleteElement.addEventListener('gmp-placeselect', (event) => {
-        const place = event.detail.place;
-        if (!place?.formattedAddress) return;
-
-        const lat = place.location?.lat() ?? null;
-        const lng = place.location?.lng() ?? null;
+      autocompleteRef.current.addListener('place_changed', () => {
+        const place = autocompleteRef.current.getPlace();
+        if (!place?.formatted_address) return;
         
-        // Get the full formatted address
-        const fullAddress = place.formattedAddress;
+        const lat = place.geometry?.location?.lat() ?? null;
+        const lng = place.geometry?.location?.lng() ?? null;
         
-        console.log('📍 Full address selected:', fullAddress);
+        console.log('📍 Address selected:', place.formatted_address);
         
-        // Update internal state with full address
-        setSelectedAddress(fullAddress);
-        
-        // Call onChange with full address
-        onChange?.(fullAddress);
-        
-        // Call onSelect with full address and coordinates
-        onSelect?.(fullAddress, { 
+        onChange?.(place.formatted_address);
+        onSelect?.(place.formatted_address, { 
           lat, 
           lng, 
-          placeId: place.id,
-          name: place.name,
-          addressComponents: place.addressComponents
+          placeId: place.place_id 
         });
       });
 
-      // Handle input changes (typing)
-      autocompleteElement.addEventListener('input', (event) => {
-        const target = event.target;
-        if (target?.value !== undefined) {
-          // Update internal state as user types
-          setSelectedAddress(target.value);
-          onChange?.(target.value);
-        }
-      });
-
-      // Append to container
-      containerRef.current.appendChild(autocompleteElement);
-      inputRef.current = autocompleteElement;
-
-      console.log('✅ PlaceAutocompleteElement initialized with Places API (New)');
+      console.log('✅ Google Places Autocomplete initialized successfully');
 
     } catch (err) {
-      console.error('Failed to initialize PlaceAutocompleteElement:', err);
-      setError('Address search is unavailable');
-      
-      // Fallback: Create a manual input with map link
-      createFallbackInput();
+      console.error('Failed to initialize autocomplete:', err);
+      setError('Address search unavailable');
     }
-  }, [scriptReady, selectedAddress]);
+  }, [scriptReady]);
 
-  // Create fallback input when Google Maps fails
-  const createFallbackInput = () => {
-    if (!containerRef.current) return;
-    
-    const fallbackInput = document.createElement('input');
-    fallbackInput.type = 'text';
-    fallbackInput.placeholder = placeholder;
-    fallbackInput.value = selectedAddress || '';
-    fallbackInput.className = `w-full pl-9 pr-3 py-2 text-sm rounded-md border border-yellow-300 bg-yellow-50 ${inputClassName}`;
-    fallbackInput.disabled = disabled;
-    
-    fallbackInput.addEventListener('input', (e) => {
-      const val = e.target.value;
-      setSelectedAddress(val);
-      onChange?.(val);
-    });
-    
-    containerRef.current.innerHTML = '';
-    containerRef.current.appendChild(fallbackInput);
-    inputRef.current = fallbackInput;
-    
-    // Add a map button
-    const mapButton = document.createElement('button');
-    mapButton.type = 'button';
-    mapButton.className = 'absolute right-2 top-1/2 -translate-y-1/2 text-xs text-blue-500 hover:text-blue-700 underline z-10 bg-transparent px-2';
-    mapButton.textContent = 'Map';
-    mapButton.onclick = () => {
-      if (selectedAddress) {
-        window.open(`https://maps.google.com/?q=${encodeURIComponent(selectedAddress)}`, '_blank');
-      }
-    };
-    containerRef.current.parentElement?.appendChild(mapButton);
-  };
-
-  // Update value when it changes externally
-  useEffect(() => {
-    if (inputRef.current && inputRef.current.value !== selectedAddress) {
-      inputRef.current.value = selectedAddress || '';
-    }
-  }, [selectedAddress]);
-
-  // Cleanup
   useEffect(() => {
     return () => {
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
+      if (autocompleteRef.current) {
+        try {
+          window.google.maps.event.clearInstanceListeners(autocompleteRef.current);
+        } catch (e) {}
+        autocompleteRef.current = null;
       }
     };
   }, []);
@@ -224,11 +130,8 @@ export default function AddressAutocomplete({
         </div>
         <input
           type="text"
-          value={selectedAddress}
-          onChange={(e) => {
-            setSelectedAddress(e.target.value);
-            onChange?.(e.target.value);
-          }}
+          value={value}
+          onChange={(e) => onChange?.(e.target.value)}
           placeholder={placeholder}
           disabled={disabled}
           autoComplete="off"
@@ -244,8 +147,8 @@ export default function AddressAutocomplete({
         <button
           type="button"
           onClick={() => {
-            if (selectedAddress) {
-              window.open(`https://maps.google.com/?q=${encodeURIComponent(selectedAddress)}`, '_blank');
+            if (value) {
+              window.open(`https://maps.google.com/?q=${encodeURIComponent(value)}`, '_blank');
             }
           }}
           className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-blue-500 hover:text-blue-700 underline z-10 bg-transparent px-2 py-1"
@@ -268,14 +171,32 @@ export default function AddressAutocomplete({
           <MapPin className="w-4 h-4 text-gray-400" />
         )}
       </div>
-      <div ref={containerRef} className="w-full">
-        {/* PlaceAutocompleteElement will be rendered here */}
-      </div>
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => onChange?.(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled || loading}
+        autoComplete="off"
+        className={`
+          w-full pl-9 pr-3 py-2 text-sm rounded-md border border-input
+          bg-background ring-offset-background
+          placeholder:text-muted-foreground
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+          disabled:cursor-not-allowed disabled:opacity-50
+          ${inputClassName}
+        `}
+      />
       {loading && (
         <p className="text-xs text-gray-400 mt-1">Loading address suggestions...</p>
       )}
-      {required && !selectedAddress && (
+      {required && !value && (
         <p className="text-xs text-red-500 mt-1">Address is required</p>
+      )}
+      {/* Small hint that autocomplete is active */}
+      {!loading && !error && scriptReady && (
+        <p className="text-[10px] text-gray-400 mt-0.5">Type to see address suggestions</p>
       )}
     </div>
   );

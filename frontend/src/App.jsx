@@ -34,7 +34,7 @@ import VendorSettings from '@/pages/VendorSettings';
 import VendorWaiting from '@/pages/VendorWaiting';
 import VendorOnboarding from '@/pages/VendorOnboarding';
 import PageNotFound from '@/lib/PageNotFound';
-import AddressAutoComplete from '@/components/AddressAutocomplete';
+import AddressAutocomplete from '@/components/AddressAutocomplete';
 
 // Admin pages
 import AdminDashboard from '@/pages/AdminDashboard';

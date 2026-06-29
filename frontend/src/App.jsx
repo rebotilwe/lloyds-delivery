@@ -34,6 +34,7 @@ import VendorSettings from '@/pages/VendorSettings';
 import VendorWaiting from '@/pages/VendorWaiting';
 import VendorOnboarding from '@/pages/VendorOnboarding';
 import PageNotFound from '@/lib/PageNotFound';
+import AddressAutoComplete from '@/components/AddressAutoComplete';
 
 // Admin pages
 import AdminDashboard from '@/pages/AdminDashboard';
@@ -391,6 +392,7 @@ function App() {
                     <Route path="/privacy" element={<Privacy />} />
                     <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="/package-delivery" element={<PackageDelivery />} />
+                    <Route path="/address-autocomplete" element={<AddressAutoComplete />} />
                   </Route>
 
                   {/* CART */}

@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MapPin, Loader2, AlertCircle } from 'lucide-react';
 
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+// ── FIX: Add fallback and debug ──
+console.log('🔑 Raw env var:', import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
+
+// Use the env var with a fallback for testing
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyBON7MrLqDdb3KxNJwcO0cnWoCsfQEC4nM';
+
+console.log('🔑 Using API key:', GOOGLE_MAPS_API_KEY ? GOOGLE_MAPS_API_KEY.substring(0, 10) + '...' : 'NOT SET');
 
 // Load Google Maps script with the correct libraries
 function loadGoogleMapsScript() {

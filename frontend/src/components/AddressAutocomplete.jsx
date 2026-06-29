@@ -1,10 +1,8 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MapPin, Loader2, AlertCircle } from 'lucide-react';
 
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyBON7MrLqDdb3KxNJwcO0cnWoCsfQEC4nM';
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
-// Poll until window.google.maps.places.Autocomplete is a constructor.
-// Handles the case where the script tag exists but places hasn't finished loading yet.
 function waitForAutocomplete(timeout = 15000) {
   return new Promise((resolve, reject) => {
     if (typeof window.google?.maps?.places?.Autocomplete === 'function') {
@@ -24,25 +22,21 @@ function waitForAutocomplete(timeout = 15000) {
   });
 }
 
-let scriptPromise = null; // singleton so we never inject the script twice
+let scriptPromise = null;
 
 function loadGoogleMapsScript() {
   if (scriptPromise) return scriptPromise;
 
   scriptPromise = new Promise((resolve, reject) => {
-    // Already fully loaded
     if (typeof window.google?.maps?.places?.Autocomplete === 'function') {
       resolve();
       return;
     }
-
-    // Script tag already in DOM (e.g. injected by another component) — just wait
     if (document.getElementById('google-maps-script')) {
       waitForAutocomplete().then(resolve).catch(reject);
       return;
     }
 
-    // Inject script WITHOUT &loading=async so places loads synchronously
     const script = document.createElement('script');
     script.id = 'google-maps-script';
     script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`;

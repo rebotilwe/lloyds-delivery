@@ -24,6 +24,61 @@ const generateVerificationCode = () => {
 };
 
 /* =========================
+   GOOGLE MAPS: DISTANCE MATRIX PROXY
+   The Distance Matrix REST API does not support CORS for browser calls,
+   so this route lets the frontend (DriverDashboard) ask our backend to
+   fetch ETA/distance on its behalf using the server-side key.
+========================= */
+router.get("/maps/distance-matrix", async (req, res) => {
+  try {
+    const { originLat, originLng, destination } = req.query;
+
+    if (!originLat || !originLng || !destination) {
+      return res.status(400).json({
+        message: "originLat, originLng, and destination are required",
+      });
+    }
+
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      console.error("❌ GOOGLE_MAPS_API_KEY is not set in environment variables");
+      return res.status(500).json({ message: "Maps service not configured" });
+    }
+
+    const url =
+      `https://maps.googleapis.com/maps/api/distancematrix/json?` +
+      `origins=${encodeURIComponent(originLat)},${encodeURIComponent(originLng)}&` +
+      `destinations=${encodeURIComponent(destination)}&` +
+      `key=${apiKey}&region=za&units=metric`;
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status !== "OK" || data.rows?.[0]?.elements?.[0]?.status !== "OK") {
+      return res.status(200).json({ success: false, result: null });
+    }
+
+    const element = data.rows[0].elements[0];
+
+    res.json({
+      success: true,
+      result: {
+        distance: element.distance.value / 1000, // km
+        distanceText: element.distance.text,
+        duration: element.duration.value / 60, // minutes
+        durationText: element.duration.text,
+        durationInSeconds: element.duration.value,
+        originAddress: data.origin_addresses[0],
+        destinationAddress: data.destination_addresses[0],
+      },
+    });
+  } catch (err) {
+    console.error("Distance Matrix proxy error:", err);
+    res.status(500).json({ success: false, message: "Server error", error: err.message });
+  }
+});
+
+/* =========================
    CREATE ORDER (UPDATED with delivery_type and package support)
 ========================= */
 router.post("/create", async (req, res) => {
@@ -803,7 +858,6 @@ router.put("/admin/approve-package/:id", verifyToken, authorizeRoles("admin"), a
 
     console.log(`✅ Package #${id} approved, new status: ${result.rows[0].status}`);
 
-    // FIX: Fetch verification code so customer sees it immediately via socket
     if (io) {
       const codeResult = await db.query(
         "SELECT verification_code FROM orders WHERE id = $1",
@@ -913,8 +967,6 @@ router.put("/driver/accept-package/:id", verifyToken, authorizeRoles("driver"), 
 
     io.emit("package-offer-taken", { orderId: parseInt(id) });
 
-    // FIX: Include verification_code so the customer's live socket update
-    // triggers a refetch and they see the code immediately on 'assigned' status
     io.to(`order_${id}`).emit("order-status-update", {
       orderId: parseInt(id),
       status: "assigned",

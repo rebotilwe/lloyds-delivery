@@ -65,6 +65,16 @@ export default function AddressAutocomplete({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // FIX: keep the latest onChange/onSelect in refs so the Google listener
+  // (created once per input) always calls the current handler instead of
+  // a stale one captured at mount time. This was the cause of typing in
+  // the delivery field wiping out the pickup field's state.
+  const onChangeRef = useRef(onChange);
+  const onSelectRef = useRef(onSelect);
+
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+
   useEffect(() => {
     if (!GOOGLE_MAPS_API_KEY) {
       setError('API key missing');
@@ -80,26 +90,27 @@ export default function AddressAutocomplete({
   useEffect(() => {
     if (!ready || !inputRef.current || autocompleteRef.current) return;
 
-    autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
+    const instance = new window.google.maps.places.Autocomplete(inputRef.current, {
       componentRestrictions: { country: 'za' },
       fields: ['formatted_address', 'geometry', 'place_id'],
       types: ['address'],
     });
+    autocompleteRef.current = instance;
 
-    autocompleteRef.current.addListener('place_changed', () => {
-      const place = autocompleteRef.current.getPlace();
+    instance.addListener('place_changed', () => {
+      const place = instance.getPlace();
       if (!place?.formatted_address) return;
       const lat = place.geometry?.location?.lat() ?? null;
       const lng = place.geometry?.location?.lng() ?? null;
-      onChange?.(place.formatted_address);
-      onSelect?.(place.formatted_address, { lat, lng, placeId: place.place_id });
+
+      // Always call the CURRENT handler via ref, never a stale closure
+      onChangeRef.current?.(place.formatted_address);
+      onSelectRef.current?.(place.formatted_address, { lat, lng, placeId: place.place_id });
     });
 
     return () => {
-      if (autocompleteRef.current) {
-        try { window.google.maps.event.clearInstanceListeners(autocompleteRef.current); } catch {}
-        autocompleteRef.current = null;
-      }
+      try { window.google.maps.event.clearInstanceListeners(instance); } catch {}
+      autocompleteRef.current = null;
     };
   }, [ready]);
 

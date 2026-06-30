@@ -45,7 +45,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { Link } from 'react-router-dom';
 import SignaturePad from '@/components/SignaturePad';
 
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+const API_URL = import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com/api';
 
 // STATUS FLOW - Food orders (Driver only sees ready_for_pickup and beyond)
 const FOOD_STATUS_FLOW = {
@@ -82,36 +82,29 @@ function cn(...classes) {
   return classes.filter(Boolean).join(' ');
 }
 
-// ── GOOGLE MAPS DISTANCE MATRIX API ──────────────────────────────────────
+// ── DISTANCE MATRIX — now goes through OUR backend, not Google directly ──
+// The Distance Matrix REST API doesn't support CORS for browser calls, so
+// the actual Google request happens server-side in orders.js, and this
+// just calls our own API which proxies it.
 async function getDistanceMatrix(originLat, originLng, destinationAddress) {
   if (!originLat || !originLng || !destinationAddress) return null;
-  
+
   try {
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?` +
-      `origins=${originLat},${originLng}&` +
-      `destinations=${encodeURIComponent(destinationAddress)}&` +
-      `key=${GOOGLE_MAPS_API_KEY}&` +
-      `region=za&` +
-      `units=metric`;
+    const url =
+      `${API_URL}/orders/maps/distance-matrix?` +
+      `originLat=${encodeURIComponent(originLat)}&` +
+      `originLng=${encodeURIComponent(originLng)}&` +
+      `destination=${encodeURIComponent(destinationAddress)}`;
 
     const response = await fetch(url);
     const data = await response.json();
-    
-    if (data.status === 'OK' && data.rows[0]?.elements[0]?.status === 'OK') {
-      const element = data.rows[0].elements[0];
-      return {
-        distance: element.distance.value / 1000, // km
-        distanceText: element.distance.text,
-        duration: element.duration.value / 60, // minutes
-        durationText: element.duration.text,
-        durationInSeconds: element.duration.value,
-        originAddress: data.origin_addresses[0],
-        destinationAddress: data.destination_addresses[0],
-      };
+
+    if (data.success && data.result) {
+      return data.result;
     }
     return null;
   } catch (err) {
-    console.error('Distance Matrix API error:', err);
+    console.error('Distance Matrix proxy error:', err);
     return null;
   }
 }
@@ -265,7 +258,7 @@ export default function DriverDashboard() {
     localStorage.setItem('declined_orders', JSON.stringify(declinedOrders));
   }, [declinedOrders]);
 
-  // ── CALCULATE DISTANCES WITH GOOGLE MAPS API ─────────────────────────────
+  // ── CALCULATE DISTANCES VIA OUR BACKEND DISTANCE MATRIX PROXY ────────────
   useEffect(() => {
     if (availableOrders.length > 0 && driverLocation.lat && driverLocation.lng) {
       const fetchDistances = async () => {
@@ -322,7 +315,6 @@ export default function DriverDashboard() {
   }, [availableOrders, driverLocation]);
 
   // ── LOCATION TRACKING ──────────────────────────────────────────────────────
-  // ── FIXED: Emit to both event names for compatibility ──
   useEffect(() => {
     if (navigator.geolocation && isAvailable) {
       const watchId = navigator.geolocation.watchPosition(
@@ -428,7 +420,7 @@ export default function DriverDashboard() {
         fetchEarningsData();
       });
 
-      // ── NEW: Listen for location requests from customers ──
+      // ── Listen for location requests from customers ──
       socket.on('request-driver-location', (data) => {
         console.log('📥 Location requested for order:', data.orderId);
         if (trackingOrder && trackingOrder === data.orderId && driverLocation.lat && driverLocation.lng) {
@@ -1233,7 +1225,7 @@ export default function DriverDashboard() {
                       </span>
                     </div>
 
-                    {/* ETA Info - Using Google Maps Distance Matrix */}
+                    {/* ETA Info - From backend Distance Matrix proxy */}
                     {orderEta && (
                       <div className="bg-blue-50 rounded-lg p-2 flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -1536,7 +1528,7 @@ export default function DriverDashboard() {
                           </p>
                         </div>
                         
-                        {/* Distance and ETA from Google Maps */}
+                        {/* Distance and ETA from backend proxy */}
                         {etaInfo && (
                           <div className="flex flex-wrap items-center gap-3 mt-2">
                             <span className="text-xs text-blue-600">📍 {etaInfo.distanceText} away</span>

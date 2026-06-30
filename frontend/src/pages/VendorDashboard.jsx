@@ -16,36 +16,31 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import AddressAutocomplete from '@/components/AddressAutocomplete';
 
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+const API_URL = import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com/api';
 
-// ── GOOGLE MAPS DISTANCE MATRIX API ──────────────────────────────────────
+// ── DISTANCE MATRIX — now goes through OUR backend, not Google directly ──
+// The Distance Matrix REST API doesn't support CORS for browser calls, so
+// the actual Google request happens server-side (see orders.js), and this
+// just calls our own API which proxies it.
 async function getDistanceMatrix(originLat, originLng, destinationAddress) {
   if (!originLat || !originLng || !destinationAddress) return null;
-  
+
   try {
-    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?` +
-      `origins=${originLat},${originLng}&` +
-      `destinations=${encodeURIComponent(destinationAddress)}&` +
-      `key=${GOOGLE_MAPS_API_KEY}&` +
-      `region=za&` +
-      `units=metric`;
+    const url =
+      `${API_URL}/orders/maps/distance-matrix?` +
+      `originLat=${encodeURIComponent(originLat)}&` +
+      `originLng=${encodeURIComponent(originLng)}&` +
+      `destination=${encodeURIComponent(destinationAddress)}`;
 
     const response = await fetch(url);
     const data = await response.json();
-    
-    if (data.status === 'OK' && data.rows[0]?.elements[0]?.status === 'OK') {
-      const element = data.rows[0].elements[0];
-      return {
-        distance: element.distance.value / 1000, // km
-        distanceText: element.distance.text,
-        duration: element.duration.value / 60, // minutes
-        durationText: element.duration.text,
-        durationInSeconds: element.duration.value,
-      };
+
+    if (data.success && data.result) {
+      return data.result;
     }
     return null;
   } catch (err) {
-    console.error('Distance Matrix API error:', err);
+    console.error('Distance Matrix proxy error:', err);
     return null;
   }
 }

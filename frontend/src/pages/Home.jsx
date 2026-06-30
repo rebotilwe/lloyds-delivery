@@ -10,6 +10,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
 import RestaurantCard from '@/components/restaurants/RestaurantCard';
 
+const API_URL = import.meta.env.VITE_API_URL || 'https://lloyds-delivery.onrender.com/api';
+
 const cuisineFilters = [
   'All', 'Kotas', 'Burgers', 'Pizzas', 'Sushi', 'Fast Food',
   'Chinese', 'Indian', 'Mexican', 'Italian', 'Healthy', 'Desserts'
@@ -23,6 +25,31 @@ const deliveryTypes = [
   { id: 'other', label: '🚚 Other', icon: Truck, description: 'Anything else you need delivered', color: 'bg-orange-500' },
 ];
 
+// ── DISTANCE MATRIX — goes through our backend proxy (real driving distance/ETA) ──
+// Falls back to null on failure; caller should fall back to Haversine in that case.
+async function getDistanceMatrix(originLat, originLng, destinationAddress) {
+  if (!originLat || !originLng || !destinationAddress) return null;
+
+  try {
+    const url =
+      `${API_URL}/orders/maps/distance-matrix?` +
+      `originLat=${encodeURIComponent(originLat)}&` +
+      `originLng=${encodeURIComponent(originLng)}&` +
+      `destination=${encodeURIComponent(destinationAddress)}`;
+
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.success && data.result) {
+      return data.result;
+    }
+    return null;
+  } catch (err) {
+    console.error('Distance Matrix proxy error:', err);
+    return null;
+  }
+}
+
 export default function Home() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -33,6 +60,8 @@ export default function Home() {
   const [userLocation, setUserLocation] = useState(null);
   const [gettingLocation, setGettingLocation] = useState(false);
   const [sortBy, setSortBy] = useState('relevance'); // 'relevance', 'distance', 'rating'
+  const [distanceCache, setDistanceCache] = useState({}); // restaurantId -> { distance, distanceText, durationText }
+  const [loadingDistances, setLoadingDistances] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -58,7 +87,6 @@ export default function Home() {
         setUserLocation({ lat: latitude, lng: longitude });
         toast.success('Location detected! Showing nearby restaurants');
         setGettingLocation(false);
-        // Sort restaurants by distance
         setSortBy('distance');
       },
       (error) => {
@@ -70,7 +98,7 @@ export default function Home() {
     );
   };
 
-  // Calculate distance between two coordinates (Haversine formula)
+  // Calculate distance between two coordinates (Haversine formula) — fallback only
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
     if (!lat1 || !lon1 || !lat2 || !lon2) return null;
     const R = 6371;
@@ -82,6 +110,61 @@ export default function Home() {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     return R * c;
   };
+
+  // ── Fetch real driving distances via backend proxy once we have user location ──
+  useEffect(() => {
+    if (!userLocation?.lat || !userLocation?.lng || restaurants.length === 0) return;
+
+    let cancelled = false;
+
+    const fetchAllDistances = async () => {
+      setLoadingDistances(true);
+      const newCache = {};
+
+      for (const r of restaurants) {
+        if (cancelled) return;
+
+        // Prefer real address if the restaurant has one, otherwise fall back
+        // to raw coordinates formatted as a string the Distance Matrix API accepts.
+        const destination = r.address || (
+          r.latitude && r.longitude ? `${r.latitude},${r.longitude}` : null
+        );
+        if (!destination) continue;
+
+        const result = await getDistanceMatrix(userLocation.lat, userLocation.lng, destination);
+
+        if (result) {
+          newCache[r.id] = {
+            distance: result.distance,
+            distanceText: result.distanceText,
+            durationText: result.durationText,
+          };
+        } else {
+          // Fallback to Haversine straight-line distance
+          const fallback = calculateDistance(
+            userLocation.lat, userLocation.lng,
+            r.latitude || -29.8587, r.longitude || 31.0218
+          );
+          if (fallback !== null) {
+            newCache[r.id] = {
+              distance: fallback,
+              distanceText: `${fallback.toFixed(1)} km`,
+              durationText: null,
+            };
+          }
+        }
+      }
+
+      if (!cancelled) {
+        setDistanceCache(newCache);
+        setLoadingDistances(false);
+      }
+    };
+
+    fetchAllDistances();
+
+    return () => { cancelled = true; };
+  }, [userLocation, restaurants]);
 
   // Filter and sort restaurants
   const filteredAndSorted = useMemo(() => {
@@ -98,19 +181,20 @@ export default function Home() {
 
     // Then sort
     if (sortBy === 'distance' && userLocation) {
-      filtered = filtered.map(r => {
-        const distance = calculateDistance(
-          userLocation.lat, userLocation.lng,
-          r.latitude || -29.8587, r.longitude || 31.0218
-        );
-        return { ...r, distance };
-      }).sort((a, b) => (a.distance || 999) - (b.distance || 999));
+      filtered = filtered
+        .map(r => ({
+          ...r,
+          distance: distanceCache[r.id]?.distance ?? null,
+          distanceText: distanceCache[r.id]?.distanceText ?? null,
+          durationText: distanceCache[r.id]?.durationText ?? null,
+        }))
+        .sort((a, b) => (a.distance ?? 999) - (b.distance ?? 999));
     } else if (sortBy === 'rating') {
       filtered = filtered.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     }
     
     return filtered;
-  }, [restaurants, debouncedSearch, activeCuisine, sortBy, userLocation]);
+  }, [restaurants, debouncedSearch, activeCuisine, sortBy, userLocation, distanceCache]);
 
   const visibleFilters = showAllFilters ? cuisineFilters : cuisineFilters.slice(0, 6);
 
@@ -179,6 +263,11 @@ export default function Home() {
             {userLocation && (
               <p className="text-xs text-white/50 mt-2">
                 📍 Location detected - showing nearby restaurants
+                {loadingDistances && (
+                  <span className="ml-2 inline-flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" /> calculating driving distances...
+                  </span>
+                )}
                 <button 
                   onClick={() => setSortBy('distance')}
                   className="ml-2 text-green-400 hover:text-green-300 underline"
@@ -271,7 +360,7 @@ export default function Home() {
             </h2>
             <span className="text-xs md:text-sm text-gray-500">
               {filteredAndSorted.length} places
-              {userLocation && sortBy === 'distance' && ' • Sorted by distance'}
+              {userLocation && sortBy === 'distance' && ' • Sorted by driving distance'}
             </span>
           </div>
 
@@ -295,7 +384,12 @@ export default function Home() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
               {filteredAndSorted.map(r => (
-                <RestaurantCard key={r.id} restaurant={r} />
+                <RestaurantCard
+                  key={r.id}
+                  restaurant={r}
+                  distanceText={sortBy === 'distance' ? distanceCache[r.id]?.distanceText : null}
+                  durationText={sortBy === 'distance' ? distanceCache[r.id]?.durationText : null}
+                />
               ))}
             </div>
           )}

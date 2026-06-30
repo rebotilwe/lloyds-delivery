@@ -11,6 +11,57 @@ import { useCart } from '@/lib/cartStore';
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
+// ── Shared Google Maps script loader (singleton, matches AddressAutocomplete) ──
+// Never removes the script tag on unmount — Google Maps is a global singleton
+// and multiple components on the same page may depend on it being loaded once.
+let mapsScriptPromise = null;
+
+function waitForMaps(timeout = 15000) {
+  return new Promise((resolve, reject) => {
+    if (typeof window.google?.maps?.Map === 'function') {
+      resolve();
+      return;
+    }
+    const start = Date.now();
+    const id = setInterval(() => {
+      if (typeof window.google?.maps?.Map === 'function') {
+        clearInterval(id);
+        resolve();
+      } else if (Date.now() - start > timeout) {
+        clearInterval(id);
+        reject(new Error('Timed out waiting for Google Maps'));
+      }
+    }, 150);
+  });
+}
+
+function loadGoogleMapsScript() {
+  if (mapsScriptPromise) return mapsScriptPromise;
+
+  mapsScriptPromise = new Promise((resolve, reject) => {
+    if (typeof window.google?.maps?.Map === 'function') {
+      resolve();
+      return;
+    }
+    if (document.getElementById('google-maps-script')) {
+      waitForMaps().then(resolve).catch(reject);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = 'google-maps-script';
+    // No &loading=async — keeps Maps + Places + Geocoder loading synchronously
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => waitForMaps().then(resolve).catch(reject);
+    script.onerror = () => reject(new Error('Google Maps script failed to load'));
+    document.head.appendChild(script);
+  });
+
+  return mapsScriptPromise;
+}
+
 // Restaurant Map Component
 function RestaurantMap({ address, name }) {
   const mapContainerRef = useRef(null);
@@ -24,28 +75,23 @@ function RestaurantMap({ address, name }) {
       setLoadError(true);
       return;
     }
-    if (window.google?.maps) {
-      setMapReady(true);
-      return;
-    }
 
-    const script = document.createElement('script');
-    script.id = 'google-maps-script';
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places&loading=async`;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => setMapReady(true);
-    script.onerror = () => setLoadError(true);
-    document.head.appendChild(script);
+    loadGoogleMapsScript()
+      .then(() => setMapReady(true))
+      .catch((err) => {
+        console.error('Google Maps load error:', err);
+        setLoadError(true);
+      });
 
-    return () => {
-      const el = document.getElementById('google-maps-script');
-      if (el) el.remove();
-    };
+    // Note: deliberately NOT removing the script tag on unmount.
+    // Google Maps is a global script — removing it while other components
+    // (or a later mount of this same component) still reference window.google
+    // causes "window.google.maps.Map is not a constructor" errors.
   }, []);
 
   useEffect(() => {
     if (!mapReady || !mapContainerRef.current || mapRef.current) return;
+    if (typeof window.google?.maps?.Map !== 'function') return;
 
     mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
       zoom: 15,
@@ -58,7 +104,7 @@ function RestaurantMap({ address, name }) {
 
     const geocoder = new window.google.maps.Geocoder();
     geocoder.geocode({ address }, (results, status) => {
-      if (status === 'OK' && results[0]) {
+      if (status === 'OK' && results[0] && mapRef.current) {
         const pos = results[0].geometry.location;
         markerRef.current = new window.google.maps.Marker({
           position: pos,
@@ -76,6 +122,12 @@ function RestaurantMap({ address, name }) {
         mapRef.current.setZoom(15);
       }
     });
+
+    return () => {
+      // Clean up map instance refs only — never touch the shared script tag
+      mapRef.current = null;
+      markerRef.current = null;
+    };
   }, [mapReady, address, name]);
 
   if (loadError || !GOOGLE_MAPS_API_KEY) {
@@ -89,6 +141,14 @@ function RestaurantMap({ address, name }) {
           <Navigation className="w-4 h-4 mr-2" />
           Open in Maps
         </Button>
+      </div>
+    );
+  }
+
+  if (!mapReady) {
+    return (
+      <div className="h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-500" />
       </div>
     );
   }

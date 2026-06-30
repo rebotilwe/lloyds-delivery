@@ -25,9 +25,6 @@ const generateVerificationCode = () => {
 
 /* =========================
    GOOGLE MAPS: DISTANCE MATRIX PROXY
-   The Distance Matrix REST API does not support CORS for browser calls,
-   so this route lets the frontend (DriverDashboard) ask our backend to
-   fetch ETA/distance on its behalf using the server-side key.
 ========================= */
 router.get("/maps/distance-matrix", async (req, res) => {
   try {
@@ -63,9 +60,9 @@ router.get("/maps/distance-matrix", async (req, res) => {
     res.json({
       success: true,
       result: {
-        distance: element.distance.value / 1000, // km
+        distance: element.distance.value / 1000,
         distanceText: element.distance.text,
-        duration: element.duration.value / 60, // minutes
+        duration: element.duration.value / 60,
         durationText: element.duration.text,
         durationInSeconds: element.duration.value,
         originAddress: data.origin_addresses[0],
@@ -119,7 +116,6 @@ router.post("/create", async (req, res) => {
       delivery_type
     });
 
-    // For food deliveries, restaurant_id is required
     if (delivery_type === 'food' && !restaurant_id) {
       return res.status(400).json({ 
         message: "Restaurant ID is required for food deliveries" 
@@ -132,16 +128,13 @@ router.post("/create", async (req, res) => {
       });
     }
 
-    // For package deliveries, status should be pending_approval
     const initialStatus = delivery_type === 'food' ? (status || 'pending') : 'pending_approval';
 
-    // Calculate subtotal for food orders
     let subtotalValue = original_total || total;
     if (delivery_type === 'food' && items && Array.isArray(items) && items.length > 0) {
       subtotalValue = items.reduce((sum, item) => sum + (parseFloat(item.price) * (item.quantity || 1)), 0);
     }
 
-    // Generate verification code for package deliveries
     let verificationCode = null;
     if (delivery_type !== 'food') {
       verificationCode = generateVerificationCode();
@@ -194,7 +187,6 @@ router.post("/create", async (req, res) => {
     const orderId = result.rows[0].id;
     console.log(`✅ Order created with ID: ${orderId}, Type: ${delivery_type || 'food'}, Status: ${initialStatus}`);
 
-    // Insert order items (only for food deliveries)
     if (delivery_type === 'food' && items && Array.isArray(items) && items.length > 0) {
       for (const item of items) {
         const menuItemId = item.id || item.menu_item_id;
@@ -222,7 +214,6 @@ router.post("/create", async (req, res) => {
       }
     }
 
-    // Notify admin about new package delivery
     if (delivery_type !== 'food') {
       const io = req.app.get("io");
       if (io) {
@@ -236,7 +227,6 @@ router.post("/create", async (req, res) => {
       }
     }
 
-    // Notify vendor about new order (only for food deliveries)
     if (delivery_type === 'food' && restaurant_id) {
       const io = req.app.get("io");
       try {
@@ -260,7 +250,6 @@ router.post("/create", async (req, res) => {
       }
     }
 
-    // Send email confirmation
     try {
       const customer = await db.query("SELECT email, name FROM users WHERE id = $1", [customer_id]);
       if (customer.rows[0]?.email) {
@@ -350,7 +339,14 @@ router.post("/checkout", async (req, res) => {
 });
 
 /* =========================
-   REVIEWS - CREATE (FIXED - updates driver rating properly)
+   REVIEWS - CREATE (FIXED - separate "reviewed" tracking per review type)
+   
+   BUG FIXED: previously, the single `orders.reviewed` boolean was shared
+   between restaurant AND driver reviews. Once a customer rated the
+   restaurant, `reviewed` became true, which then incorrectly blocked the
+   separate driver rating for that same order with a 400 "already reviewed"
+   error. Now we check the `reviews` table directly for an existing review
+   of the SAME type (restaurant vs driver) before blocking.
 ========================= */
 router.post("/reviews/create", async (req, res) => {
   try {
@@ -359,6 +355,8 @@ router.post("/reviews/create", async (req, res) => {
     if (!rating || rating < 1 || rating > 5) {
       return res.status(400).json({ error: 'Rating must be between 1 and 5' });
     }
+
+    const reviewType = type || 'restaurant';
 
     const orderCheck = await db.query(
       "SELECT * FROM orders WHERE id = $1 AND customer_id = $2",
@@ -369,10 +367,14 @@ router.post("/reviews/create", async (req, res) => {
       return res.status(404).json({ error: 'Order not found or unauthorized' });
     }
 
-    const order = orderCheck.rows[0];
+    // Check for an existing review of THIS SPECIFIC TYPE, not the shared flag
+    const existingReview = await db.query(
+      "SELECT id FROM reviews WHERE order_id = $1 AND type = $2",
+      [order_id, reviewType]
+    );
 
-    if (order.reviewed) {
-      return res.status(400).json({ error: 'Order already reviewed' });
+    if (existingReview.rows.length > 0) {
+      return res.status(400).json({ error: `Order already reviewed (${reviewType})` });
     }
 
     const result = await db.query(
@@ -380,13 +382,18 @@ router.post("/reviews/create", async (req, res) => {
        (order_id, restaurant_id, driver_id, customer_id, rating, comment, type, created_at) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) 
        RETURNING *`,
-      [order_id, restaurant_id, driver_id, customer_id, rating, comment || null, type || 'restaurant']
+      [order_id, restaurant_id, driver_id, customer_id, rating, comment || null, reviewType]
     );
 
-    await db.query("UPDATE orders SET reviewed = true WHERE id = $1", [order_id]);
+    // Only the restaurant review sets the shared `reviewed` flag, since the
+    // OrderHistoryCard frontend only uses it to decide whether to show
+    // "Rate Restaurant" — it was never meant to gate driver reviews.
+    if (reviewType === 'restaurant') {
+      await db.query("UPDATE orders SET reviewed = true WHERE id = $1", [order_id]);
+    }
 
     // Update driver's average rating
-    if (type === 'driver' && driver_id) {
+    if (reviewType === 'driver' && driver_id) {
       const driverReviews = await db.query(
         "SELECT rating FROM reviews WHERE driver_id = $1 AND type = 'driver'",
         [driver_id]
@@ -403,6 +410,18 @@ router.post("/reviews/create", async (req, res) => {
            WHERE id = $2`, 
           [roundedAvg, driver_id]
         );
+      }
+
+      // Mark the order as driver-rated so the frontend's hasDriverRating
+      // check (order.driver_rated) can hide the "Rate Driver" button.
+      // Wrapped in try/catch since this column may not exist on older schemas.
+      try {
+        await db.query(
+          "UPDATE orders SET driver_rated = true WHERE id = $1",
+          [order_id]
+        );
+      } catch (colErr) {
+        console.log("driver_rated column not found, skipping:", colErr.message);
       }
     }
 
@@ -1492,9 +1511,22 @@ router.get("/reviews/driver/:driverId", async (req, res) => {
 
 /* =========================
    CHECK IF ORDER HAS REVIEW
+   FIXED: now optionally accepts ?type=restaurant|driver query param so the
+   frontend can check review status per-type instead of getting the shared
+   orders.reviewed flag for both.
 ========================= */
 router.get("/reviews/order/:orderId", async (req, res) => {
   try {
+    const { type } = req.query;
+
+    if (type) {
+      const result = await db.query(
+        "SELECT id FROM reviews WHERE order_id = $1 AND type = $2",
+        [req.params.orderId, type]
+      );
+      return res.json({ reviewed: result.rows.length > 0 });
+    }
+
     const result = await db.query(
       "SELECT reviewed FROM orders WHERE id = $1",
       [req.params.orderId]

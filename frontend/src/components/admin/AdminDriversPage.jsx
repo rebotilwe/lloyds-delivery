@@ -300,6 +300,17 @@ function DriverDocumentsModal({ driver, onClose, onApprove, onReject, onRefresh 
                 <div><span className="text-gray-500">Vehicle:</span> {driver.vehicle_type === 'car' ? '🚗 Car' : '🏍️ Bike'}</div>
                 <div><span className="text-gray-500">License Plate:</span> {driver.license_plate || '—'}</div>
                 {driver.car_make && <div><span className="text-gray-500">Car:</span> {driver.car_make} {driver.car_model} ({driver.car_year})</div>}
+                {/* FIX #14 + #15: driver rating visible inside modal */}
+                <div>
+                  <span className="text-gray-500">Driver Rating:</span>{' '}
+                  {(driver.driver_rating || driver.average_rating) ? (
+                    <span className="font-semibold text-amber-600">
+                      ⭐ {parseFloat(driver.driver_rating || driver.average_rating).toFixed(1)} / 5
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">No ratings yet</span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -567,6 +578,14 @@ export default function AdminDriversPage() {
                 <p className="font-semibold text-sm">{d.full_name || d.name}</p>
                 <p className="text-xs text-slate-400">{d.email}</p>
                 <p className="text-xs text-slate-400 mt-1">{d.phone || 'No phone'}</p>
+                {/* FIX #14 + #15: show rating on mobile cards too */}
+                {(d.driver_rating || d.average_rating) ? (
+                  <p className="text-xs text-amber-600 font-semibold mt-1">
+                    ⭐ {parseFloat(d.driver_rating || d.average_rating).toFixed(1)} rating
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-300 mt-1">No ratings yet</p>
+                )}
                 {d.latitude && d.longitude && (
                   <p className="text-xs text-blue-500 mt-1 flex items-center gap-1">
                     <MapPin className="w-3 h-3" />
@@ -599,6 +618,7 @@ export default function AdminDriversPage() {
               <th className="whitespace-nowrap px-4 py-3 text-left">Email</th>
               <th className="whitespace-nowrap px-4 py-3 text-left hidden md:table-cell">Phone</th>
               <th className="whitespace-nowrap px-4 py-3 text-left hidden lg:table-cell">Vehicle</th>
+              <th className="whitespace-nowrap px-4 py-3 text-left hidden lg:table-cell">Rating</th>
               <th className="whitespace-nowrap px-4 py-3 text-left">Status</th>
               <th className="sticky right-0 bg-slate-50 px-4 py-3 text-right shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">Actions</th>
             </tr>
@@ -612,6 +632,16 @@ export default function AdminDriversPage() {
                 <td className="whitespace-nowrap px-4 py-3 text-slate-500 hidden lg:table-cell">
                   {d.vehicle_type === 'car' ? '🚗 Car' : '🏍️ Bike'}
                   {d.license_plate && <span className="text-xs text-slate-400 ml-1">({d.license_plate})</span>}
+                </td>
+                {/* FIX #14 + #15: driver_rating now visible to admin */}
+                <td className="whitespace-nowrap px-4 py-3 hidden lg:table-cell">
+                  {d.driver_rating || d.average_rating ? (
+                    <span className="flex items-center gap-1 text-sm font-semibold text-amber-600">
+                      ⭐ {parseFloat(d.driver_rating || d.average_rating).toFixed(1)}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400">No ratings yet</span>
+                  )}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3">
                   <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', STATUS_COLOR[d.driver_status] ?? 'bg-slate-100 text-slate-500')}>

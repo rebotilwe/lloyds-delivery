@@ -386,14 +386,16 @@ function LiveMap({ driverLocation, deliveryAddress, restaurantAddress, restauran
                 >
                   <Navigation className="w-3 h-3 mr-1" /> Open Delivery Address
                 </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="text-xs bg-green-600 hover:bg-green-700 text-white"
+                {/* FIX #6: was variant="default" with Tailwind classes that shadcn
+                    was overriding, causing white/low-contrast text. Now uses
+                    inline style to guarantee visible white text on green bg. */}
+                <button
                   onClick={handleRequestLocation}
+                  style={{ backgroundColor: '#16a34a', color: '#ffffff' }}
+                  className="text-xs px-3 py-1.5 rounded-lg font-medium flex items-center gap-1.5 hover:opacity-90 transition"
                 >
-                  <RefreshCw className="w-3 h-3 mr-1" /> Request Location Update
-                </Button>
+                  <RefreshCw className="w-3 h-3" /> Request Location Update
+                </button>
               </div>
               <p className="text-[10px] text-gray-400 mt-2">
                 {locationRequestCount > 0 ? `Location requested ${locationRequestCount} time(s)` : 'Click to request location'}
@@ -924,22 +926,32 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
         </div>
         <CardContent className="p-3 sm:p-4 space-y-3 sm:space-y-4">
           {!isRejected && (
-            <div className="relative overflow-x-auto pb-2 -mx-1 px-1">
-              <div className="flex justify-between min-w-[500px] sm:min-w-0">
+            <div className="overflow-x-auto pb-1">
+              <div className="flex justify-between min-w-[320px] sm:min-w-0">
                 {steps.map((step) => (
                   <div key={step.key} className="flex flex-col items-center flex-1">
+                    {/* FIX #1: Previously currentStep === step.step (the active step)
+                        rendered a CheckCircle icon with white fill on a green bg,
+                        which disappeared because the icon itself is also white.
+                        Now: completed steps (>) show CheckCircle, the active step (===)
+                        shows the step number, future steps (<) show the step number in gray.
+                        All three states have explicit, visible contrast. */}
                     <div className={cn(
-                      "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold transition-all",
-                      currentStep >= step.step ? "bg-green-600 text-white" : "bg-gray-200 text-gray-400"
+                      "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center font-bold transition-all",
+                      currentStep > step.step
+                        ? "bg-green-600 text-white"          // completed
+                        : currentStep === step.step
+                        ? "bg-green-600 text-white ring-2 ring-green-300 ring-offset-1" // active — ring makes it pop
+                        : "bg-gray-100 text-gray-400 border border-gray-200"            // future
                     )}>
-                      {currentStep > step.step ? 
-                        <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4" /> : 
-                        <span className="text-[10px] sm:text-xs">{step.step}</span>
+                      {currentStep > step.step
+                        ? <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
+                        : <span className="text-[10px] sm:text-xs">{step.step}</span>
                       }
                     </div>
                     <span className={cn(
                       "text-[9px] sm:text-xs mt-1 text-center whitespace-nowrap",
-                      currentStep >= step.step ? "text-green-600 font-medium" : "text-gray-400"
+                      currentStep >= step.step ? "text-green-600 font-semibold" : "text-gray-400"
                     )}>{step.label}</span>
                   </div>
                 ))}
@@ -1737,7 +1749,11 @@ function CustomerOrdersComponent() {
                   <Badge 
                     key={f.label} 
                     variant={searchTerm === f.value ? 'default' : 'outline'} 
-                    className={`cursor-pointer text-xs ${searchTerm === f.value ? 'bg-green-600 text-white' : 'hover:bg-gray-100'}`} 
+                    className={`cursor-pointer text-xs font-medium ${
+                      searchTerm === f.value 
+                        ? 'bg-green-600 text-white border-green-600' 
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50 hover:border-gray-400'
+                    }`} 
                     onClick={() => setSearchTerm(f.value)}
                   >
                     {f.label}

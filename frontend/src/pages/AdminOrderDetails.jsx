@@ -1,407 +1,436 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
-import { toast } from 'sonner';
 import { 
-  ArrowLeft, 
-  MapPin, 
-  Package, 
-  User, 
-  Store, 
-  Clock, 
-  CreditCard, 
-  Phone, 
-  Mail, 
-  Calendar,
-  Truck,
-  CheckCircle,
-  AlertCircle,
-  RefreshCw
+  ArrowLeft, Package, User, MapPin, Clock, DollarSign, 
+  Truck, Store, CheckCircle, XCircle, AlertCircle, Phone,
+  FileText, Navigation, RefreshCw
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from 'sonner';
 import { format } from 'date-fns';
 
-const formatCurrency = (value) => {
-  const num = Number(value);
-  return isNaN(num) ? 'R0.00' : `R${num.toFixed(2)}`;
+const statusColors = {
+  pending:          'bg-yellow-100 text-yellow-800 border-yellow-200',
+  confirmed:        'bg-blue-100 text-blue-800 border-blue-200',
+  preparing:        'bg-purple-100 text-purple-800 border-purple-200',
+  ready_for_pickup: 'bg-green-100 text-green-800 border-green-200',
+  picked_up:        'bg-indigo-100 text-indigo-800 border-indigo-200',
+  on_the_way:       'bg-orange-100 text-orange-800 border-orange-200',
+  delivered:        'bg-emerald-100 text-emerald-800 border-emerald-200',
+  cancelled:        'bg-red-100 text-red-800 border-red-200',
+  pending_approval: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+  pending_driver:   'bg-blue-100 text-blue-800 border-blue-200',
+  assigned:         'bg-purple-100 text-purple-800 border-purple-200',
 };
 
-const OrderStatusBadge = ({ status }) => {
-  const colors = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    confirmed: 'bg-blue-100 text-blue-800',
-    preparing: 'bg-purple-100 text-purple-800',
-    ready_for_pickup: 'bg-indigo-100 text-indigo-800',
-    picked_up: 'bg-pink-100 text-pink-800',
-    on_the_way: 'bg-orange-100 text-orange-800',
-    delivered: 'bg-green-100 text-green-800',
-    cancelled: 'bg-red-100 text-red-800',
-  };
-  
-  const displayStatus = status === 'ready_for_pickup' ? 'Ready for Pickup' : 
-                       status?.replace(/_/g, ' ').toUpperCase() || 'PENDING';
-  
-  return (
-    <span className={`px-2 py-1 rounded-full text-xs font-medium ${colors[status] || colors.pending}`}>
-      {displayStatus}
-    </span>
-  );
+const paymentColors = {
+  paid:    'bg-emerald-100 text-emerald-800 border-emerald-200',
+  pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+  failed:  'bg-red-100 text-red-800 border-red-200',
 };
 
-// Status update options with proper labels
-const statusOptions = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'confirmed', label: 'Confirmed' },
-  { value: 'preparing', label: 'Preparing' },
-  { value: 'ready_for_pickup', label: 'Ready for Pickup' },
-  { value: 'picked_up', label: 'Picked Up' },
-  { value: 'on_the_way', label: 'On the Way' },
-  { value: 'delivered', label: 'Delivered' },
-  { value: 'cancelled', label: 'Cancelled' },
-];
+const formatStatus = (s) =>
+  (s || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+const formatCurrency = (v) => {
+  const n = parseFloat(v);
+  return !isNaN(n) ? `R${n.toFixed(2)}` : 'R0.00';
+};
 
 export default function AdminOrderDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [order, setOrder] = useState(null);
+  const [order, setOrder]     = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [updating, setUpdating] = useState(false);
-  const [mobileView, setMobileView] = useState(false);
-
-  // Check if mobile view
-  useEffect(() => {
-    const checkMobile = () => {
-      setMobileView(window.innerWidth < 768);
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  useEffect(() => {
-    if (id) {
-      fetchOrder();
-    }
-  }, [id]);
 
   const fetchOrder = async () => {
     try {
       setLoading(true);
-      console.log("Fetching order ID:", id);
-      const response = await api.get(`/orders/${id}`);
-      console.log("API Response:", response);
-      
-      if (response.data && response.data.id) {
-        setOrder(response.data);
-        setError(null);
-      } else if (response.id) {
-        setOrder(response);
-        setError(null);
-      } else {
-        throw new Error('Order not found');
-      }
+      const res = await api.get(`/orders/${id}`);
+      setOrder(res.data ?? res);
     } catch (err) {
-      console.error("Fetch error:", err);
-      setError(err.response?.data?.message || 'Failed to load order');
-      toast.error('Could not load order details');
+      console.error('Error fetching order:', err);
+      toast.error('Failed to load order details');
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => { fetchOrder(); }, [id]);
+
   const updateStatus = async (newStatus) => {
-    if (!window.confirm(`Change order status to ${statusOptions.find(s => s.value === newStatus)?.label}?`)) {
-      return;
-    }
-    
     setUpdating(true);
     try {
       await api.put(`/orders/status/${id}`, { status: newStatus });
-      toast.success('Order status updated');
+      toast.success(`Order status updated to ${formatStatus(newStatus)}`);
       fetchOrder();
     } catch (err) {
-      console.error('Status update error:', err);
-      toast.error(err.response?.data?.message || 'Failed to update status');
+      toast.error('Failed to update order status');
     } finally {
       setUpdating(false);
     }
   };
 
-  // Calculate order summary
-  const subtotal = order?.items?.reduce((sum, item) => sum + (item.price * item.quantity), 0) || 0;
-  const deliveryFee = Number(order?.delivery_fee) || 0;
-  const discount = Number(order?.discount_applied) || 0;
-  const total = Number(order?.total) || 0;
+  const openMap = (address) => {
+    if (!address) return;
+    window.open(`https://maps.google.com/?q=${encodeURIComponent(address)}`, '_blank');
+  };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green"></div>
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="max-w-3xl mx-auto px-4 py-8 space-y-4">
+      <Skeleton className="h-8 w-48" />
+      <Skeleton className="h-48 w-full rounded-2xl" />
+      <Skeleton className="h-48 w-full rounded-2xl" />
+    </div>
+  );
 
-  if (error || !order) {
-    return (
-      <div className="text-center py-12 px-4">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6 max-w-md mx-auto">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
-          <p className="text-red-600 font-semibold mb-2">Order Not Found</p>
-          <p className="text-gray-500 text-sm mb-4">Order #{id} could not be found or has been removed.</p>
-          <button 
-            onClick={() => navigate('/admin/orders')} 
-            className="bg-green text-white px-4 py-2 rounded-lg hover:bg-green/90 transition"
-          >
-            Back to Orders
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (!order) return (
+    <div className="max-w-3xl mx-auto px-4 py-8 text-center">
+      <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+      <p className="text-gray-500">Order not found</p>
+      <Button onClick={() => navigate('/admin/orders')} variant="outline" className="mt-4">
+        <ArrowLeft className="w-4 h-4 mr-2" /> Back to Orders
+      </Button>
+    </div>
+  );
+
+  const isPackage = order.delivery_type && order.delivery_type !== 'food';
+  const items = Array.isArray(order.items) ? order.items : [];
+
+  // Available next statuses depending on current status
+  const statusActions = {
+    pending:          [{ label: 'Confirm Order',      value: 'confirmed'        }],
+    confirmed:        [{ label: 'Mark Preparing',     value: 'preparing'        }],
+    preparing:        [{ label: 'Mark Ready',         value: 'ready_for_pickup' }],
+    ready_for_pickup: [{ label: 'Mark Picked Up',     value: 'picked_up'        }],
+    picked_up:        [{ label: 'Mark On The Way',    value: 'on_the_way'       }],
+    on_the_way:       [{ label: 'Mark Delivered',     value: 'delivered'        }],
+    pending_approval: [
+      { label: 'Approve Package', value: 'pending_driver', color: 'bg-green-600 text-white hover:bg-green-700' },
+      { label: 'Reject',          value: 'cancelled',      color: 'bg-red-600 text-white hover:bg-red-700'   },
+    ],
+    pending_driver:   [{ label: 'Mark Assigned',      value: 'assigned'         }],
+    assigned:         [{ label: 'Mark Picked Up',     value: 'picked_up'        }],
+  };
+
+  const actions = statusActions[order.status] || [];
 
   return (
-    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
+    <div className="max-w-3xl mx-auto px-4 py-8 pb-16">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+      <div className="flex items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-3">
-          <button 
-            onClick={() => navigate('/admin/orders')} 
-            className="p-2 hover:bg-gray-100 rounded-lg transition"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
+          <Button variant="ghost" size="sm" onClick={() => navigate('/admin/orders')} className="rounded-xl">
+            <ArrowLeft className="w-4 h-4 mr-1" /> Orders
+          </Button>
           <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-bold text-navy">Order #{order.id}</h1>
-              <OrderStatusBadge status={order.status} />
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              {order.created_at ? format(new Date(order.created_at), 'dd MMM yyyy, HH:mm') : 'Date unknown'}
+            <h1 className="text-xl font-bold text-gray-900">Order #{order.id}</h1>
+            <p className="text-xs text-gray-400">
+              {order.created_at ? format(new Date(order.created_at), 'dd MMM yyyy • HH:mm') : '—'}
             </p>
           </div>
         </div>
-        <button 
-          onClick={fetchOrder} 
-          className="flex items-center justify-center gap-2 px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50 transition"
-        >
-          <RefreshCw className="w-4 h-4" />
+        <Button variant="outline" size="sm" onClick={fetchOrder} disabled={loading} className="rounded-xl">
+          <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
           Refresh
-        </button>
+        </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        {/* Left Column - Order Items (2/3 width on desktop) */}
-        <div className="lg:col-span-2 space-y-4 sm:space-y-6">
-          {/* Order Items Section */}
-          <div className="bg-white rounded-xl border p-4 sm:p-6">
-            <h2 className="font-semibold text-base sm:text-lg mb-4 flex items-center gap-2">
-              <Package className="w-5 h-5 text-green" />
-              Order Items
-            </h2>
-            <div className="space-y-3">
-              {order.items && order.items.length > 0 ? (
-                <>
-                  {order.items.map((item, index) => (
-                    <div key={index} className="flex justify-between items-center py-3 border-b last:border-0">
-                      <div className="flex-1">
-                        <div className="flex items-start gap-2">
-                          <span className="font-medium text-gray-600 text-sm">x{item.quantity}</span>
-                          <p className="font-medium text-sm sm:text-base">{item.name || `Item ${item.menu_item_id}`}</p>
-                        </div>
-                        {item.description && (
-                          <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.description}</p>
-                        )}
-                      </div>
-                      <p className="font-semibold text-sm sm:text-base ml-4">{formatCurrency(item.price * item.quantity)}</p>
-                    </div>
-                  ))}
-                  
-                  {/* Order Summary */}
-                  <div className="pt-3 mt-2 border-t">
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Subtotal</span>
-                        <span>{formatCurrency(subtotal)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Delivery Fee</span>
-                        <span>{formatCurrency(deliveryFee)}</span>
-                      </div>
-                      {discount > 0 && (
-                        <div className="flex justify-between text-sm text-green">
-                          <span>Discount Applied</span>
-                          <span>-{formatCurrency(discount)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between font-bold text-base sm:text-lg pt-2 border-t">
-                        <span>Total</span>
-                        <span className="text-green">{formatCurrency(total)}</span>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <p className="text-gray-500 text-center py-8">No items found for this order</p>
-              )}
-            </div>
-          </div>
+      {/* Status + Payment badges */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        <Badge className={`border font-medium ${statusColors[order.status] || 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+          {formatStatus(order.status)}
+        </Badge>
+        <Badge className={`border font-medium ${paymentColors[order.payment_status] || 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+          {formatStatus(order.payment_status)} — {formatCurrency(order.total)}
+        </Badge>
+        {isPackage && (
+          <Badge className="border bg-purple-100 text-purple-800 border-purple-200 font-medium">
+            {formatStatus(order.delivery_type)} Delivery
+          </Badge>
+        )}
+      </div>
 
-          {/* Delivery Address Section */}
-          <div className="bg-white rounded-xl border p-4 sm:p-6">
-            <h2 className="font-semibold text-base sm:text-lg mb-3 flex items-center gap-2">
-              <MapPin className="w-5 h-5 text-green" />
-              Delivery Address
-            </h2>
-            <p className="text-gray-700 text-sm sm:text-base break-words">{order.delivery_address || 'No address provided'}</p>
-            {order.notes && (
-              <div className="mt-3 pt-3 border-t">
-                <p className="text-xs text-gray-500 mb-1">Delivery Notes</p>
-                <p className="text-sm text-gray-600">{order.notes}</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right Column - Info Cards (1/3 width on desktop) */}
-        <div className="space-y-4">
-          {/* Status Update Card */}
-          <div className="bg-white rounded-xl border p-4 sm:p-5">
-            <h2 className="font-semibold text-base mb-3">Update Status</h2>
-            <select
-              value={order.status || 'pending'}
-              onChange={(e) => updateStatus(e.target.value)}
+      {/* Status action buttons */}
+      {actions.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-6">
+          {actions.map(action => (
+            <Button
+              key={action.value}
+              onClick={() => updateStatus(action.value)}
               disabled={updating}
-              className="w-full p-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green"
+              className={`rounded-xl ${action.color || 'bg-green-600 text-white hover:bg-green-700'}`}
             >
-              {statusOptions.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            {updating && (
-              <p className="text-xs text-gray-400 mt-2 text-center">Updating...</p>
-            )}
-          </div>
-
-          {/* Payment Info Card */}
-          <div className="bg-white rounded-xl border p-4 sm:p-5">
-            <h2 className="font-semibold text-base mb-3 flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-green" />
-              Payment Info
-            </h2>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Status</span>
-                <span className={`font-medium ${order.payment_status === 'paid' ? 'text-green-600' : 'text-yellow-600'}`}>
-                  {order.payment_status?.toUpperCase() || 'PENDING'}
-                </span>
-              </div>
-              {order.payment_transaction_id && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Transaction ID</span>
-                  <span className="text-xs font-mono break-all text-right">{order.payment_transaction_id}</span>
-                </div>
-              )}
-              <div className="flex justify-between">
-                <span className="text-gray-500">Payment Method</span>
-                <span>Card</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Customer Info Card */}
-          <div className="bg-white rounded-xl border p-4 sm:p-5">
-            <h2 className="font-semibold text-base mb-3 flex items-center gap-2">
-              <User className="w-4 h-4 text-green" />
-              Customer
-            </h2>
-            <div className="space-y-2 text-sm">
-              <p className="font-medium break-words">{order.customer_name || 'Guest'}</p>
-              {order.customer_email && (
-                <div className="flex items-center gap-2">
-                  <Mail className="w-3 h-3 text-gray-400" />
-                  <a href={`mailto:${order.customer_email}`} className="text-blue-600 hover:underline text-xs break-all">
-                    {order.customer_email}
-                  </a>
-                </div>
-              )}
-              {order.customer_phone && (
-                <div className="flex items-center gap-2">
-                  <Phone className="w-3 h-3 text-gray-400" />
-                  <a href={`tel:${order.customer_phone}`} className="text-blue-600 hover:underline text-xs">
-                    {order.customer_phone}
-                  </a>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Restaurant Info Card */}
-          <div className="bg-white rounded-xl border p-4 sm:p-5">
-            <h2 className="font-semibold text-base mb-3 flex items-center gap-2">
-              <Store className="w-4 h-4 text-green" />
-              Restaurant
-            </h2>
-            <p className="font-medium text-sm break-words">{order.restaurant_name || 'Unknown Restaurant'}</p>
-            {order.restaurant_id && (
-              <p className="text-xs text-gray-400 mt-1">ID: {order.restaurant_id}</p>
-            )}
-          </div>
-
-          {/* Driver Info Card (if assigned) */}
-          {order.driver_id && (
-            <div className="bg-white rounded-xl border p-4 sm:p-5">
-              <h2 className="font-semibold text-base mb-3 flex items-center gap-2">
-                <Truck className="w-4 h-4 text-green" />
-                Driver
-              </h2>
-              <p className="font-medium text-sm">Driver ID: {order.driver_id}</p>
-              {order.driver_earning > 0 && (
-                <p className="text-xs text-green-600 mt-1">Earnings: {formatCurrency(order.driver_earning)}</p>
-              )}
-            </div>
+              {updating ? <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5 mr-1.5" />}
+              {action.label}
+            </Button>
+          ))}
+          {order.status !== 'cancelled' && order.status !== 'delivered' && (
+            <Button
+              onClick={() => updateStatus('cancelled')}
+              disabled={updating}
+              variant="outline"
+              className="rounded-xl border-red-200 text-red-600 hover:bg-red-50"
+            >
+              <XCircle className="w-3.5 h-3.5 mr-1.5" /> Cancel Order
+            </Button>
           )}
-
-          {/* Timeline Card */}
-          <div className="bg-white rounded-xl border p-4 sm:p-5">
-            <h2 className="font-semibold text-base mb-3 flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-green" />
-              Timeline
-            </h2>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Created</span>
-                <span>{order.created_at ? format(new Date(order.created_at), 'dd MMM, HH:mm') : '-'}</span>
-              </div>
-              {order.delivered_at && (
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Delivered</span>
-                  <span>{format(new Date(order.delivered_at), 'dd MMM, HH:mm')}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Promo Code Section (if applicable) */}
-      {order.promo_code && (
-        <div className="mt-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200 p-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-green" />
-              <span className="text-sm font-medium text-green-700">Promo Code Applied</span>
-            </div>
-            <div>
-              <span className="font-mono font-bold text-green-800">{order.promo_code}</span>
-              {order.discount_applied > 0 && (
-                <span className="text-xs text-green-600 ml-2">(Saved {formatCurrency(order.discount_applied)})</span>
-              )}
-            </div>
-          </div>
         </div>
       )}
+
+      {/* ── FIX #3: Content now in scrollable cards, nothing cut off ── */}
+      {/* ── FIX #4: Single close control — just the back button at the top ── */}
+      <div className="space-y-4">
+
+        {/* Customer Information */}
+        <Card className="rounded-2xl border-gray-100 shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-1.5 bg-blue-100 rounded-lg">
+                <User className="w-4 h-4 text-blue-600" />
+              </div>
+              <h2 className="font-semibold text-gray-800">Customer Information</h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Name</p>
+                <p className="font-medium text-gray-800">{order.customer_name || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400 mb-0.5">Email</p>
+                <p className="font-medium text-gray-800">{order.customer_email || '—'}</p>
+              </div>
+              {order.customer_phone && (
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Phone</p>
+                  <a href={`tel:${order.customer_phone}`} className="font-medium text-blue-600 hover:underline flex items-center gap-1">
+                    <Phone className="w-3 h-3" /> {order.customer_phone}
+                  </a>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Restaurant / Pickup Information */}
+        {!isPackage && (
+          <Card className="rounded-2xl border-gray-100 shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-1.5 bg-orange-100 rounded-lg">
+                  <Store className="w-4 h-4 text-orange-600" />
+                </div>
+                <h2 className="font-semibold text-gray-800">Restaurant Information</h2>
+              </div>
+              <div className="text-sm">
+                <p className="text-xs text-gray-400 mb-0.5">Restaurant</p>
+                <p className="font-medium text-gray-800">{order.restaurant_name || '—'}</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Package Details */}
+        {isPackage && (
+          <Card className="rounded-2xl border-gray-100 shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-1.5 bg-purple-100 rounded-lg">
+                  <Package className="w-4 h-4 text-purple-600" />
+                </div>
+                <h2 className="font-semibold text-gray-800">Package Details</h2>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                {order.pickup_address && (
+                  <div className="sm:col-span-2">
+                    <p className="text-xs text-gray-400 mb-0.5">Pickup Address</p>
+                    <div className="flex items-start gap-2">
+                      <p className="font-medium text-gray-800 flex-1">{order.pickup_address}</p>
+                      <Button variant="ghost" size="sm" className="h-6 px-2 text-blue-500" onClick={() => openMap(order.pickup_address)}>
+                        <Navigation className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {order.recipient_name && (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-0.5">Recipient</p>
+                    <p className="font-medium text-gray-800">{order.recipient_name}</p>
+                  </div>
+                )}
+                {order.recipient_phone && (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-0.5">Recipient Phone</p>
+                    <a href={`tel:${order.recipient_phone}`} className="font-medium text-blue-600 hover:underline flex items-center gap-1">
+                      <Phone className="w-3 h-3" /> {order.recipient_phone}
+                    </a>
+                  </div>
+                )}
+                {order.package_weight && (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-0.5">Weight</p>
+                    <p className="font-medium text-gray-800">{order.package_weight}kg</p>
+                  </div>
+                )}
+                {order.package_dimensions && (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-0.5">Dimensions</p>
+                    <p className="font-medium text-gray-800">{order.package_dimensions}</p>
+                  </div>
+                )}
+                {order.package_description && (
+                  <div className="sm:col-span-2">
+                    <p className="text-xs text-gray-400 mb-0.5">Description</p>
+                    <p className="font-medium text-gray-800">{order.package_description}</p>
+                  </div>
+                )}
+                <div className="sm:col-span-2 flex flex-wrap gap-2">
+                  {order.requires_signature && (
+                    <Badge className="bg-blue-100 text-blue-800 border-blue-200">📝 Signature Required</Badge>
+                  )}
+                  {order.is_fragile && (
+                    <Badge className="bg-orange-100 text-orange-800 border-orange-200">⚠️ Fragile</Badge>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Delivery Address */}
+        <Card className="rounded-2xl border-gray-100 shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-1.5 bg-red-100 rounded-lg">
+                <MapPin className="w-4 h-4 text-red-600" />
+              </div>
+              <h2 className="font-semibold text-gray-800">Delivery Address</h2>
+            </div>
+            <div className="flex items-start gap-2">
+              <p className="text-sm text-gray-700 flex-1">{order.delivery_address || '—'}</p>
+              {order.delivery_address && (
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-blue-500 shrink-0" onClick={() => openMap(order.delivery_address)}>
+                  <Navigation className="w-3 h-3 mr-1" /> Map
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Driver Information */}
+        {(order.driver_name || order.driver_id) && (
+          <Card className="rounded-2xl border-gray-100 shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-1.5 bg-green-100 rounded-lg">
+                  <Truck className="w-4 h-4 text-green-600" />
+                </div>
+                <h2 className="font-semibold text-gray-800">Driver Information</h2>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Driver</p>
+                  <p className="font-medium text-gray-800">{order.driver_name || `Driver #${order.driver_id}`}</p>
+                </div>
+                {order.driver_phone && (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-0.5">Phone</p>
+                    <a href={`tel:${order.driver_phone}`} className="font-medium text-blue-600 hover:underline flex items-center gap-1">
+                      <Phone className="w-3 h-3" /> {order.driver_phone}
+                    </a>
+                  </div>
+                )}
+                {order.driver_earning && (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-0.5">Driver Earning</p>
+                    <p className="font-medium text-green-600">{formatCurrency(order.driver_earning)}</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Order Items — food only */}
+        {!isPackage && items.length > 0 && (
+          <Card className="rounded-2xl border-gray-100 shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-1.5 bg-yellow-100 rounded-lg">
+                  <FileText className="w-4 h-4 text-yellow-600" />
+                </div>
+                <h2 className="font-semibold text-gray-800">Order Items</h2>
+              </div>
+              <div className="space-y-2">
+                {items.map((item, i) => (
+                  <div key={i} className="flex justify-between items-center text-sm py-1.5 border-b border-gray-50 last:border-0">
+                    <span className="text-gray-700">{item.quantity}× {item.name}</span>
+                    <span className="font-medium text-gray-900">{formatCurrency(item.price * item.quantity)}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Financial Summary */}
+        <Card className="rounded-2xl border-gray-100 shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-1.5 bg-emerald-100 rounded-lg">
+                <DollarSign className="w-4 h-4 text-emerald-600" />
+              </div>
+              <h2 className="font-semibold text-gray-800">Financial Summary</h2>
+            </div>
+            <div className="space-y-2 text-sm">
+              {order.original_total && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Subtotal</span>
+                  <span>{formatCurrency(order.original_total)}</span>
+                </div>
+              )}
+              {order.delivery_fee && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Delivery Fee</span>
+                  <span>{formatCurrency(order.delivery_fee)}</span>
+                </div>
+              )}
+              {order.discount_applied > 0 && (
+                <div className="flex justify-between text-green-600">
+                  <span>Discount {order.promo_code && `(${order.promo_code})`}</span>
+                  <span>-{formatCurrency(order.discount_applied)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold text-base pt-2 border-t border-gray-100">
+                <span>Total</span>
+                <span className="text-green-600">{formatCurrency(order.total)}</span>
+              </div>
+              {order.platform_earning && (
+                <div className="flex justify-between text-purple-600 text-xs">
+                  <span>Platform Earning</span>
+                  <span>{formatCurrency(order.platform_earning)}</span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Notes */}
+        {order.notes && (
+          <Card className="rounded-2xl border-gray-100 shadow-sm">
+            <CardContent className="p-5">
+              <h2 className="font-semibold text-gray-800 mb-2">Notes</h2>
+              <p className="text-sm text-gray-600 whitespace-pre-wrap">{order.notes}</p>
+            </CardContent>
+          </Card>
+        )}
+
+      </div>
     </div>
   );
 }

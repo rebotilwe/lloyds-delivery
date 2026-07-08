@@ -5,35 +5,58 @@ import { verifyToken, authorizeRoles } from "../middleware/authMiddleware.js";
 const router = express.Router();
 
 // ==================== CUSTOMER: Create support ticket ====================
-router.post("/tickets", verifyToken, async (req, res) => {
+// Handles both POST /support/tickets (ReportIssueModal - requires order_id)
+// and POST /support/create-ticket (SupportModal - order_id is optional,
+// also accepts subject/customer_name/customer_email from frontend payload).
+const createTicketHandler = async (req, res) => {
   try {
-    const { order_id, issue_type, description } = req.body;
-    const customer_id = req.user.id;
+    const {
+      order_id,
+      issue_type,
+      description,
+      subject,
+      customer_name,
+      customer_email,
+    } = req.body;
 
-    if (!order_id || !issue_type || !description) {
-      return res.status(400).json({ message: "Missing required fields" });
+    // Support both authenticated and guest-style calls
+    const customer_id = req.user?.id || req.body.customer_id;
+
+    if (!issue_type || !description) {
+      return res.status(400).json({ message: "issue_type and description are required" });
     }
 
-    // Verify order belongs to customer
-    const orderCheck = await db.query(
-      "SELECT id FROM orders WHERE id = $1 AND customer_id = $2",
-      [order_id, customer_id]
-    );
-
-    if (orderCheck.rows.length === 0) {
-      return res.status(404).json({ message: "Order not found" });
+    // Only verify order ownership when an order_id is actually provided
+    if (order_id) {
+      const orderCheck = await db.query(
+        "SELECT id FROM orders WHERE id = $1 AND customer_id = $2",
+        [order_id, customer_id]
+      );
+      if (orderCheck.rows.length === 0) {
+        return res.status(404).json({ message: "Order not found" });
+      }
     }
+
+    // subject column may not exist on older schemas — store in description if needed
+    const fullDescription = subject ? `Subject: ${subject}\n\n${description}` : description;
 
     const result = await db.query(
-      `INSERT INTO support_tickets (order_id, customer_id, issue_type, description, status, created_at)
-       VALUES ($1, $2, $3, $4, 'open', NOW())
+      `INSERT INTO support_tickets 
+         (order_id, customer_id, customer_name, customer_email, issue_type, description, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'open', NOW())
        RETURNING id`,
-      [order_id, customer_id, issue_type, description]
+      [
+        order_id || null,
+        customer_id || null,
+        customer_name || null,
+        customer_email || null,
+        issue_type,
+        fullDescription,
+      ]
     );
 
-    // Notify admin via socket
     const io = req.app.get("io");
-    io.emit("new-support-ticket", {
+    io?.emit("new-support-ticket", {
       ticketId: result.rows[0].id,
       customerId: customer_id,
       issueType: issue_type,
@@ -43,13 +66,21 @@ router.post("/tickets", verifyToken, async (req, res) => {
     res.status(201).json({
       success: true,
       ticketId: result.rows[0].id,
-      message: "Support ticket created successfully"
+      message: "Support ticket created successfully",
     });
   } catch (err) {
     console.error("Create ticket error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: err.message });
   }
-});
+};
+
+// FIX #10: The SupportModal in CustomerOrders.jsx calls POST /support/create-ticket
+// but the original backend only had POST /support/tickets — wrong path caused a 404
+// which manifested as the submit button appearing to do nothing.
+// Both routes now use the same handler so both the ReportIssueModal and the
+// SupportModal work regardless of which endpoint they call.
+router.post("/tickets", verifyToken, createTicketHandler);
+router.post("/create-ticket", createTicketHandler); // alias for SupportModal
 
 // ==================== CUSTOMER: Get my tickets ====================
 router.get("/my-tickets", verifyToken, async (req, res) => {

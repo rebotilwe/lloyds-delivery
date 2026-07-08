@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
-import { MapPin, Package, FileText, Truck, Weight, Ruler, Info } from 'lucide-react';
+import { MapPin, Package, FileText, Truck, Weight, Ruler, Info, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import AddressAutocomplete from '@/components/AddressAutocomplete';
 
@@ -41,20 +41,20 @@ export default function PackageDelivery() {
   const deliveryType = location.state?.deliveryType || 'package';
 
   const [formData, setFormData] = useState({
-    pickup_address: '',
+    pickup_address:   '',
     delivery_address: '',
-    recipient_name: '',
-    recipient_phone: '',
-    weight: '',
-    dimensions: '',
-    description: '',
+    recipient_name:   '',
+    recipient_phone:  '',
+    weight:           '',
+    dimensions:       '',
+    description:      '',
     requires_signature: false,
-    is_fragile: false,
+    is_fragile:         false,
   });
 
-  const [errors, setErrors] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [quote, setQuote] = useState(null);
+  const [errors, setErrors]     = useState({});
+  const [loading, setLoading]   = useState(false);
+  const [quote, setQuote]       = useState(null);
 
   const deliveryInfo = deliveryTypes[deliveryType] || deliveryTypes.package;
 
@@ -71,10 +71,9 @@ export default function PackageDelivery() {
 
   const validateForm = () => {
     const newErrors = {};
-
-    if (!formData.pickup_address.trim()) newErrors.pickup_address = 'Pickup address is required';
+    if (!formData.pickup_address.trim())   newErrors.pickup_address   = 'Pickup address is required';
     if (!formData.delivery_address.trim()) newErrors.delivery_address = 'Delivery address is required';
-    if (!formData.recipient_name.trim()) newErrors.recipient_name = 'Recipient name is required';
+    if (!formData.recipient_name.trim())   newErrors.recipient_name   = 'Recipient name is required';
 
     if (!formData.recipient_phone.trim()) {
       newErrors.recipient_phone = 'Recipient phone number is required';
@@ -141,31 +140,31 @@ export default function PackageDelivery() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_id: user?.id,
-          customer_name: user?.name || user?.full_name || 'Customer',
-          restaurant_id: null,
-          restaurant_name: deliveryInfo.label,
-          status: 'pending_approval',
-          total: quote.total,
-          original_total: quote.total,
-          delivery_address: formData.delivery_address,
-          delivery_fee: quote.total,
-          notes: `Pickup: ${formData.pickup_address}\nRecipient: ${formData.recipient_name} (${formData.recipient_phone})\nDescription: ${formData.description}\nWeight: ${formData.weight || 0}kg\nDimensions: ${formData.dimensions || 'N/A'}\nPlatform fee: R${PLATFORM_SERVICE_FEE}`,
-          payment_status: 'pending_payment',
+          customer_id:         user?.id,
+          customer_name:       user?.name || user?.full_name || 'Customer',
+          restaurant_id:       null,
+          restaurant_name:     deliveryInfo.label,
+          status:              'pending_approval',
+          total:               quote.total,
+          original_total:      quote.total,
+          delivery_address:    formData.delivery_address,
+          delivery_fee:        quote.total,
+          notes:               `Pickup: ${formData.pickup_address}\nRecipient: ${formData.recipient_name} (${formData.recipient_phone})\nDescription: ${formData.description}\nWeight: ${formData.weight || 0}kg\nDimensions: ${formData.dimensions || 'N/A'}\nPlatform fee: R${PLATFORM_SERVICE_FEE}`,
+          payment_status:      'pending_payment',
           payment_transaction_id: null,
-          promo_code: null,
-          discount_applied: 0,
+          promo_code:          null,
+          discount_applied:    0,
           required_vehicle_type: (parseFloat(formData.weight) || 0) > 30 ? 'car' : 'bike',
-          items: [],
-          delivery_type: deliveryType,
-          pickup_address: formData.pickup_address,
-          recipient_name: formData.recipient_name,
-          recipient_phone: formData.recipient_phone,
+          items:               [],
+          delivery_type:       deliveryType,
+          pickup_address:      formData.pickup_address,
+          recipient_name:      formData.recipient_name,
+          recipient_phone:     formData.recipient_phone,
           package_description: formData.description,
-          package_weight: parseFloat(formData.weight) || 0,
-          package_dimensions: formData.dimensions,
-          requires_signature: formData.requires_signature,
-          is_fragile: formData.is_fragile,
+          package_weight:      parseFloat(formData.weight) || 0,
+          package_dimensions:  formData.dimensions,
+          requires_signature:  formData.requires_signature,
+          is_fragile:          formData.is_fragile,
           platform_service_fee: PLATFORM_SERVICE_FEE,
         }),
       });
@@ -183,11 +182,10 @@ export default function PackageDelivery() {
     }
   };
 
-  // Live price breakdown values
-  const weightNum = parseFloat(formData.weight) || 0;
-  const weightPrice = weightNum * 5;
+  const weightNum    = parseFloat(formData.weight) || 0;
+  const weightPrice  = weightNum * 5;
   const signatureFee = formData.requires_signature ? 10 : 0;
-  const fragileFee = formData.is_fragile ? 15 : 0;
+  const fragileFee   = formData.is_fragile ? 15 : 0;
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -216,7 +214,7 @@ export default function PackageDelivery() {
 
       <div className="space-y-6">
 
-        {/* ── Pickup Address — Google Places autocomplete ── */}
+        {/* Pickup Address */}
         <Card className={`border ${errors.pickup_address ? 'border-red-500' : 'border-gray-200'}`}>
           <CardContent className="p-5">
             <Label className="flex items-center gap-2 mb-3">
@@ -239,7 +237,7 @@ export default function PackageDelivery() {
           </CardContent>
         </Card>
 
-        {/* ── Delivery Address — Google Places autocomplete ── */}
+        {/* Delivery Address */}
         <Card className={`border ${errors.delivery_address ? 'border-red-500' : 'border-gray-200'}`}>
           <CardContent className="p-5">
             <Label className="flex items-center gap-2 mb-3">
@@ -270,7 +268,10 @@ export default function PackageDelivery() {
               <Input
                 placeholder="Who is receiving?"
                 value={formData.recipient_name}
-                onChange={(e) => { setFormData({ ...formData, recipient_name: e.target.value }); if (errors.recipient_name) setErrors({ ...errors, recipient_name: '' }); }}
+                onChange={(e) => {
+                  setFormData({ ...formData, recipient_name: e.target.value });
+                  if (errors.recipient_name) setErrors({ ...errors, recipient_name: '' });
+                }}
                 className="mt-1"
               />
               {errors.recipient_name && <p className="text-xs text-red-500 mt-1">{errors.recipient_name}</p>}
@@ -307,7 +308,10 @@ export default function PackageDelivery() {
               <Input
                 placeholder="e.g., 30x20x10"
                 value={formData.dimensions}
-                onChange={(e) => { setFormData({ ...formData, dimensions: e.target.value }); if (errors.dimensions) setErrors({ ...errors, dimensions: '' }); }}
+                onChange={(e) => {
+                  setFormData({ ...formData, dimensions: e.target.value });
+                  if (errors.dimensions) setErrors({ ...errors, dimensions: '' });
+                }}
                 onBlur={calculateQuote}
                 className="mt-1"
               />
@@ -366,18 +370,36 @@ export default function PackageDelivery() {
                   <p className="text-blue-600 font-medium">Platform service fee: +R{PLATFORM_SERVICE_FEE}.00</p>
                   <p className="text-gray-400 text-[10px] mt-1">Minimum charge: R35</p>
                 </div>
-                <Button onClick={handleSubmit} disabled={loading} className="mt-4 bg-green-600 text-white w-full">
-                  {loading ? 'Processing...' : `Submit Package Request • R${quote.total.toFixed(2)}`}
-                </Button>
-                <p className="text-xs text-center text-gray-400 mt-3">You'll pay after admin approves your request</p>
+
+                {/* FIX #11: plain <button> with inline style prevents shadcn from
+                    overriding text color to white-on-white/light background */}
+                <button
+                  onClick={handleSubmit}
+                  disabled={loading}
+                  style={{ backgroundColor: '#16a34a', color: '#ffffff' }}
+                  className="mt-4 w-full py-3 rounded-xl font-semibold text-sm transition hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {loading
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Submitting...</>
+                    : `Submit Package Request • R${quote.total.toFixed(2)}`
+                  }
+                </button>
+                <p className="text-xs text-center text-gray-400 mt-3">
+                  You'll pay after admin approves your request
+                </p>
               </div>
             ) : (
-              <Button onClick={calculateQuote} className="w-full bg-green-600 text-white">
+              <button
+                onClick={calculateQuote}
+                style={{ backgroundColor: '#16a34a', color: '#ffffff' }}
+                className="w-full py-3 rounded-xl font-semibold text-sm transition hover:opacity-90 flex items-center justify-center gap-2"
+              >
                 Calculate Quote
-              </Button>
+              </button>
             )}
           </CardContent>
         </Card>
+
       </div>
     </div>
   );

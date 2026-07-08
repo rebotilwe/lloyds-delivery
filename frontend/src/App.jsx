@@ -34,8 +34,82 @@ import VendorSettings from '@/pages/VendorSettings';
 import VendorWaiting from '@/pages/VendorWaiting';
 import VendorOnboarding from '@/pages/VendorOnboarding';
 import PageNotFound from '@/lib/PageNotFound';
-import AddressAutocomplete from '@/components/AddressAutocomplete';
-import Help from '@/pages/Help';  // ← ADD THIS IMPORT
+import Help from '@/pages/Help';
+
+// ── Inline vendor pages for routes that don't have dedicated page files yet ──
+// These replace the broken /vendor/analytics and /vendor/withdrawals 404s (#16).
+// They pull data the vendor dashboard already fetches, shown in a clean layout.
+// Replace with full page components whenever those get built out.
+
+const VendorAnalyticsPage = () => {
+  const [stats, setStats] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    api.get('/vendor/analytics')
+      .then(r => setStats(r.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+  const fmt = (v) => { const n = parseFloat(v); return isNaN(n) ? '0.00' : n.toFixed(2); };
+  if (loading) return <div className="flex justify-center items-center h-64"><div className="animate-spin h-8 w-8 border-b-2 border-green rounded-full" /></div>;
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+      <h1 className="text-2xl font-bold">Analytics</h1>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        {[
+          { label: "Today's Orders",   value: stats?.today_orders   || 0,                  prefix: '' },
+          { label: "Today's Revenue",  value: fmt(stats?.today_revenue),                   prefix: 'R' },
+          { label: 'Pending Orders',   value: stats?.pending_orders  || 0,                 prefix: '' },
+          { label: 'Weekly Orders',    value: stats?.weekly_orders   || 0,                 prefix: '' },
+          { label: 'Weekly Revenue',   value: fmt(stats?.weekly_revenue),                  prefix: 'R' },
+          { label: 'Total Revenue',    value: fmt(stats?.total_revenue),                   prefix: 'R' },
+        ].map(({ label, value, prefix }) => (
+          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <p className="text-xs text-gray-400">{label}</p>
+            <p className="text-xl font-bold text-gray-900 mt-1">{prefix}{value}</p>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-gray-400 text-center">Full analytics charts coming soon</p>
+    </div>
+  );
+};
+
+const VendorWithdrawalsPage = () => {
+  const [history, setHistory] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    const token = localStorage.getItem('token');
+    fetch('https://lloyds-delivery.onrender.com/api/vendor/withdrawal-history', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).then(r => r.json()).then(d => setHistory(d || [])).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+  if (loading) return <div className="flex justify-center items-center h-64"><div className="animate-spin h-8 w-8 border-b-2 border-green rounded-full" /></div>;
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-8 space-y-4">
+      <h1 className="text-2xl font-bold">Withdrawal History</h1>
+      {history.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-2xl border border-gray-100">
+          <p className="text-gray-400">No withdrawals yet</p>
+        </div>
+      ) : (
+        history.map(p => (
+          <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex justify-between items-center">
+            <div>
+              <p className="font-semibold text-purple-600">R{parseFloat(p.amount).toFixed(2)}</p>
+              <p className="text-xs text-gray-400">{p.requested_at ? new Date(p.requested_at).toLocaleDateString() : '—'}</p>
+            </div>
+            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+              p.status === 'paid'    ? 'bg-green-100 text-green-800' :
+              p.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                                       'bg-red-100 text-red-800'
+            }`}>{p.status?.toUpperCase()}</span>
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
 
 // Admin pages
 import AdminDashboard from '@/pages/AdminDashboard';
@@ -394,7 +468,8 @@ function App() {
                     <Route path="/privacy" element={<Privacy />} />
                     <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="/package-delivery" element={<PackageDelivery />} />
-                    <Route path="/address-autocomplete" element={<AddressAutocomplete />} />
+                    {/* REMOVED: /address-autocomplete — AddressAutocomplete is a reusable
+                        input component, not a page. Rendering it here with no props crashes. */}
                   </Route>
 
                   {/* CART */}
@@ -419,6 +494,10 @@ function App() {
                     <Route path="orders" element={<VendorOrders />} />
                     <Route path="menu" element={<VendorMenu />} />
                     <Route path="settings" element={<VendorSettings />} />
+                    {/* FIX #16: these routes were missing, causing 404 when vendor
+                        clicked Analytics or Withdrawals buttons on the dashboard */}
+                    <Route path="analytics" element={<VendorAnalyticsPage />} />
+                    <Route path="withdrawals" element={<VendorWithdrawalsPage />} />
                   </Route>
 
                   {/* VENDOR - Public/Onboarding routes (NOT protected by VendorGuard) */}
@@ -443,7 +522,9 @@ function App() {
                     <Route path="settings" element={<AdminSettingsPage />} />
                     <Route path="support" element={<AdminSupportTickets />} />
                     <Route path="package-approvals" element={<AdminPackageApprovals />} />
-                    <Route path="/admin/earnings" element={<AdminEarningsOverview />} />
+                    {/* FIX: was "/admin/earnings" (absolute path) — nested routes in
+                        React Router v6 must use relative paths to match correctly */}
+                    <Route path="earnings" element={<AdminEarningsOverview />} />
                     <Route path="menu-approvals" element={<AdminMenuApprovals />} />
                     <Route path="edmond-dashboard" element={<EdmondDashboard />} />
                   </Route>

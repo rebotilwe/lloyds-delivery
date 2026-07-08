@@ -35,6 +35,7 @@ import VendorWaiting from '@/pages/VendorWaiting';
 import VendorOnboarding from '@/pages/VendorOnboarding';
 import PageNotFound from '@/lib/PageNotFound';
 import AddressAutocomplete from '@/components/AddressAutocomplete';
+import Help from '@/pages/Help';  // ← ADD THIS IMPORT
 
 // Admin pages
 import AdminDashboard from '@/pages/AdminDashboard';
@@ -389,6 +390,7 @@ function App() {
                     <Route path="/order-confirmation" element={<OrderConfirmation />} />
                     <Route path="/contact" element={<Contact />} />
                     <Route path="/faq" element={<FAQ />} />
+                    <Route path="/help" element={<Help />} />  {/* ← ADD THIS ROUTE */}
                     <Route path="/privacy" element={<Privacy />} />
                     <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="/package-delivery" element={<PackageDelivery />} />

@@ -139,9 +139,6 @@ function loadGoogleMapsScript() {
 }
 
 // ── Live Map (Google Maps) ───────────────────────────────────────────────────
-// Shows the driver's live position en route, with both the pickup point
-// (restaurant) and the delivery destination plotted, plus the live route
-// drawn between wherever the driver currently is and the destination.
 function LiveMap({ driverLocation, deliveryAddress, restaurantAddress, restaurantName, orderStatus, orderId, onRequestLocation }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
@@ -386,9 +383,6 @@ function LiveMap({ driverLocation, deliveryAddress, restaurantAddress, restauran
                 >
                   <Navigation className="w-3 h-3 mr-1" /> Open Delivery Address
                 </Button>
-                {/* FIX #6: was variant="default" with Tailwind classes that shadcn
-                    was overriding, causing white/low-contrast text. Now uses
-                    inline style to guarantee visible white text on green bg. */}
                 <button
                   onClick={handleRequestLocation}
                   style={{ backgroundColor: '#16a34a', color: '#ffffff' }}
@@ -900,346 +894,246 @@ function ActiveOrderCard({ order, onCancel, onReorder, onReportIssue, driverLoca
     }
   };
 
+  const statusBadgeColor = isRejected ? 'bg-red-100 text-red-700' :
+    order.status === 'on_the_way' ? 'bg-orange-100 text-orange-700' :
+    order.status === 'delivered' ? 'bg-green-100 text-green-700' :
+    'bg-blue-100 text-blue-700';
+
   return (
     <>
-      <Card className={`overflow-hidden border-2 ${isRejected ? 'border-red-500/50' : 'border-green-600/20'} shadow-md`}>
-        <div className={`${
-          isRejected ? 'bg-gradient-to-r from-red-600 to-red-500' : 
-          isPackage ? 'bg-gradient-to-r from-purple-600 to-purple-500' : 
-          'bg-gradient-to-r from-green-600 to-green-600/80'
-        } px-3 sm:px-4 py-2 flex items-center justify-between`}>
-          <div className="flex items-center gap-1 sm:gap-2">
-            {isRejected ? 
-              <XCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" /> : 
-              isPackage ? 
-              <Package className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" /> : 
-              <Truck className="w-3 h-3 sm:w-4 sm:h-4 text-white animate-pulse" />
+      <Card className={`overflow-hidden border-2 ${isRejected ? 'border-red-500/50' : 'border-green-600/20'} shadow-sm`}>
+        {/* ── Collapsed header — always visible ── */}
+        <div
+          className={`${
+            isRejected ? 'bg-gradient-to-r from-red-600 to-red-500' :
+            isPackage ? 'bg-gradient-to-r from-purple-600 to-purple-500' :
+            'bg-gradient-to-r from-green-600 to-green-600/80'
+          } px-3 py-2.5 flex items-center justify-between cursor-pointer`}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {isRejected ?
+              <XCircle className="w-4 h-4 text-white shrink-0" /> :
+              isPackage ?
+              <Package className="w-4 h-4 text-white shrink-0 animate-pulse" /> :
+              <Truck className="w-4 h-4 text-white shrink-0 animate-pulse" />
             }
-            <span className="text-white text-xs sm:text-sm font-semibold">
-              {isRejected ? 'Request Rejected' : isPackage ? 'Package Delivery' : 'Live Order'}
-            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-xs sm:text-sm font-semibold truncate">
+                {isRejected ? 'Request Rejected' :
+                 isPackage ? 'Package Delivery' :
+                 order.restaurant_name || 'Food Order'} #{order.id}
+              </p>
+              <p className="text-white/70 text-[10px]">{getEstimatedTime()}</p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <ClockIcon className="w-3 h-3 text-white" />
-            <span className="text-white/80 text-[10px] sm:text-xs">{getEstimatedTime()}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="font-bold text-white text-sm">R{Number(order.total).toFixed(2)}</span>
+            {expanded
+              ? <ChevronUp className="w-4 h-4 text-white/80" />
+              : <ChevronDown className="w-4 h-4 text-white/80" />}
           </div>
         </div>
-        <CardContent className="p-3 sm:p-4 space-y-3 sm:space-y-4">
-          {!isRejected && (
-            <div className="overflow-x-auto pb-1">
-              <div className="flex justify-between min-w-[320px] sm:min-w-0">
-                {steps.map((step) => (
-                  <div key={step.key} className="flex flex-col items-center flex-1">
-                    {/* FIX #1: Previously currentStep === step.step (the active step)
-                        rendered a CheckCircle icon with white fill on a green bg,
-                        which disappeared because the icon itself is also white.
-                        Now: completed steps (>) show CheckCircle, the active step (===)
-                        shows the step number, future steps (<) show the step number in gray.
-                        All three states have explicit, visible contrast. */}
-                    <div className={cn(
-                      "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center font-bold transition-all",
-                      currentStep > step.step
-                        ? "bg-green-600 text-white"          // completed
-                        : currentStep === step.step
-                        ? "bg-green-600 text-white ring-2 ring-green-300 ring-offset-1" // active — ring makes it pop
-                        : "bg-gray-100 text-gray-400 border border-gray-200"            // future
-                    )}>
-                      {currentStep > step.step
-                        ? <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
-                        : <span className="text-[10px] sm:text-xs">{step.step}</span>
-                      }
+
+        {/* ── Quick status strip — always visible ── */}
+        <div className="px-3 py-2 bg-white border-b border-gray-100 flex items-center justify-between gap-2">
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusBadgeColor}`}>
+            {formatOrderStatus(order.status)}
+          </span>
+          {order.driver_name && (
+            <span className="text-[10px] text-gray-500 flex items-center gap-1">
+              <Truck className="w-3 h-3" /> {order.driver_name}
+            </span>
+          )}
+          <span className="text-[10px] text-gray-400 ml-auto">
+            {items.length > 0 ? `${items.length} item${items.length !== 1 ? 's' : ''}` : isPackage ? 'Package' : ''}
+          </span>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-[10px] text-green-600 hover:underline font-medium"
+          >
+            {expanded ? 'Less' : 'Details'}
+          </button>
+        </div>
+
+        {/* ── Expanded details ── */}
+        {expanded && (
+          <CardContent className="p-3 sm:p-4 space-y-3 sm:space-y-4">
+
+            {/* Progress tracker */}
+            {!isRejected && (
+              <div className="overflow-x-auto pb-1">
+                <div className="flex justify-between min-w-[320px] sm:min-w-0">
+                  {steps.map((step) => (
+                    <div key={step.key} className="flex flex-col items-center flex-1">
+                      <div className={cn(
+                        "w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center font-bold transition-all",
+                        currentStep > step.step ? "bg-green-600 text-white" :
+                        currentStep === step.step ? "bg-green-600 text-white ring-2 ring-green-300 ring-offset-1" :
+                        "bg-gray-100 text-gray-400 border border-gray-200"
+                      )}>
+                        {currentStep > step.step
+                          ? <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-white" />
+                          : <span className="text-[10px] sm:text-xs">{step.step}</span>
+                        }
+                      </div>
+                      <span className={cn(
+                        "text-[9px] sm:text-xs mt-1 text-center whitespace-nowrap",
+                        currentStep >= step.step ? "text-green-600 font-semibold" : "text-gray-400"
+                      )}>{step.label}</span>
                     </div>
-                    <span className={cn(
-                      "text-[9px] sm:text-xs mt-1 text-center whitespace-nowrap",
-                      currentStep >= step.step ? "text-green-600 font-semibold" : "text-gray-400"
-                    )}>{step.label}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {getStatusMessage() && (
+              <div className={`${isRejected ? 'bg-red-50' : isPackage ? 'bg-purple-50' : 'bg-blue-50'} p-2 rounded-lg text-center`}>
+                <p className={`text-[10px] sm:text-xs ${isRejected ? 'text-red-700' : isPackage ? 'text-purple-700' : 'text-blue-700'}`}>{getStatusMessage()}</p>
+              </div>
+            )}
+
+            {isRejected && (
+              <div className="bg-red-100 border-l-4 border-red-600 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-semibold text-red-800 mb-1">Delivery Request Rejected</p>
+                    <p className="text-sm text-red-700">{order.admin_rejection_reason || 'Please contact support for more information.'}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!isRejected && (order.driver_id || order.driver_name) && (
+              <div className="bg-blue-50 rounded-lg p-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">
+                    {order.driver_name?.charAt(0).toUpperCase() || 'D'}
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-semibold text-sm">{order.driver_name || 'Driver'}</p>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      {order.driver_phone && (
+                        <>
+                          <a href={`tel:${order.driver_phone}`} className="text-xs text-blue-600">📞 Call</a>
+                          <a href={`https://wa.me/${formatWhatsAppNumber(order.driver_phone)}`} target="_blank" rel="noopener noreferrer" className="text-xs text-green-600">💬 WhatsApp</a>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
+                <p className="text-[10px] text-gray-500">Total</p>
+                <p className="font-bold text-green-600 text-sm sm:text-lg">R{Number(order.total).toFixed(2)}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
+                <p className="text-[10px] text-gray-500">{isPackage ? 'Package ID' : 'Items'}</p>
+                <p className="font-semibold text-xs sm:text-sm">{isPackage ? `#${order.id}` : `${items.length} item(s)`}</p>
+              </div>
+            </div>
+
+            {isPackage && !isRejected && (
+              <div className="bg-purple-50 rounded-lg p-3 text-xs space-y-1">
+                {order.pickup_address && (
+                  <div className="flex items-start gap-2">
+                    <MapPin className="w-3 h-3 text-green-600 mt-0.5 shrink-0" />
+                    <div className="flex-1"><p className="text-gray-500">Pickup</p><p className="font-medium">{order.pickup_address}</p></div>
+                  </div>
+                )}
+                {order.recipient_name && <p>👤 Recipient: {order.recipient_name} {order.recipient_phone && `(${order.recipient_phone})`}</p>}
+                {order.package_weight && <p>⚖️ {order.package_weight}kg</p>}
+                {order.requires_signature && <p className="text-blue-600">📝 Signature Required</p>}
+                {order.is_fragile && <p className="text-orange-600">⚠️ Fragile</p>}
+              </div>
+            )}
+
+            {isPackage && order.verification_code && order.status === 'assigned' && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <KeyRound className="w-4 h-4 text-yellow-600" />
+                  <span className="text-sm font-semibold text-yellow-800">Collection Code</span>
+                </div>
+                <p className="text-3xl font-bold text-yellow-700 tracking-wider font-mono">{order.verification_code}</p>
+                <p className="text-xs text-yellow-600 mt-1">Show to driver when they arrive</p>
+              </div>
+            )}
+
+            <div className="flex items-start gap-2 text-xs text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
+              <MapPin className="w-3 h-3 text-red-500 mt-0.5 shrink-0" />
+              <div className="flex-1">
+                <p className="text-[10px] text-gray-500">Delivery Address</p>
+                <span className="break-words">{order.delivery_address || 'No address provided'}</span>
+              </div>
+            </div>
+
+            {showMap && !isPackage && !isRejected && (
+              <LiveMap
+                driverLocation={driverLocation}
+                deliveryAddress={order.delivery_address}
+                restaurantAddress={order.restaurant_address}
+                restaurantName={order.restaurant_name}
+                orderStatus={order.status}
+                orderId={order.id}
+                onRequestLocation={onRequestLocation}
+              />
+            )}
+
+            {!isRejected && needsPayment && (
+              <div className="flex gap-2">
+                <Button size="sm" className="flex-1 bg-yellow-500 text-white hover:bg-yellow-600" onClick={handleDirectPayment}>
+                  <Lock className="w-3 h-3 mr-1" /> Pay Now • R{Number(order.total).toFixed(2)}
+                </Button>
+                <Button size="sm" variant="outline" className="flex-1 border-green-600 text-green-600 hover:bg-green-50" onClick={handleYocoPayment}>
+                  💳 Pay with Card
+                </Button>
+              </div>
+            )}
+
+            <div className="flex gap-2 flex-wrap">
+              {canCancel && !needsPayment && !isRejected && (
+                <Button variant="outline" size="sm" className="flex-1 border-red-300 text-red-600 hover:bg-red-50 text-xs h-8"
+                  onClick={() => { setCancellingOrderId(order.id); setShowCancelModal(true); }}>
+                  Cancel {isPackage ? 'Delivery' : 'Order'}
+                </Button>
+              )}
+              <Button variant="outline" size="sm" className="flex-1 border-green-600 text-green-600 hover:bg-green-50 text-xs h-8"
+                onClick={() => onReorder(order)}>
+                <RotateCcw className="w-3 h-3 mr-1" /> {isPackage ? 'Book Again' : 'Order Again'}
+              </Button>
+              {order.status === 'delivered' && (
+                <Button variant="outline" size="sm" className="flex-1 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs h-8"
+                  onClick={() => onReportIssue(order)}>
+                  <AlertCircle className="w-3 h-3 mr-1" /> Report Issue
+                </Button>
+              )}
+            </div>
+
+            {!isPackage && !isRejected && items.length > 0 && (
+              <div className="space-y-1 pt-2 border-t text-xs">
+                {items.map((item, i) => (
+                  <div key={i} className="flex justify-between text-gray-600">
+                    <span>{item.quantity}x {item.name}</span>
+                    <span>R{(item.price * item.quantity).toFixed(2)}</span>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {getStatusMessage() && (
-            <div className={`${
-              isRejected ? 'bg-red-50' : 
-              isPackage ? 'bg-purple-50' : 
-              'bg-blue-50'
-            } p-2 rounded-lg text-center`}>
-              <p className={`text-[10px] sm:text-xs ${
-                isRejected ? 'text-red-700' : 
-                isPackage ? 'text-purple-700' : 
-                'text-blue-700'
-              }`}>{getStatusMessage()}</p>
-            </div>
-          )}
-
-          {isRejected && (
-            <div className="bg-red-100 border-l-4 border-red-600 rounded-lg p-4">
-              <div className="flex items-start gap-3">
-                <div className="shrink-0">
-                  <div className="w-8 h-8 bg-red-600 rounded-full flex items-center justify-center">
-                    <AlertCircle className="w-4 h-4 text-white" />
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-red-800 mb-1">Delivery Request Rejected</p>
-                  {order.admin_rejection_reason ? (
-                    <>
-                      <p className="text-sm text-red-700 mb-2 font-medium">{order.admin_rejection_reason}</p>
-                      <p className="text-xs text-red-600">Please contact support if you have any questions.</p>
-                    </>
-                  ) : (
-                    <p className="text-sm text-red-700">Your package delivery request has been rejected. Please contact support.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!isRejected && (order.driver_id || order.driver_name) && (
-            <DriverInfoCard 
-              driver={{ 
-                id: order.driver_id, 
-                name: order.driver_name, 
-                phone: order.driver_phone, 
-                vehicle_type: order.driver_vehicle_type 
-              }} 
-              isPackage={isPackage} 
-            />
-          )}
-
-          <div className="grid grid-cols-2 gap-2 sm:gap-3 text-sm">
-            <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
-              <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">Total</p>
-              <p className="font-bold text-green-600 text-sm sm:text-lg">R{Number(order.total).toFixed(2)}</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
-              <p className="text-[10px] sm:text-xs text-gray-500 mb-0.5 sm:mb-1">{isPackage ? 'Package ID' : 'Items'}</p>
-              <p className="font-semibold text-xs sm:text-sm">{isPackage ? `#${order.id}` : `${items.length} item(s)`}</p>
-            </div>
-          </div>
-
-          {isPackage && !isRejected && (
-            <div className="bg-purple-50 rounded-lg p-3">
-              <p className="text-xs font-semibold text-purple-800 mb-2 flex items-center gap-1">
-                <Package className="w-3 h-3" /> Package Details
-              </p>
-              {order.pickup_address && (
-                <div className="flex items-start gap-2 mb-2">
-                  <MapPin className="w-3 h-3 text-green-600 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-[10px] text-gray-500">Pickup Address</p>
-                    <p className="text-xs font-medium">{order.pickup_address}</p>
-                  </div>
-                  <Button 
-                    size="sm" 
-                    variant="outline" 
-                    className="h-6 text-xs ml-auto shrink-0" 
-                    onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.pickup_address)}`, '_blank')}
-                  >
-                    <Navigation className="w-2.5 h-2.5 mr-1" /> Navigate
-                  </Button>
-                </div>
-              )}
-              {order.recipient_name && (
-                <div className="flex flex-wrap items-center gap-3 mb-2">
-                  <div className="flex items-center gap-1">
-                    <User className="w-3 h-3 text-gray-500" />
-                    <span className="text-xs">Recipient: {order.recipient_name}</span>
-                  </div>
-                  {order.recipient_phone && (
-                    <a href={`tel:${order.recipient_phone}`} className="flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                      <Phone className="w-3 h-3" /> Call Recipient
-                    </a>
-                  )}
-                </div>
-              )}
-              <div className="flex flex-wrap gap-3 text-xs mt-2">
-                {order.package_weight && <span>⚖️ {order.package_weight}kg</span>}
-                {order.package_dimensions && <span>📏 {order.package_dimensions}</span>}
-                {order.requires_signature && <span className="text-blue-600">📝 Signature Required</span>}
-                {order.is_fragile && <span className="text-orange-600">⚠️ Fragile Item</span>}
-              </div>
-              {order.package_description && (
-                <p className="text-xs text-gray-600 mt-2 pt-1 border-t border-purple-200">📦 {order.package_description}</p>
-              )}
-            </div>
-          )}
-
-          {/* Verification Code — shows when driver is assigned and coming to collect */}
-          {isPackage && order.verification_code && order.status === 'assigned' && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <KeyRound className="w-5 h-5 text-yellow-600" />
-                <span className="text-sm font-semibold text-yellow-800">Collection Verification Code</span>
-              </div>
-              <p className="text-3xl font-bold text-yellow-700 tracking-wider text-center font-mono">
-                {order.verification_code}
-              </p>
-              <p className="text-xs text-yellow-600 mt-2 text-center">
-                Show this code to your driver when they arrive to collect the package
-              </p>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="mt-3 w-full border-yellow-300 text-yellow-700 hover:bg-yellow-50" 
-                onClick={() => { 
-                  navigator.clipboard.writeText(order.verification_code); 
-                  toast.success('Code copied to clipboard'); 
-                }}
-              >
-                Copy Code
-              </Button>
-            </div>
-          )}
-
-          {/* Pickup/Restaurant location — food orders, useful to show even before driver moves */}
-          {!isPackage && (order.restaurant_address || order.restaurant_name) && (
-            <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
-              <Store className="w-3 h-3 sm:w-4 sm:h-4 text-orange-500 mt-0.5 shrink-0" />
-              <div className="flex-1">
-                <p className="text-[10px] text-gray-500">Pickup from</p>
-                <span className="text-xs sm:text-sm break-words">
-                  {order.restaurant_name}{order.restaurant_address ? ` — ${order.restaurant_address}` : ''}
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-start gap-2 text-xs sm:text-sm text-gray-600 bg-gray-50 rounded-lg p-2 sm:p-3">
-            <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 mt-0.5 shrink-0" />
-            <div className="flex-1">
-              <p className="text-[10px] text-gray-500">Delivery Address</p>
-              <span className="text-xs sm:text-sm break-words">{order.delivery_address || 'No address provided'}</span>
-            </div>
-            <Button 
-              size="sm" 
-              variant="outline" 
-              className="h-7 text-xs shrink-0" 
-              onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
-            >
-              <Navigation className="w-3 h-3 mr-1" /> Navigate
-            </Button>
-          </div>
-
-          {/* Google Maps live tracking — food orders on_the_way: driver moving from restaurant to customer */}
-          {showMap && !isPackage && !isRejected && (
-            <LiveMap 
-              driverLocation={driverLocation} 
-              deliveryAddress={order.delivery_address}
-              restaurantAddress={order.restaurant_address}
-              restaurantName={order.restaurant_name}
-              orderStatus={order.status}
-              orderId={order.id}
-              onRequestLocation={onRequestLocation}
-            />
-          )}
-
-          {!isRejected && isPackage && order.status === 'on_the_way' && (
-            <Button 
-              size="sm" 
-              variant="outline" 
-              className="w-full border-purple-300 text-purple-600 hover:bg-purple-50" 
-              onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(order.delivery_address)}`, '_blank')}
-            >
-              <Navigation className="w-3 h-3 mr-1" /> Track Package
-            </Button>
-          )}
-
-          {!isRejected && needsPayment && (
-            <div className="flex gap-2">
-              <Button 
-                size="sm" 
-                className="flex-1 bg-yellow-500 text-white hover:bg-yellow-600" 
-                onClick={handleDirectPayment}
-              >
-                <Lock className="w-3 h-3 mr-1" /> Pay Now • R{Number(order.total).toFixed(2)}
-              </Button>
-              <Button 
-                size="sm" 
-                variant="outline" 
-                className="flex-1 border-green-600 text-green-600 hover:bg-green-50" 
-                onClick={handleYocoPayment}
-              >
-                💳 Pay with Card
-              </Button>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            {canCancel && order.status !== 'delivered' && !needsPayment && !isRejected && (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="flex-1 border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs sm:text-sm h-8 sm:h-9" 
-                onClick={() => { 
-                  setCancellingOrderId(order.id); 
-                  setShowCancelModal(true); 
-                }}
-              >
-                Cancel {isPackage ? 'Delivery' : 'Order'}
-              </Button>
             )}
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="flex-1 border-green-600 text-green-600 hover:bg-green-50 text-xs sm:text-sm h-8 sm:h-9" 
-              onClick={() => onReorder(order)}
-            >
-              <RotateCcw className="w-3 h-3 mr-1" /> {isPackage ? 'Book Again' : 'Order Again'}
-            </Button>
-            {order.status === 'delivered' && (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="flex-1 border-orange-300 text-orange-600 hover:bg-orange-50 text-xs sm:text-sm h-8 sm:h-9" 
-                onClick={() => onReportIssue(order)}
-              >
-                <AlertCircle className="w-3 h-3 mr-1" /> Report Issue
-              </Button>
-            )}
-          </div>
 
-          {!isPackage && !isRejected && items.length > 0 && (
-            <button 
-              onClick={() => setExpanded(!expanded)} 
-              className="flex items-center justify-between w-full text-xs sm:text-sm text-gray-500 hover:text-gray-700"
-            >
-              <span>View order details</span>
-              {expanded ? <ChevronUp className="w-3 h-3 sm:w-4 sm:h-4" /> : <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4" />}
-            </button>
-          )}
-          {!isPackage && !isRejected && expanded && items.length > 0 && (
-            <div className="space-y-2 pt-2 border-t">
-              {items.map((item, i) => (
-                <div key={i} className="flex justify-between text-xs sm:text-sm">
-                  <span className="text-gray-600">{item.quantity}x {item.name}</span>
-                  <span className="font-medium">R{(item.price * item.quantity).toFixed(2)}</span>
-                </div>
-              ))}
-              <div className="flex justify-between text-xs sm:text-sm pt-2 border-t">
-                <span className="text-gray-600">Delivery fee</span>
-                <span>R{Number(order.delivery_fee || 0).toFixed(2)}</span>
-              </div>
-              {order.discount_applied > 0 && (
-                <div className="flex justify-between text-xs sm:text-sm text-green-600">
-                  <span>Discount</span>
-                  <span>-R{Number(order.discount_applied).toFixed(2)}</span>
-                </div>
-              )}
-            </div>
-          )}
-        </CardContent>
+          </CardContent>
+        )}
       </Card>
-      <CancellationModal 
-        isOpen={showCancelModal} 
-        onClose={() => { 
-          setShowCancelModal(false); 
-          setCancellingOrderId(null); 
-        }} 
-        onConfirm={onCancel} 
-        orderId={cancellingOrderId} 
-        orderType={isPackage ? 'package' : 'food'} 
+
+      <CancellationModal
+        isOpen={showCancelModal}
+        onClose={() => { setShowCancelModal(false); setCancellingOrderId(null); }}
+        onConfirm={onCancel}
+        orderId={cancellingOrderId}
+        orderType={isPackage ? 'package' : 'food'}
       />
     </>
   );
@@ -1606,19 +1500,29 @@ function CustomerOrdersComponent() {
     }
   }, [socket, user, sortedOrders, online, refetch]);
 
-  const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'pending_approval', 'pending_driver', 'assigned', 'rejected'];
+  // FIX: removed 'rejected' and 'cancelled' from activeStatuses so they
+  // appear in History, not Active — they are terminal states, not active ones.
+  const activeStatuses = ['pending', 'confirmed', 'preparing', 'ready_for_pickup', 'picked_up', 'on_the_way', 'pending_approval', 'pending_driver', 'assigned'];
   const activeOrders = sortedOrders.filter(o => activeStatuses.includes(o.status));
-  const pastOrders = sortedOrders.filter(o => !activeStatuses.includes(o.status) || o.status === 'cancelled');
+  const pastOrders = sortedOrders.filter(o => !activeStatuses.includes(o.status));
   
   useEffect(() => { 
     if (activeOrders.length > 0) markOrdersAsViewed(activeOrders.map(o => o.id)); 
   }, [activeOrders]);
 
-  const filteredPastOrders = pastOrders.filter(o =>
-    o.restaurant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    o.id?.toString().includes(searchTerm) ||
-    (o.delivery_type === 'package' && 'package'.includes(searchTerm.toLowerCase()))
-  );
+  // FIX: default to last 90 days so old orders don't pile up forever.
+  const [showOlderOrders, setShowOlderOrders] = useState(false);
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+  const filteredPastOrders = pastOrders.filter(o => {
+    const matchesSearch = o.restaurant_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      o.id?.toString().includes(searchTerm) ||
+      (o.delivery_type === 'package' && 'package'.includes(searchTerm.toLowerCase()));
+    const withinWindow = showOlderOrders || !o.created_at || new Date(o.created_at) >= ninetyDaysAgo;
+    return matchesSearch && withinWindow;
+  });
+  const olderCount = pastOrders.filter(o => o.created_at && new Date(o.created_at) < ninetyDaysAgo).length;
   const displayedPastOrders = filteredPastOrders.slice(0, visibleCount);
   const hasMore = filteredPastOrders.length > visibleCount;
 
@@ -1808,6 +1712,14 @@ function CustomerOrdersComponent() {
                       >
                         Load More Orders ({filteredPastOrders.length - visibleCount} remaining)
                       </Button>
+                    )}
+                    {!showOlderOrders && olderCount > 0 && (
+                      <button
+                        onClick={() => setShowOlderOrders(true)}
+                        className="w-full mt-2 text-xs text-gray-400 hover:text-gray-600 underline py-2"
+                      >
+                        Show {olderCount} older order{olderCount !== 1 ? 's' : ''} (older than 90 days)
+                      </button>
                     )}
                   </>
                 )}

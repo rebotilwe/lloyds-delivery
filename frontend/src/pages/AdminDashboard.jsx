@@ -129,9 +129,21 @@ function PackageMap({ pickupAddress, deliveryAddress, onClose }) {
       return;
     }
 
+    // Reuse existing script tag if already injected by another component
+    if (document.getElementById('google-maps-script')) {
+      const poll = setInterval(() => {
+        if (window.google?.maps) {
+          clearInterval(poll);
+          setMapReady(true);
+          setMapLoading(false);
+        }
+      }, 150);
+      return;
+    }
+
     const script = document.createElement('script');
     script.id = 'google-maps-script';
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places,geometry&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places,geometry`;
     script.async = true;
     script.defer = true;
     script.onload = () => {
@@ -144,10 +156,8 @@ function PackageMap({ pickupAddress, deliveryAddress, onClose }) {
     };
     document.head.appendChild(script);
 
-    return () => {
-      const existingScript = document.getElementById('google-maps-script');
-      if (existingScript) existingScript.remove();
-    };
+    // Deliberately NOT removing the script tag on unmount —
+    // Google Maps is a global singleton shared across components.
   }, []);
 
   // Initialize map

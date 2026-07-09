@@ -705,12 +705,22 @@ export default function DriverDashboard() {
       .filter(order => new Date(order.created_at) > oneWeekAgo)
       .reduce((sum, order) => sum + (Number(order.driver_earning) || 0), 0);
   }, [completedOrders]);
+  // FIX: driver_rating lives on the users table, not on order rows.
+  // Reading it from completedOrders always returned 0 because order rows
+  // don't have that column. Instead read from the user object directly —
+  // our orders.js reviews route already updates users.driver_rating
+  // and users.average_rating whenever a customer submits a driver review.
   const averageRating = useMemo(() => {
+    // Prefer the user profile's stored average rating
+    const profileRating = parseFloat(user?.driver_rating || user?.average_rating || 0);
+    if (profileRating > 0) return profileRating.toFixed(1);
+
+    // Fallback: average any driver_rating values that happen to be on orders
     const ratedOrders = completedOrders.filter(o => o.driver_rating);
     if (ratedOrders.length === 0) return 0;
-    const sum = ratedOrders.reduce((acc, o) => acc + (o.driver_rating || 0), 0);
+    const sum = ratedOrders.reduce((acc, o) => acc + (parseFloat(o.driver_rating) || 0), 0);
     return (sum / ratedOrders.length).toFixed(1);
-  }, [completedOrders]);
+  }, [completedOrders, user]);
   const hasActiveOrder = useMemo(
     () => myOrders.some(order => ['picked_up', 'on_the_way', 'assigned'].includes(order.status)),
     [myOrders]

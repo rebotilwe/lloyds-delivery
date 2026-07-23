@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Eye, EyeOff } from "lucide-react";
+import logo from "@/assets/logo.png";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -31,74 +32,26 @@ export default function Login() {
       }
 
       console.log("🔍 Login user data:", user);
-      console.log("📄 Vendor status:", user.vendor_status);
-      console.log("📄 Business License:", user.business_license);
-      console.log("📄 Health Certificate:", user.health_certificate);
-      console.log("📄 Halaal Certificate:", user.halaal_certificate);
-      console.log("📄 Bank Confirmation:", user.bank_confirmation);
 
-      // Redirect based on role
-      if (user.role === "admin") {
-        navigate("/admin");
-        return;
-      }
-      
-      if (user.role === "driver") {
-        navigate("/driver");
-        return;
-      }
+      if (user.role === "admin") { navigate("/admin"); return; }
+      if (user.role === "driver") { navigate("/driver"); return; }
       
       if (user.role === "vendor") {
-        // CRITICAL: Check if vendor has submitted ANY documents
         const hasBusinessLicense = !!(user.business_license && user.business_license.trim() !== '');
         const hasHealthCert = !!(user.health_certificate && user.health_certificate.trim() !== '');
         const hasHalaalCert = !!(user.halaal_certificate && user.halaal_certificate.trim() !== '');
         const hasBankConf = !!(user.bank_confirmation && user.bank_confirmation.trim() !== '');
         const hasDocuments = hasBusinessLicense || hasHealthCert || hasHalaalCert || hasBankConf;
-        
-        console.log(`📄 Has ANY documents: ${hasDocuments}`);
-        console.log(`📄 Business License exists: ${hasBusinessLicense}`);
-        console.log(`📄 Health Certificate exists: ${hasHealthCert}`);
-        console.log(`📄 Halaal Certificate exists: ${hasHalaalCert}`);
-        console.log(`📄 Bank Confirmation exists: ${hasBankConf}`);
-        
-        // If vendor is pending and has NO documents -> go to onboarding
-        if (user.vendor_status === "pending" && !hasDocuments) {
-          console.log("➡️ Redirecting to ONBOARDING (no documents)");
-          navigate("/vendor/onboarding");
-          return;
-        }
-        
-        // If vendor is pending and HAS documents -> go to waiting
-        if (user.vendor_status === "pending" && hasDocuments) {
-          console.log("➡️ Redirecting to WAITING (has documents)");
-          navigate("/vendor-waiting");
-          return;
-        }
-        
-        // If vendor is rejected -> go to waiting
-        if (user.vendor_status === "rejected") {
-          console.log("➡️ Redirecting to WAITING (rejected)");
-          navigate("/vendor-waiting");
-          return;
-        }
-        
-        // If vendor is approved -> go to dashboard
-        if (user.vendor_status === "approved") {
-          console.log("➡️ Redirecting to VENDOR DASHBOARD");
-          navigate("/vendor");
-          return;
-        }
-        
-        // Fallback: go to onboarding
-        console.log("➡️ Redirecting to ONBOARDING (fallback)");
+
+        if (user.vendor_status === "pending" && !hasDocuments) { navigate("/vendor/onboarding"); return; }
+        if (user.vendor_status === "pending" && hasDocuments) { navigate("/vendor-waiting"); return; }
+        if (user.vendor_status === "rejected") { navigate("/vendor-waiting"); return; }
+        if (user.vendor_status === "approved") { navigate("/vendor"); return; }
         navigate("/vendor/onboarding");
         return;
       }
-      
-      // Default: go to home
-      navigate("/");
 
+      navigate("/");
     } catch (err) {
       console.error("Login error:", err);
       toast.error(err.message || "Login failed");
@@ -108,11 +61,7 @@ export default function Login() {
   };
 
   const handleForgotPassword = async () => {
-    if (!resetEmail) {
-      toast.error("Please enter your email address");
-      return;
-    }
-
+    if (!resetEmail) { toast.error("Please enter your email address"); return; }
     setResetLoading(true);
     try {
       const response = await fetch("https://lloyds-delivery.onrender.com/api/auth/forgot-password", {
@@ -120,18 +69,12 @@ export default function Login() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: resetEmail })
       });
-
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to send reset email");
-      }
-
+      if (!response.ok) throw new Error(data.message || "Failed to send reset email");
       toast.success("Password reset link sent to your email!");
       setShowResetModal(false);
       setResetEmail("");
     } catch (err) {
-      console.error("Forgot password error:", err);
       toast.error(err.message || "Failed to send reset email. Please try again.");
     } finally {
       setResetLoading(false);
@@ -142,22 +85,24 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 space-y-6">
 
+        {/* ── Logo + heading ── */}
         <div className="text-center">
-          <div className="text-4xl mb-2">🍔</div>
-          <h2 className="text-2xl font-bold text-navy">
-            Welcome Back
-          </h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Sign in to your account
-          </p>
+          <div className="flex justify-center mb-4">
+            <div className="bg-navy rounded-2xl p-3 inline-flex">
+              <img
+                src={logo}
+                alt="Lloyd's Delivery"
+                className="h-16 w-auto object-contain"
+              />
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold text-navy">Welcome Back</h2>
+          <p className="text-sm text-gray-500 mt-1">Sign in to your account</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email Address
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
             <Input
               type="email"
               value={email}
@@ -169,9 +114,7 @@ export default function Login() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <div className="relative">
               <Input
                 type={showPassword ? "text" : "password"}
@@ -186,11 +129,7 @@ export default function Login() {
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 transition"
               >
-                {showPassword ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </div>
@@ -208,16 +147,16 @@ export default function Login() {
           <Button
             type="submit"
             disabled={loading}
-            className="w-full bg-green hover:bg-green-600 text-white h-11"
+            style={{ backgroundColor: '#1B3A5C', color: '#ffffff' }}
+            className="w-full h-11 hover:opacity-90 transition"
           >
             {loading ? "Signing in..." : "Sign in"}
           </Button>
-
         </form>
 
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300"></div>
+            <div className="w-full border-t border-gray-200" />
           </div>
           <div className="relative flex justify-center text-sm">
             <span className="px-2 bg-white text-gray-500">New to Lloyd's?</span>
@@ -227,7 +166,7 @@ export default function Login() {
         <Button
           onClick={() => navigate('/signup')}
           variant="outline"
-          className="w-full border-green text-green hover:bg-green hover:text-white"
+          className="w-full border-navy text-navy hover:bg-navy hover:text-white transition"
         >
           Create New Account
         </Button>
@@ -249,12 +188,9 @@ export default function Login() {
             <p className="text-sm text-gray-500 mb-4">
               Enter your email address and we'll send you a link to reset your password.
             </p>
-            
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email Address
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
                 <Input
                   type="email"
                   value={resetEmail}
@@ -263,19 +199,15 @@ export default function Login() {
                   className="w-full"
                 />
               </div>
-
               <div className="flex gap-3">
-                <Button
-                  onClick={() => setShowResetModal(false)}
-                  variant="outline"
-                  className="flex-1"
-                >
+                <Button onClick={() => setShowResetModal(false)} variant="outline" className="flex-1">
                   Cancel
                 </Button>
                 <Button
                   onClick={handleForgotPassword}
                   disabled={resetLoading}
-                  className="flex-1 bg-green hover:bg-green/90 text-white"
+                  style={{ backgroundColor: '#1B3A5C', color: '#ffffff' }}
+                  className="flex-1 hover:opacity-90"
                 >
                   {resetLoading ? "Sending..." : "Send Reset Link"}
                 </Button>

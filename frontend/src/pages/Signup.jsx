@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
@@ -9,12 +9,18 @@ import logo from '@/assets/logo.png';
 
 export default function Signup() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Auto-select role from QR code URL (?role=vendor or ?role=driver)
+  const roleFromUrl = searchParams.get('role');
+  const validRoles = ['customer', 'driver', 'vendor'];
+  const initialRole = validRoles.includes(roleFromUrl) ? roleFromUrl : 'customer';
 
   const [form, setForm] = useState({
     full_name: '',
     email: '',
     password: '',
-    role: 'customer',
+    role: initialRole,
     phone: '',
     restaurant_name: '',
     restaurant_address: '',

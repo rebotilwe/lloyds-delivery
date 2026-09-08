@@ -293,7 +293,7 @@ export default function AdminRestaurants({ restaurants = [], onRefresh }) {
         {/* Show location coordinates if available */}
         {restaurant.latitude && restaurant.longitude && (
           <div className="mt-1 text-[10px] text-gray-400">
-            📍 {restaurant.latitude.toFixed(4)}, {restaurant.longitude.toFixed(4)}
+            📍 {parseFloat(restaurant.latitude || 0).toFixed(4)}, {parseFloat(restaurant.longitude || 0).toFixed(4)}
           </div>
         )}
       </div>

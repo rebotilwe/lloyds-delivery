@@ -22,7 +22,7 @@ export default function AdminMenuApprovals() {
     try {
       // FIX #12: previously this called a non-existent or wrong endpoint.
       // Using the correct admin endpoint for pending menu items.
-      const res = await api.get('/admin/menu-items/pending');
+      const res = await api.get('/admin/menu/pending');
       const data = res?.data ?? (Array.isArray(res) ? res : []);
       setItems(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -39,7 +39,7 @@ export default function AdminMenuApprovals() {
   const handleApprove = async (itemId, itemName) => {
     setProcessing(prev => ({ ...prev, [itemId]: 'approving' }));
     try {
-      await api.put(`/admin/menu-items/${itemId}/approve`);
+      await api.put(`/admin/menu/${itemId}/approve`);
       toast.success(`"${itemName}" approved and now visible to customers`);
       setItems(prev => prev.filter(i => i.id !== itemId));
     } catch (err) {
@@ -54,7 +54,7 @@ export default function AdminMenuApprovals() {
     if (reason === null) return; // user cancelled prompt
     setProcessing(prev => ({ ...prev, [itemId]: 'rejecting' }));
     try {
-      await api.put(`/admin/menu-items/${itemId}/reject`, { reason: reason || 'No reason provided' });
+      await api.put(`/admin/menu/${itemId}/reject`, { reason: reason || 'No reason provided' });
       toast.success(`"${itemName}" rejected`);
       setItems(prev => prev.filter(i => i.id !== itemId));
     } catch (err) {

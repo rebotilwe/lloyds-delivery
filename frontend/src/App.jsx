@@ -382,14 +382,26 @@ const AdminOrdersPage = () => {
 };
 
 const AdminRestaurantsPage = () => {
-  const { data: restaurants = [] } = useQuery({
+  const { data: restaurants = [], isLoading, error, refetch } = useQuery({
     queryKey: ['restaurants'],
     queryFn: async () => {
       const r = await api.get('/restaurants');
-      return r?.data ?? (Array.isArray(r) ? r : []);
+      const data = r?.data ?? (Array.isArray(r) ? r : []);
+      return Array.isArray(data) ? data : [];
     },
   });
-  return <AdminRestaurants restaurants={restaurants} onRefresh={() => {}} />;
+  if (isLoading) return (
+    <div className="flex justify-center items-center h-64">
+      <div className="animate-spin h-8 w-8 border-b-2 border-green rounded-full" />
+    </div>
+  );
+  if (error) return (
+    <div className="text-center py-12">
+      <p className="text-red-500 mb-3">Failed to load restaurants</p>
+      <button onClick={() => refetch()} className="text-sm text-blue-600 underline">Try again</button>
+    </div>
+  );
+  return <AdminRestaurants restaurants={restaurants} onRefresh={refetch} />;
 };
 
 const AdminMenuPage = () => {

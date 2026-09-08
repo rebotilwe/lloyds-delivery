@@ -23,7 +23,9 @@ export default function VendorSettings() {
     address: '',
     latitude: null,
     longitude: null,
+    cuisine_type: '',
   });
+  const [errors, setErrors] = useState({});
 
   useEffect(() => {
     fetchRestaurantData();
@@ -44,6 +46,7 @@ export default function VendorSettings() {
         address: restaurantData?.address || '',
         latitude: restaurantData?.latitude || null,
         longitude: restaurantData?.longitude || null,
+        cuisine_type: restaurantData?.cuisine_type || '',
       });
       setSettings(prev => ({
         ...prev,
@@ -53,6 +56,52 @@ export default function VendorSettings() {
       console.error('Error fetching data:', error);
       toast.error('Failed to load settings');
     }
+  };
+
+  // ── Validation Functions ──
+  const validatePhone = (phone) => {
+    if (!phone) return true;
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 10 && digits.startsWith('0')) return true;
+    if (digits.length === 11 && digits.startsWith('27')) return true;
+    if (digits.length === 9) return true;
+    return false;
+  };
+
+  const validateAccountNumber = (number) => {
+    return /^\d+$/.test(number);
+  };
+
+  const validateBranchCode = (code) => {
+    if (!code) return true;
+    return /^\d+$/.test(code);
+  };
+
+  // ── Handlers ──
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    
+    // Cuisine type: only letters, spaces, and basic punctuation
+    if (name === 'cuisine_type') {
+      const cleaned = value.replace(/[^a-zA-Z\s\-',&]/g, '');
+      setRestaurantForm({ ...restaurantForm, cuisine_type: cleaned });
+      if (errors.cuisine_type) setErrors(prev => ({ ...prev, cuisine_type: '' }));
+      return;
+    }
+    
+    // Phone validation
+    if (name === 'phone') {
+      const digits = value.replace(/\D/g, '');
+      setRestaurantForm({ ...restaurantForm, phone: digits });
+      if (digits && !validatePhone(digits)) {
+        setErrors(prev => ({ ...prev, phone: 'Please enter a valid South African phone number' }));
+      } else {
+        setErrors(prev => ({ ...prev, phone: '' }));
+      }
+      return;
+    }
+    
+    setRestaurantForm({ ...restaurantForm, [name]: value });
   };
 
   const handleAddressSelect = (fullAddress, coords) => {
@@ -73,6 +122,12 @@ export default function VendorSettings() {
   };
 
   const updateRestaurant = async () => {
+    // Validate
+    if (restaurantForm.phone && !validatePhone(restaurantForm.phone)) {
+      toast.error('Please enter a valid phone number');
+      return;
+    }
+    
     if (!restaurant?.id) {
       toast.error('Restaurant not found');
       return;
@@ -104,6 +159,11 @@ export default function VendorSettings() {
     }
   };
 
+  // ── Toggle handler with proper state management ──
+  const handleToggleChange = (field, value) => {
+    setSettings(prev => ({ ...prev, [field]: value }));
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -119,19 +179,35 @@ export default function VendorSettings() {
           <div>
             <Label>Restaurant Name</Label>
             <Input
+              name="name"
               value={restaurantForm.name}
-              onChange={(e) => setRestaurantForm({ ...restaurantForm, name: e.target.value })}
+              onChange={handleChange}
               className="mt-1"
             />
           </div>
           <div>
             <Label>Phone Number</Label>
             <Input
+              name="phone"
               value={restaurantForm.phone}
-              onChange={(e) => setRestaurantForm({ ...restaurantForm, phone: e.target.value })}
-              placeholder="e.g., 011 123 4567"
-              className="mt-1"
+              onChange={handleChange}
+              placeholder="e.g., 0712345678"
+              className={`mt-1 ${errors.phone ? 'border-red-500' : ''}`}
             />
+            {errors.phone && <p className="text-xs text-red-500 mt-1">{errors.phone}</p>}
+            <p className="text-xs text-gray-400 mt-1">South African format (e.g., 0712345678)</p>
+          </div>
+          <div>
+            <Label>Cuisine Type</Label>
+            <Input
+              name="cuisine_type"
+              value={restaurantForm.cuisine_type}
+              onChange={handleChange}
+              placeholder="e.g., Burgers, Pizza, Sushi"
+              className={`mt-1 ${errors.cuisine_type ? 'border-red-500' : ''}`}
+            />
+            {errors.cuisine_type && <p className="text-xs text-red-500 mt-1">{errors.cuisine_type}</p>}
+            <p className="text-xs text-gray-400 mt-1">Letters, spaces, and basic punctuation only</p>
           </div>
           <div>
             <Label className="flex items-center gap-2">
@@ -146,17 +222,14 @@ export default function VendorSettings() {
             />
             {restaurantForm.latitude && restaurantForm.longitude && (
               <div className="flex items-center gap-2 mt-2">
-                <p className="text-xs text-green-600">
-                  ✅ Location coordinates saved
-                </p>
+                <p className="text-xs text-green-600">✅ Location coordinates saved</p>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-6 px-2 text-xs text-blue-500"
                   onClick={openInGoogleMaps}
                 >
-                  <Navigation className="w-3 h-3 mr-1" />
-                  View on Map
+                  <Navigation className="w-3 h-3 mr-1" /> View on Map
                 </Button>
               </div>
             )}
@@ -183,7 +256,7 @@ export default function VendorSettings() {
             </div>
             <Switch
               checked={settings.is_accepting_orders}
-              onCheckedChange={(val) => setSettings({ ...settings, is_accepting_orders: val })}
+              onCheckedChange={(val) => handleToggleChange('is_accepting_orders', val)}
             />
           </div>
           <div className="border-t pt-4">
@@ -193,7 +266,10 @@ export default function VendorSettings() {
               value={settings.max_prep_time}
               onChange={(e) => setSettings({ ...settings, max_prep_time: parseInt(e.target.value) })}
               className="mt-1"
+              min="5"
+              max="120"
             />
+            <p className="text-xs text-gray-400 mt-1">Between 5 and 120 minutes</p>
           </div>
           <div className="flex items-center justify-between">
             <div>
@@ -202,7 +278,7 @@ export default function VendorSettings() {
             </div>
             <Switch
               checked={settings.auto_accept_orders}
-              onCheckedChange={(val) => setSettings({ ...settings, auto_accept_orders: val })}
+              onCheckedChange={(val) => handleToggleChange('auto_accept_orders', val)}
             />
           </div>
           <Button onClick={updateSettings} disabled={loading} variant="outline">
@@ -225,14 +301,20 @@ export default function VendorSettings() {
               <p className="font-medium">Email Notifications</p>
               <p className="text-xs text-gray-500">Receive order updates via email</p>
             </div>
-            <Switch defaultChecked />
+            <Switch
+              checked={true}
+              onCheckedChange={(val) => console.log('Email notifications:', val)}
+            />
           </div>
           <div className="flex items-center justify-between">
             <div>
               <p className="font-medium">SMS Notifications</p>
               <p className="text-xs text-gray-500">Receive order updates via SMS</p>
             </div>
-            <Switch />
+            <Switch
+              checked={false}
+              onCheckedChange={(val) => console.log('SMS notifications:', val)}
+            />
           </div>
         </CardContent>
       </Card>

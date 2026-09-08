@@ -4,7 +4,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, AlertCircle } from "lucide-react";
 import logo from "@/assets/logo.png";
 
 export default function Login() {
@@ -15,13 +15,36 @@ export default function Login() {
   const [resetLoading, setResetLoading] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [resetEmail, setResetEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
 
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  // ── Email validation ──
+  const validateEmail = (email) => {
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    return emailRegex.test(email);
+  };
+
+  const handleEmailChange = (e) => {
+    const value = e.target.value;
+    setEmail(value);
+    if (value && !validateEmail(value)) {
+      setEmailError("Please enter a valid email (e.g., name@domain.com)");
+    } else {
+      setEmailError("");
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+
+    if (!validateEmail(email)) {
+      toast.error("Please enter a valid email address");
+      setLoading(false);
+      return;
+    }
 
     try {
       const user = await login(email, password);
@@ -62,6 +85,10 @@ export default function Login() {
 
   const handleForgotPassword = async () => {
     if (!resetEmail) { toast.error("Please enter your email address"); return; }
+    if (!validateEmail(resetEmail)) {
+      toast.error("Please enter a valid email address");
+      return;
+    }
     setResetLoading(true);
     try {
       const response = await fetch("https://lloyds-delivery.onrender.com/api/auth/forgot-password", {
@@ -106,11 +133,17 @@ export default function Login() {
             <Input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={handleEmailChange}
               placeholder="you@example.com"
               required
-              className="w-full"
+              className={`w-full ${emailError ? 'border-red-500 focus:ring-red-500' : ''}`}
             />
+            {emailError && (
+              <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                {emailError}
+              </p>
+            )}
           </div>
 
           <div>

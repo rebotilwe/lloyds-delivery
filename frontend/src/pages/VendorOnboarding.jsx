@@ -9,7 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import AddressAutocomplete from '@/components/AddressAutocomplete';
 import { 
   Store, MapPin, Phone, DollarSign, Loader2, 
-  Upload, FileCheck, AlertCircle, X, FileText,
+  Upload, AlertCircle, X, FileText,
   CheckCircle, Building, Clock
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -21,6 +21,7 @@ export default function VendorOnboarding() {
   const [user, setUser] = useState(null);
   const [hasRestaurant, setHasRestaurant] = useState(false);
   const [checkingRestaurant, setCheckingRestaurant] = useState(true);
+  const [errors, setErrors] = useState({});
   
   const [formData, setFormData] = useState({
     name: '',
@@ -49,7 +50,28 @@ export default function VendorOnboarding() {
     bank_confirmation: null,
   });
 
-  // Pre-fill restaurant details the vendor already typed in at signup
+  // ── Validation Functions ──
+  const validatePhone = (phone) => {
+    if (!phone) return true;
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 10 && digits.startsWith('0')) return true;
+    if (digits.length === 11 && digits.startsWith('27')) return true;
+    if (digits.length === 9) return true;
+    return false;
+  };
+
+  const validateBRN = (brn) => {
+    if (!brn) return true;
+    const brnRegex = /^\d{4}\/\d{6}\/\d{2}$/;
+    return brnRegex.test(brn);
+  };
+
+  const validateDeliveryFee = (fee) => {
+    const num = parseFloat(fee);
+    return !isNaN(num) && num >= 0 && num <= 1000;
+  };
+
+  // ── Pre-fill restaurant details ──
   useEffect(() => {
     const pending = localStorage.getItem('pending_vendor_restaurant');
     if (pending) {
@@ -62,15 +84,13 @@ export default function VendorOnboarding() {
           phone: parsed.phone || prev.phone,
           business_registration_number: parsed.business_registration_number || prev.business_registration_number,
         }));
-      } catch (err) {
-        // Ignore malformed data
-      } finally {
+      } catch (err) {} finally {
         localStorage.removeItem('pending_vendor_restaurant');
       }
     }
   }, []);
 
-  // Load user data and check for existing restaurant
+  // ── Load user data ──
   useEffect(() => {
     const stored = localStorage.getItem('user');
     if (stored) {
@@ -87,9 +107,7 @@ export default function VendorOnboarding() {
         try {
           const token = localStorage.getItem('token');
           const response = await api.get('/vendor/restaurant', {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
+            headers: { 'Authorization': `Bearer ${token}` }
           });
           if (response.data && response.data.id) {
             setHasRestaurant(true);
@@ -116,7 +134,50 @@ export default function VendorOnboarding() {
   }, [navigate]);
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    
+    // Cuisine type: only letters, spaces, and basic punctuation
+    if (name === 'cuisine_type') {
+      const cleaned = value.replace(/[^a-zA-Z\s\-',&]/g, '');
+      setFormData({ ...formData, cuisine_type: cleaned });
+      if (errors.cuisine_type) setErrors(prev => ({ ...prev, cuisine_type: '' }));
+      return;
+    }
+    
+    // Phone validation
+    if (name === 'phone') {
+      const digits = value.replace(/\D/g, '');
+      setFormData({ ...formData, phone: digits });
+      if (digits && !validatePhone(digits)) {
+        setErrors(prev => ({ ...prev, phone: 'Please enter a valid South African phone number' }));
+      } else {
+        setErrors(prev => ({ ...prev, phone: '' }));
+      }
+      return;
+    }
+    
+    // Delivery fee validation
+    if (name === 'delivery_fee') {
+      const num = parseFloat(value);
+      if (value && (isNaN(num) || num < 0 || num > 1000)) {
+        setErrors(prev => ({ ...prev, delivery_fee: 'Please enter a valid amount between 0 and 1000' }));
+      } else {
+        setErrors(prev => ({ ...prev, delivery_fee: '' }));
+      }
+    }
+    
+    // BRN validation
+    if (name === 'business_registration_number') {
+      setFormData({ ...formData, [name]: value });
+      if (value && !validateBRN(value)) {
+        setErrors(prev => ({ ...prev, business_registration_number: 'Format: YYYY/XXXXXX/XX' }));
+      } else {
+        setErrors(prev => ({ ...prev, business_registration_number: '' }));
+      }
+      return;
+    }
+    
+    setFormData({ ...formData, [name]: value });
   };
 
   const handleAddressSelect = (fullAddress, coords) => {
@@ -126,6 +187,7 @@ export default function VendorOnboarding() {
       latitude: coords?.lat || null,
       longitude: coords?.lng || null
     });
+    if (errors.address) setErrors(prev => ({ ...prev, address: '' }));
   };
 
   const handleFileChange = (e, field) => {
@@ -213,13 +275,9 @@ export default function VendorOnboarding() {
     
     try {
       const token = localStorage.getItem('token');
-      console.log(`📤 Uploading ${documentKey}...`);
-      
       const response = await fetch('https://lloyds-delivery.onrender.com/api/vendor/upload-document', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
       
@@ -229,28 +287,44 @@ export default function VendorOnboarding() {
       }
       
       const data = await response.json();
-      console.log(`✅ Uploaded ${documentKey}:`, data);
       return data;
     } catch (error) {
-      console.error(`❌ Error uploading ${documentKey}:`, error);
+      console.error(`Error uploading ${documentKey}:`, error);
       throw error;
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const newErrors = {};
+
+    // ── Validate all fields ──
+    if (!formData.name.trim()) newErrors.name = 'Restaurant name is required';
+    if (!formData.address.trim()) newErrors.address = 'Restaurant address is required';
     
-    if (!formData.name || !formData.address) {
-      toast.error('Please fill in restaurant name and address');
-      return;
+    if (formData.phone && !validatePhone(formData.phone)) {
+      newErrors.phone = 'Please enter a valid South African phone number';
+    }
+    
+    if (formData.delivery_fee && !validateDeliveryFee(formData.delivery_fee)) {
+      newErrors.delivery_fee = 'Please enter a valid amount between 0 and 1000';
+    }
+    
+    if (formData.business_registration_number && !validateBRN(formData.business_registration_number)) {
+      newErrors.business_registration_number = 'Format: YYYY/XXXXXX/XX';
     }
 
-    if (!documents.business_license) {
-      toast.error('Please upload your business license');
-      return;
+    if (formData.cuisine_type && !/^[a-zA-Z\s\-',&]*$/.test(formData.cuisine_type)) {
+      newErrors.cuisine_type = 'Only letters, spaces, and basic punctuation allowed';
     }
-    if (!documents.health_certificate) {
-      toast.error('Please upload your health certificate');
+
+    if (!documents.business_license) newErrors.business_license = 'Business license is required';
+    if (!documents.health_certificate) newErrors.health_certificate = 'Health certificate is required';
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      const firstError = Object.values(newErrors)[0];
+      toast.error(firstError);
       return;
     }
 
@@ -281,8 +355,6 @@ export default function VendorOnboarding() {
         longitude: formData.longitude,
       };
 
-      console.log(restaurantExists ? '🏪 Updating existing restaurant...' : '🏪 Creating restaurant...');
-
       const restaurantResponse = restaurantExists
         ? await api.put('/vendor/restaurant', restaurantPayload, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -291,14 +363,11 @@ export default function VendorOnboarding() {
             headers: { 'Authorization': `Bearer ${token}` }
           });
 
-      console.log('✅ Restaurant saved:', restaurantResponse.data);
-
       const uploadPromises = [];
       const docKeys = ['business_license', 'health_certificate', 'halaal_certificate', 'bank_confirmation'];
       
       for (const docKey of docKeys) {
         if (documents[docKey]) {
-          console.log(`📤 Uploading ${docKey}...`);
           const uploadPromise = uploadDocument(docKey, documents[docKey]);
           uploadPromises.push(uploadPromise);
           toast.info(`Uploading ${docKey.replace('_', ' ')}...`);
@@ -306,14 +375,9 @@ export default function VendorOnboarding() {
       }
 
       await Promise.all(uploadPromises);
-      console.log('✅ All documents uploaded successfully');
 
-      await api.put('/vendor/update-status', { 
-        vendor_status: 'pending'
-      }, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      await api.put('/vendor/update-status', { vendor_status: 'pending' }, {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
       toast.success('Restaurant created and documents submitted for review!');
@@ -323,8 +387,8 @@ export default function VendorOnboarding() {
       if (stored) {
         const userData = JSON.parse(stored);
         userData.vendor_status = 'pending';
-        userData.business_license = userData.business_license || 'submitted';
-        userData.health_certificate = userData.health_certificate || 'submitted';
+        userData.business_license = 'submitted';
+        userData.health_certificate = 'submitted';
         if (documents.halaal_certificate) userData.halaal_certificate = 'submitted';
         if (documents.bank_confirmation) userData.bank_confirmation = 'submitted';
         localStorage.setItem('user', JSON.stringify(userData));
@@ -420,8 +484,9 @@ export default function VendorOnboarding() {
                   placeholder="e.g., Kota King, Burger Palace"
                   value={formData.name}
                   onChange={handleChange}
-                  required
+                  className={errors.name ? 'border-red-500' : ''}
                 />
+                {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
               </div>
 
               {/* Description */}
@@ -436,7 +501,7 @@ export default function VendorOnboarding() {
                 />
               </div>
 
-              {/* Cuisine Type */}
+              {/* Cuisine Type - Now with validation */}
               <div>
                 <Label>Cuisine Type</Label>
                 <Input
@@ -444,10 +509,13 @@ export default function VendorOnboarding() {
                   placeholder="e.g., Fast Food, Pizza, Sushi, Burgers"
                   value={formData.cuisine_type}
                   onChange={handleChange}
+                  className={errors.cuisine_type ? 'border-red-500' : ''}
                 />
+                {errors.cuisine_type && <p className="text-xs text-red-500 mt-1">{errors.cuisine_type}</p>}
+                <p className="text-xs text-gray-400 mt-1">Only letters, spaces, commas, apostrophes, and ampersands allowed</p>
               </div>
 
-              {/* Address with Google Autocomplete */}
+              {/* Address */}
               <div>
                 <Label className="flex items-center gap-2 mb-1">
                   <MapPin className="w-4 h-4" />
@@ -460,10 +528,9 @@ export default function VendorOnboarding() {
                   placeholder="Full street address, city, postal code"
                   required
                 />
+                {errors.address && <p className="text-xs text-red-500 mt-1">{errors.address}</p>}
                 {formData.latitude && formData.longitude && (
-                  <p className="text-xs text-green-600 mt-1">
-                    ✅ Location coordinates saved
-                  </p>
+                  <p className="text-xs text-green-600 mt-1">✅ Location coordinates saved</p>
                 )}
               </div>
 
@@ -475,10 +542,13 @@ export default function VendorOnboarding() {
                 </Label>
                 <Input
                   name="phone"
-                  placeholder="+27 XX XXX XXXX"
+                  placeholder="0712345678"
                   value={formData.phone}
                   onChange={handleChange}
+                  className={errors.phone ? 'border-red-500' : ''}
                 />
+                {errors.phone && <p className="text-xs text-red-500 mt-1">{errors.phone}</p>}
+                <p className="text-xs text-gray-400 mt-1">South African format (e.g., 0712345678)</p>
               </div>
 
               {/* Delivery Fee */}
@@ -493,11 +563,12 @@ export default function VendorOnboarding() {
                   value={formData.delivery_fee}
                   onChange={handleChange}
                   min="0"
+                  max="1000"
                   step="5"
+                  className={errors.delivery_fee ? 'border-red-500' : ''}
                 />
-                <p className="text-xs text-gray-400 mt-1">
-                  This fee goes to the driver. You can change this later.
-                </p>
+                {errors.delivery_fee && <p className="text-xs text-red-500 mt-1">{errors.delivery_fee}</p>}
+                <p className="text-xs text-gray-400 mt-1">Between R0 and R1000</p>
               </div>
 
               {/* Business Registration */}
@@ -508,10 +579,13 @@ export default function VendorOnboarding() {
                 </Label>
                 <Input
                   name="business_registration_number"
-                  placeholder="e.g., 2020/123456/07"
+                  placeholder="YYYY/XXXXXX/XX"
                   value={formData.business_registration_number}
                   onChange={handleChange}
+                  className={errors.business_registration_number ? 'border-red-500' : ''}
                 />
+                {errors.business_registration_number && <p className="text-xs text-red-500 mt-1">{errors.business_registration_number}</p>}
+                <p className="text-xs text-gray-400 mt-1">Format: YYYY/XXXXXX/XX (e.g., 2020/123456/07)</p>
               </div>
 
               {/* Tax Clearance */}
@@ -539,6 +613,7 @@ export default function VendorOnboarding() {
                   preview={previews.business_license}
                   description="Official business registration or license document"
                 />
+                {errors.business_license && <p className="text-xs text-red-500 mt-1">{errors.business_license}</p>}
                 
                 <FileUploadArea 
                   field="health_certificate" 
@@ -547,6 +622,7 @@ export default function VendorOnboarding() {
                   preview={previews.health_certificate}
                   description="Food safety or health department certificate"
                 />
+                {errors.health_certificate && <p className="text-xs text-red-500 mt-1">{errors.health_certificate}</p>}
                 
                 <FileUploadArea 
                   field="halaal_certificate" 

@@ -58,6 +58,25 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+// ── VALIDATION FUNCTIONS ──
+const validatePhone = (phone) => {
+  if (!phone) return true;
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 10 && digits.startsWith('0')) return true;
+  if (digits.length === 11 && digits.startsWith('27')) return true;
+  if (digits.length === 9) return true;
+  return false;
+};
+
+const validateAccountNumber = (number) => {
+  return /^\d+$/.test(number);
+};
+
+const validateBranchCode = (code) => {
+  if (!code) return true;
+  return /^\d+$/.test(code);
+};
+
 export default function VendorDashboard() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -96,6 +115,7 @@ export default function VendorDashboard() {
     account_number: '',
     branch_code: '',
   });
+  const [bankErrors, setBankErrors] = useState({});
   const [showBankModal, setShowBankModal] = useState(false);
 
   // Recent Orders
@@ -209,9 +229,33 @@ export default function VendorDashboard() {
     }
   };
 
+  // ── Bank Details Validation ──
+  const validateBankForm = () => {
+    const errors = {};
+    
+    if (!bankDetails.bank_name.trim()) {
+      errors.bank_name = 'Bank name is required';
+    }
+    if (!bankDetails.account_holder.trim()) {
+      errors.account_holder = 'Account holder name is required';
+    }
+    if (!bankDetails.account_number.trim()) {
+      errors.account_number = 'Account number is required';
+    } else if (!validateAccountNumber(bankDetails.account_number)) {
+      errors.account_number = 'Account number must contain only numbers';
+    }
+    if (bankDetails.branch_code && !validateBranchCode(bankDetails.branch_code)) {
+      errors.branch_code = 'Branch code must contain only numbers';
+    }
+    
+    setBankErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const saveBankDetails = async () => {
-    if (!bankDetails.bank_name || !bankDetails.account_number || !bankDetails.account_holder) {
-      toast.error('Please fill in bank name, account holder, and account number');
+    if (!validateBankForm()) {
+      const firstError = Object.values(bankErrors)[0];
+      toast.error(firstError);
       return;
     }
 
@@ -230,8 +274,42 @@ export default function VendorDashboard() {
       
       toast.success('Bank details saved successfully');
       setShowBankModal(false);
+      setBankErrors({});
     } catch (err) {
       toast.error('Failed to save bank details');
+    }
+  };
+
+  const handleBankInputChange = (e) => {
+    const { name, value } = e.target;
+    
+    // Account number: only numbers
+    if (name === 'account_number') {
+      const cleaned = value.replace(/\D/g, '');
+      setBankDetails({ ...bankDetails, [name]: cleaned });
+      if (cleaned && !validateAccountNumber(cleaned)) {
+        setBankErrors({ ...bankErrors, account_number: 'Account number must contain only numbers' });
+      } else {
+        setBankErrors({ ...bankErrors, account_number: '' });
+      }
+      return;
+    }
+    
+    // Branch code: only numbers
+    if (name === 'branch_code') {
+      const cleaned = value.replace(/\D/g, '');
+      setBankDetails({ ...bankDetails, [name]: cleaned });
+      if (cleaned && !validateBranchCode(cleaned)) {
+        setBankErrors({ ...bankErrors, branch_code: 'Branch code must contain only numbers' });
+      } else {
+        setBankErrors({ ...bankErrors, branch_code: '' });
+      }
+      return;
+    }
+    
+    setBankDetails({ ...bankDetails, [name]: value });
+    if (bankErrors[name]) {
+      setBankErrors({ ...bankErrors, [name]: '' });
     }
   };
 
@@ -314,7 +392,6 @@ export default function VendorDashboard() {
     if (coords) {
       setRestaurantCoords({ lat: coords.lat, lng: coords.lng });
       
-      // Save location to restaurant settings
       try {
         const token = localStorage.getItem('token');
         await fetch('https://lloyds-delivery.onrender.com/api/vendor/restaurant/location', {
@@ -909,7 +986,7 @@ export default function VendorDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Bank Details Modal */}
+      {/* Bank Details Modal - FIXED with validation */}
       <Dialog open={showBankModal} onOpenChange={setShowBankModal}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -919,38 +996,48 @@ export default function VendorDashboard() {
             <div>
               <Label>Bank Name *</Label>
               <Input
+                name="bank_name"
                 placeholder="e.g., Capitec, FNB, Standard Bank"
                 value={bankDetails.bank_name || ''}
-                onChange={(e) => setBankDetails({ ...bankDetails, bank_name: e.target.value })}
-                className="mt-1"
+                onChange={handleBankInputChange}
+                className={`mt-1 ${bankErrors.bank_name ? 'border-red-500' : ''}`}
               />
+              {bankErrors.bank_name && <p className="text-xs text-red-500 mt-1">{bankErrors.bank_name}</p>}
             </div>
             <div>
               <Label>Account Holder Name *</Label>
               <Input
+                name="account_holder"
                 placeholder="Name on the account"
                 value={bankDetails.account_holder || ''}
-                onChange={(e) => setBankDetails({ ...bankDetails, account_holder: e.target.value })}
-                className="mt-1"
+                onChange={handleBankInputChange}
+                className={`mt-1 ${bankErrors.account_holder ? 'border-red-500' : ''}`}
               />
+              {bankErrors.account_holder && <p className="text-xs text-red-500 mt-1">{bankErrors.account_holder}</p>}
             </div>
             <div>
               <Label>Account Number *</Label>
               <Input
-                placeholder="Account number"
+                name="account_number"
+                placeholder="Account number (numbers only)"
                 value={bankDetails.account_number || ''}
-                onChange={(e) => setBankDetails({ ...bankDetails, account_number: e.target.value })}
-                className="mt-1"
+                onChange={handleBankInputChange}
+                className={`mt-1 ${bankErrors.account_number ? 'border-red-500' : ''}`}
               />
+              {bankErrors.account_number && <p className="text-xs text-red-500 mt-1">{bankErrors.account_number}</p>}
+              <p className="text-xs text-gray-400 mt-1">Only numbers allowed</p>
             </div>
             <div>
               <Label>Branch Code (Optional)</Label>
               <Input
-                placeholder="Branch code"
+                name="branch_code"
+                placeholder="Branch code (numbers only)"
                 value={bankDetails.branch_code || ''}
-                onChange={(e) => setBankDetails({ ...bankDetails, branch_code: e.target.value })}
-                className="mt-1"
+                onChange={handleBankInputChange}
+                className={`mt-1 ${bankErrors.branch_code ? 'border-red-500' : ''}`}
               />
+              {bankErrors.branch_code && <p className="text-xs text-red-500 mt-1">{bankErrors.branch_code}</p>}
+              <p className="text-xs text-gray-400 mt-1">Only numbers allowed</p>
             </div>
             <div className="flex gap-3 pt-2">
               <Button onClick={saveBankDetails} className="flex-1 bg-green text-white">

@@ -4,14 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import AddressAutocomplete from '@/components/AddressAutocomplete';
-import { Store, User, Truck, Eye, EyeOff, Building2 } from 'lucide-react';
+import { Store, User, Truck, Eye, EyeOff, Building2, AlertCircle, CheckCircle } from 'lucide-react';
 import logo from '@/assets/logo.png';
 
 export default function Signup() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // Auto-select role from QR code URL (?role=vendor or ?role=driver)
   const roleFromUrl = searchParams.get('role');
   const validRoles = ['customer', 'driver', 'vendor'];
   const initialRole = validRoles.includes(roleFromUrl) ? roleFromUrl : 'customer';
@@ -20,6 +19,7 @@ export default function Signup() {
     full_name: '',
     email: '',
     password: '',
+    confirm_password: '',
     role: initialRole,
     phone: '',
     restaurant_name: '',
@@ -27,13 +27,101 @@ export default function Signup() {
     business_registration_number: '',
     restaurant_lat: null,
     restaurant_lng: null,
+    vehicle_year: '',
   });
 
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  // ── Validation Functions ──
+  const validateEmail = (email) => {
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    return emailRegex.test(email);
+  };
+
+  const validatePhone = (phone) => {
+    if (!phone) return true;
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 10 && digits.startsWith('0')) return true;
+    if (digits.length === 11 && digits.startsWith('27')) return true;
+    if (digits.length === 9) return true;
+    return false;
+  };
+
+  const validatePassword = (password) => {
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+    const isValidLength = password.length >= 8;
+    return { isValid: hasUpperCase && hasLowerCase && hasNumber && hasSpecial && isValidLength, details: { hasUpperCase, hasLowerCase, hasNumber, hasSpecial, isValidLength } };
+  };
+
+  const validateBRN = (brn) => {
+    if (!brn) return true;
+    const brnRegex = /^\d{4}\/\d{6}\/\d{2}$/;
+    return brnRegex.test(brn);
+  };
+
+  const getPasswordStrength = (password) => {
+    if (!password) return { label: '', color: '' };
+    const { isValid, details } = validatePassword(password);
+    const count = Object.values(details).filter(Boolean).length;
+    if (count <= 2) return { label: 'Weak', color: 'text-red-500', bar: 'w-1/4 bg-red-500' };
+    if (count <= 3) return { label: 'Fair', color: 'text-yellow-500', bar: 'w-2/4 bg-yellow-500' };
+    if (count <= 4) return { label: 'Good', color: 'text-blue-500', bar: 'w-3/4 bg-blue-500' };
+    return { label: 'Strong', color: 'text-green-600', bar: 'w-full bg-green-500' };
+  };
 
   const handleChange = (e) => {
-    setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    setForm(prev => ({ ...prev, [name]: value }));
+    // Clear error when user types
+    if (errors[name]) setErrors(prev => ({ ...prev, [name]: '' }));
+  };
+
+  const handlePhoneChange = (e) => {
+    const value = e.target.value.replace(/\D/g, '');
+    setForm(prev => ({ ...prev, phone: value }));
+    if (value && !validatePhone(value)) {
+      setErrors(prev => ({ ...prev, phone: 'Please enter a valid South African phone number' }));
+    } else {
+      setErrors(prev => ({ ...prev, phone: '' }));
+    }
+  };
+
+  const handleEmailChange = (e) => {
+    const value = e.target.value;
+    setForm(prev => ({ ...prev, email: value }));
+    if (value && !validateEmail(value)) {
+      setErrors(prev => ({ ...prev, email: 'Please enter a valid email (e.g., name@domain.com)' }));
+    } else {
+      setErrors(prev => ({ ...prev, email: '' }));
+    }
+  };
+
+  const handlePasswordChange = (e) => {
+    const value = e.target.value;
+    setForm(prev => ({ ...prev, password: value }));
+    if (value) {
+      const { details } = validatePassword(value);
+      if (form.confirm_password && value !== form.confirm_password) {
+        setErrors(prev => ({ ...prev, confirm_password: 'Passwords do not match' }));
+      } else {
+        setErrors(prev => ({ ...prev, confirm_password: '' }));
+      }
+    }
+  };
+
+  const handleConfirmPasswordChange = (e) => {
+    const value = e.target.value;
+    setForm(prev => ({ ...prev, confirm_password: value }));
+    if (value && value !== form.password) {
+      setErrors(prev => ({ ...prev, confirm_password: 'Passwords do not match' }));
+    } else {
+      setErrors(prev => ({ ...prev, confirm_password: '' }));
+    }
   };
 
   const handleAddressSelect = (fullAddress, coords) => {
@@ -47,12 +135,43 @@ export default function Signup() {
 
   const handleSignup = async (e) => {
     e.preventDefault();
+    const newErrors = {};
 
-    if (!form.full_name || !form.email || !form.password) { toast.error('Please fill in all fields'); return; }
-    if (form.password.length < 6) { toast.error('Password must be at least 6 characters'); return; }
+    // ── Validation ──
+    if (!form.full_name.trim()) newErrors.full_name = 'Full name is required';
+    if (!form.email) newErrors.email = 'Email is required';
+    else if (!validateEmail(form.email)) newErrors.email = 'Please enter a valid email';
+    if (!form.password) newErrors.password = 'Password is required';
+    else if (form.password.length < 8) newErrors.password = 'Password must be at least 8 characters';
+    else {
+      const { isValid, details } = validatePassword(form.password);
+      if (!isValid) newErrors.password = 'Password must include uppercase, lowercase, number, and special character';
+    }
+    if (!form.confirm_password) newErrors.confirm_password = 'Please confirm your password';
+    else if (form.password !== form.confirm_password) newErrors.confirm_password = 'Passwords do not match';
+    if (form.phone && !validatePhone(form.phone)) newErrors.phone = 'Please enter a valid South African phone number';
+
     if (form.role === 'vendor') {
-      if (!form.restaurant_name) { toast.error('Please enter your restaurant name'); return; }
-      if (!form.restaurant_address) { toast.error('Please enter your restaurant address'); return; }
+      if (!form.restaurant_name.trim()) newErrors.restaurant_name = 'Restaurant name is required';
+      if (!form.restaurant_address.trim()) newErrors.restaurant_address = 'Restaurant address is required';
+      if (form.business_registration_number && !validateBRN(form.business_registration_number)) {
+        newErrors.business_registration_number = 'Format: YYYY/XXXXXX/XX';
+      }
+    }
+
+    if (form.role === 'driver' && form.vehicle_year) {
+      const year = parseInt(form.vehicle_year);
+      const currentYear = new Date().getFullYear();
+      if (isNaN(year) || year < 2000 || year > currentYear) {
+        newErrors.vehicle_year = `Year must be between 2000 and ${currentYear}`;
+      }
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      const firstError = Object.values(newErrors)[0];
+      toast.error(firstError);
+      return;
     }
 
     setLoading(true);
@@ -63,6 +182,7 @@ export default function Signup() {
         password: form.password,
         role: form.role,
         phone: form.phone,
+        vehicle_year: form.vehicle_year,
       };
 
       if (form.role === 'vendor') {
@@ -83,8 +203,8 @@ export default function Signup() {
 
       const roleMessage = {
         customer: 'Account created successfully! Please login.',
-        driver: 'Driver application submitted. Await admin approval. You will be notified once approved.',
-        vendor: 'Vendor application submitted! Please login to complete your profile and upload documents.',
+        driver: 'Driver application submitted. Await admin approval.',
+        vendor: 'Vendor application submitted! Please login to complete your profile.',
       };
 
       toast.success(roleMessage[form.role] || 'Account created successfully!');
@@ -108,6 +228,8 @@ export default function Signup() {
       setLoading(false);
     }
   };
+
+  const passwordStrength = getPasswordStrength(form.password);
 
   const RoleCard = ({ role, icon: Icon, title, description, selected }) => (
     <button
@@ -137,11 +259,7 @@ export default function Signup() {
         <div className="text-center mb-6">
           <div className="flex justify-center mb-4">
             <div className="bg-navy rounded-2xl p-3 inline-flex">
-              <img
-                src={logo}
-                alt="Lloyd's Delivery"
-                className="h-16 w-auto object-contain"
-              />
+              <img src={logo} alt="Lloyd's Delivery" className="h-16 w-auto object-contain" />
             </div>
           </div>
           <h1 className="text-2xl font-bold text-navy">Create Account</h1>
@@ -152,27 +270,42 @@ export default function Signup() {
 
           {/* Role Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              I want to sign up as...
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">I want to sign up as...</label>
             <div className="grid grid-cols-3 gap-2">
-              <RoleCard role="customer" icon={User}  title="Customer" description="Order food"     selected={form.role === 'customer'} />
-              <RoleCard role="driver"   icon={Truck} title="Driver"   description="Deliver & earn" selected={form.role === 'driver'}   />
-              <RoleCard role="vendor"   icon={Store} title="Vendor"   description="Sell your food" selected={form.role === 'vendor'}   />
+              <RoleCard role="customer" icon={User} title="Customer" description="Order food" selected={form.role === 'customer'} />
+              <RoleCard role="driver" icon={Truck} title="Driver" description="Deliver & earn" selected={form.role === 'driver'} />
+              <RoleCard role="vendor" icon={Store} title="Vendor" description="Sell your food" selected={form.role === 'vendor'} />
             </div>
           </div>
 
-          {/* Basic Info */}
+          {/* Full Name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
-            <Input name="full_name" placeholder="Your full name" value={form.full_name} onChange={handleChange} className="w-full" />
+            <Input
+              name="full_name"
+              placeholder="Your full name"
+              value={form.full_name}
+              onChange={handleChange}
+              className={`w-full ${errors.full_name ? 'border-red-500' : ''}`}
+            />
+            {errors.full_name && <p className="text-xs text-red-500 mt-1">{errors.full_name}</p>}
           </div>
 
+          {/* Email */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email Address *</label>
-            <Input name="email" type="email" placeholder="you@example.com" value={form.email} onChange={handleChange} className="w-full" />
+            <Input
+              name="email"
+              type="email"
+              placeholder="you@example.com"
+              value={form.email}
+              onChange={handleEmailChange}
+              className={`w-full ${errors.email ? 'border-red-500' : ''}`}
+            />
+            {errors.email && <p className="text-xs text-red-500 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> {errors.email}</p>}
           </div>
 
+          {/* Password */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
             <div className="relative">
@@ -181,8 +314,8 @@ export default function Signup() {
                 type={showPassword ? "text" : "password"}
                 placeholder="••••••••"
                 value={form.password}
-                onChange={handleChange}
-                className="w-full pr-10"
+                onChange={handlePasswordChange}
+                className={`w-full pr-10 ${errors.password ? 'border-red-500' : ''}`}
               />
               <button
                 type="button"
@@ -192,13 +325,94 @@ export default function Signup() {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            <p className="text-xs text-gray-400 mt-1">Minimum 6 characters</p>
+            
+            {/* Password Strength Indicator */}
+            {form.password && (
+              <div className="mt-2">
+                <div className="flex gap-1 mb-1">
+                  <div className={`h-1 rounded-full transition-all ${passwordStrength.bar}`} />
+                </div>
+                <div className="flex flex-wrap gap-2 text-[10px] text-gray-500">
+                  <span className={/[A-Z]/.test(form.password) ? 'text-green-600' : 'text-red-400'}>
+                    {/[A-Z]/.test(form.password) ? '✅' : '❌'} Uppercase
+                  </span>
+                  <span className={/[a-z]/.test(form.password) ? 'text-green-600' : 'text-red-400'}>
+                    {/[a-z]/.test(form.password) ? '✅' : '❌'} Lowercase
+                  </span>
+                  <span className={/[0-9]/.test(form.password) ? 'text-green-600' : 'text-red-400'}>
+                    {/[0-9]/.test(form.password) ? '✅' : '❌'} Number
+                  </span>
+                  <span className={/[!@#$%^&*(),.?":{}|<>]/.test(form.password) ? 'text-green-600' : 'text-red-400'}>
+                    {/[!@#$%^&*(),.?":{}|<>]/.test(form.password) ? '✅' : '❌'} Special
+                  </span>
+                  <span className={form.password.length >= 8 ? 'text-green-600' : 'text-red-400'}>
+                    {form.password.length >= 8 ? '✅' : '❌'} 8+ chars
+                  </span>
+                </div>
+                <p className={`text-xs mt-1 ${passwordStrength.color}`}>
+                  Password strength: {passwordStrength.label}
+                </p>
+                {errors.password && <p className="text-xs text-red-500 mt-1">{errors.password}</p>}
+              </div>
+            )}
+            <p className="text-xs text-gray-400 mt-1">Minimum 8 characters with uppercase, lowercase, number, and special character</p>
           </div>
 
+          {/* Confirm Password */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
+            <Input
+              name="confirm_password"
+              type={showPassword ? "text" : "password"}
+              placeholder="Confirm your password"
+              value={form.confirm_password}
+              onChange={handleConfirmPasswordChange}
+              className={`w-full ${errors.confirm_password ? 'border-red-500' : ''}`}
+            />
+            {form.confirm_password && form.password && (
+              <p className={`text-xs mt-1 flex items-center gap-1 ${form.password === form.confirm_password ? 'text-green-600' : 'text-red-500'}`}>
+                {form.password === form.confirm_password ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                {form.password === form.confirm_password ? 'Passwords match' : 'Passwords do not match'}
+              </p>
+            )}
+            {errors.confirm_password && <p className="text-xs text-red-500 mt-1">{errors.confirm_password}</p>}
+          </div>
+
+          {/* Phone */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-            <Input name="phone" placeholder="+27 XX XXX XXXX" value={form.phone} onChange={handleChange} className="w-full" />
+            <Input
+              name="phone"
+              placeholder="0712345678"
+              value={form.phone}
+              onChange={handlePhoneChange}
+              className={`w-full ${errors.phone ? 'border-red-500' : ''}`}
+            />
+            {errors.phone && <p className="text-xs text-red-500 mt-1">{errors.phone}</p>}
+            <p className="text-xs text-gray-400 mt-1">South African format (e.g., 0712345678)</p>
           </div>
+
+          {/* Driver-specific fields */}
+          {form.role === 'driver' && (
+            <div className="space-y-3 border-t pt-3">
+              <p className="text-sm font-medium text-navy">Vehicle Details</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Model Year</label>
+                <Input
+                  type="number"
+                  name="vehicle_year"
+                  placeholder="e.g., 2022"
+                  value={form.vehicle_year}
+                  onChange={handleChange}
+                  min={2000}
+                  max={new Date().getFullYear()}
+                  className={`w-full ${errors.vehicle_year ? 'border-red-500' : ''}`}
+                />
+                {errors.vehicle_year && <p className="text-xs text-red-500 mt-1">{errors.vehicle_year}</p>}
+                <p className="text-xs text-gray-400 mt-1">Year must be between 2000 and {new Date().getFullYear()}</p>
+              </div>
+            </div>
+          )}
 
           {/* Vendor-specific fields */}
           {form.role === 'vendor' && (
@@ -206,7 +420,14 @@ export default function Signup() {
               <p className="text-sm font-medium text-navy">Restaurant Details</p>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Restaurant Name *</label>
-                <Input name="restaurant_name" placeholder="e.g., Burger Palace" value={form.restaurant_name} onChange={handleChange} className="w-full" />
+                <Input
+                  name="restaurant_name"
+                  placeholder="e.g., Burger Palace"
+                  value={form.restaurant_name}
+                  onChange={handleChange}
+                  className={`w-full ${errors.restaurant_name ? 'border-red-500' : ''}`}
+                />
+                {errors.restaurant_name && <p className="text-xs text-red-500 mt-1">{errors.restaurant_name}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Restaurant Address *</label>
@@ -217,8 +438,9 @@ export default function Signup() {
                   placeholder="Street address, city, postal code"
                   required
                 />
+                {errors.restaurant_address && <p className="text-xs text-red-500 mt-1">{errors.restaurant_address}</p>}
                 {form.restaurant_lat && form.restaurant_lng && (
-                  <p className="text-xs text-green mt-1">✅ Location coordinates saved</p>
+                  <p className="text-xs text-green-600 mt-1">✅ Location coordinates saved</p>
                 )}
               </div>
               <div>
@@ -226,7 +448,15 @@ export default function Signup() {
                   <Building2 className="w-4 h-4 inline mr-1" />
                   Business Registration Number (Optional)
                 </label>
-                <Input name="business_registration_number" placeholder="e.g., 2020/123456/07" value={form.business_registration_number} onChange={handleChange} className="w-full" />
+                <Input
+                  name="business_registration_number"
+                  placeholder="YYYY/XXXXXX/XX"
+                  value={form.business_registration_number}
+                  onChange={handleChange}
+                  className={`w-full ${errors.business_registration_number ? 'border-red-500' : ''}`}
+                />
+                {errors.business_registration_number && <p className="text-xs text-red-500 mt-1">{errors.business_registration_number}</p>}
+                <p className="text-xs text-gray-400 mt-1">Format: YYYY/XXXXXX/XX (e.g., 2020/123456/07)</p>
               </div>
             </div>
           )}

@@ -176,3 +176,40 @@ export const sendPasswordResetEmail = async (email, resetToken, userName) => {
     console.error('❌ Failed to send password reset email:', err.message);
   }
 };
+
+// ── Refund Email ─────────────────────────────────────────────────────────────
+export const sendRefundEmail = async (email, userName, amount, orderId) => {
+  if (!email) return;
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:20px;">
+      <div style="background:#1B3A5C;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+        <h1 style="color:#ffffff;margin:0;font-size:24px;">Lloyd's Delivery</h1>
+        <p style="color:#5B8C6E;margin:8px 0 0;font-size:14px;">Refund Confirmation</p>
+      </div>
+      <div style="background:#ffffff;padding:24px;border-radius:0 0 8px 8px;">
+        <div style="text-align:center;padding:20px 0;">
+          <p style="font-size:48px;margin:0;">💰</p>
+          <h2 style="color:#1B3A5C;margin:8px 0;">Refund Processed</h2>
+        </div>
+        <p style="color:#333;font-size:15px;">Hi <strong>${userName || 'there'}</strong>,</p>
+        <p style="color:#555;font-size:14px;">Your refund of <strong>R${parseFloat(amount || 0).toFixed(2)}</strong> for Order #${orderId} has been processed.</p>
+        <p style="color:#555;font-size:13px;">Please allow 3–5 business days for the amount to reflect in your account.</p>
+        <p style="color:#888;font-size:12px;margin-top:24px;border-top:1px solid #eee;padding-top:16px;">
+          Questions? Contact us at <a href="mailto:Lloydsdelivery924@gmail.com" style="color:#5B8C6E;">Lloydsdelivery924@gmail.com</a>
+        </p>
+      </div>
+    </div>`;
+
+  try {
+    await transporter.sendMail({
+      from: FROM,
+      to: email,
+      subject: `Refund Processed — Order #${orderId} — Lloyd's Delivery`,
+      html,
+    });
+    console.log(`📧 Refund email sent to ${email}`);
+  } catch (err) {
+    console.error('❌ Failed to send refund email:', err.message);
+  }
+};

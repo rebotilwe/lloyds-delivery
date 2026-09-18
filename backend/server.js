@@ -128,7 +128,7 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ["http://localhost:5173", "http://localhost:3000", "https://lloyds-delivery.netlify.app"],
+    origin: ["http://localhost:5173", "http://localhost:3000", "https://lloyds-delivery.netlify.app", "https://lloydsdelivery.co.za", "https://www.lloydsdelivery.co.za"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
   },
@@ -137,7 +137,7 @@ const io = new Server(httpServer, {
 app.set("io", io);
 
 // CORS configuration
-const allowedOrigins = ["http://localhost:5173", "http://localhost:3000", "https://lloyds-delivery.netlify.app"];
+const allowedOrigins = ["http://localhost:5173", "http://localhost:3000", "https://lloyds-delivery.netlify.app", "https://lloydsdelivery.co.za", "https://www.lloydsdelivery.co.za"];
 
 app.use(cors({
   origin: function(origin, callback) {

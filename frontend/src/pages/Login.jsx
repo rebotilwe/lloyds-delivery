@@ -204,14 +204,14 @@ export default function Login() {
           Create New Account
         </Button>
 
-        <div className="text-center text-xs text-gray-400 pt-4 border-t">
+        {/* <div className="text-center text-xs text-gray-400 pt-4 border-t">
           <p className="font-medium mb-1">Demo Accounts:</p>
           <p>🍔 Customer: customer@lloyds.com / 123456</p>
           <p>🚚 Driver: driver@lloyds.com / 123456</p>
           <p>🏪 Vendor: vendor@lloyds.com / 123456</p>
           <p>👑 Admin: admin@lloyds.com / 123456</p>
         </div>
-      </div>
+      </div> */}
 
       {/* Forgot Password Modal */}
       {showResetModal && (

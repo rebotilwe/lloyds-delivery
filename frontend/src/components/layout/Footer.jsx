@@ -110,7 +110,7 @@ export default function Footer() {
             © {new Date().getFullYear()} Lloyds Delivery. All rights reserved.
           </p>
           <p className="text-xs text-gray-500">
-            Built by <span className="text-green font-medium">Kasi Digital Connect</span>
+            Developed by <span className="text-green font-medium">Afribiz Connect</span>
           </p>
         </div>
       </div>

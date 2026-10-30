@@ -110,7 +110,15 @@ export default function Footer() {
             © {new Date().getFullYear()} Lloyds Delivery. All rights reserved.
           </p>
           <p className="text-xs text-gray-500">
-            Developed by <span className="text-green font-medium">Afribiz Connect</span>
+            Developed by{' '}
+            <a
+              href="https://afribizconnect.co.za"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-green font-medium hover:underline"
+            >
+              Afribiz Connect
+            </a>
           </p>
         </div>
       </div>
